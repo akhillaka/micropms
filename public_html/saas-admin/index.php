@@ -943,8 +943,6 @@ try {
                     </button>
                 </div>
             </form>
-        </div>
-
 
             <!-- SaaS Plans Configuration Panel -->
             <div class="glass-panel p-6 rounded-2xl max-w-2xl mx-auto mt-6">

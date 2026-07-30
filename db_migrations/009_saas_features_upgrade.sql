@@ -1,7 +1,7 @@
 -- Migration 009: SaaS Commercial Features Upgrade
 -- Adds subscription plans, room limits, tenant validity, and custom settings to properties table
 
-ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `plan` ENUM('trial','starter','pro','enterprise') DEFAULT 'starter';
+ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `plan` ENUM('trial','free_tier','starter','pro','enterprise') DEFAULT 'starter';
 ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `max_rooms` INT DEFAULT 25;
 ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `subscription_status` ENUM('active','trialing','past_due','cancelled') DEFAULT 'active';
 ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `valid_until` DATE DEFAULT NULL;
