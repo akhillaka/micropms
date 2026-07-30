@@ -1,0 +1,178 @@
+<?php
+require_once __DIR__ . '/../pms_core/Database.php';
+require_once __DIR__ . '/../pms_core/config.php';
+require_once __DIR__ . '/../pms_core/NotificationRelay.php';
+require_once __DIR__ . '/../pms_core/PhoneHelper.php';
+require_once __DIR__ . '/../pms_core/services/NightAudit.php';
+
+// Only allow CLI execution (cron jobs)
+if (php_sapi_name() !== 'cli') {
+    http_response_code(403);
+    die("Access denied - CLI only");
+}
+
+// Acquire a file-based lock to prevent overlapping cron runs
+$lockFile = sys_get_temp_dir() . '/micropms_cron.lock';
+$lockHandle = fopen($lockFile, 'c');
+if (!$lockHandle || !flock($lockHandle, LOCK_EX | LOCK_NB)) {
+    echo "[CRON] Another cron instance is already running. Exiting.\n";
+    exit(0);
+}
+
+$db = Database::getInstance()->getConnection();
+
+echo "MicroPMS Cron Scheduler\n";
+echo str_repeat('-', 40) . "\n";
+echo "Time: " . date('Y-m-d H:i:s') . "\n\n";
+
+// ═══════════════════════════════════════════════════════════════
+// 0. NIGHT AUDIT — Configurable end-of-day process
+// ═══════════════════════════════════════════════════════════════
+
+$auditEnabled = getSetting($db, 'night_audit_enabled', 'false');
+$auditTime = getSetting($db, 'night_audit_time', '02:00');
+$currentHour = (int)date('G');
+$currentMinute = (int)date('i');
+$auditHour = (int)explode(':', $auditTime)[0];
+$auditMinute = (int)explode(':', $auditTime)[1];
+
+if ($auditEnabled === 'true' && $currentHour === $auditHour && abs($currentMinute - $auditMinute) < 30) {
+    echo "[NIGHT AUDIT] Running night audit...\n";
+    $audit = new NightAudit($db);
+    $result = $audit->run('cron');
+    
+    if ($result['status'] === 'success') {
+        echo "[NIGHT AUDIT] Completed successfully.\n";
+        echo "  Total rooms: {$result['total_rooms']}\n";
+        echo "  Occupied: {$result['occupied_rooms']}\n";
+        echo "  Arrivals: {$result['arrivals_today']}\n";
+        echo "  Departures: {$result['departures_today']}\n";
+        echo "  Overdue checkouts: {$result['overdue_checkouts']}\n";
+        echo "  Auto checked out: {$result['auto_checkout_count']}\n";
+        echo "  Rooms marked dirty: {$result['rooms_marked_dirty']}\n";
+        echo "  Revenue collected: ₹{$result['revenue_collected']}\n";
+        echo "  Revenue pending: ₹{$result['revenue_pending']}\n";
+    } elseif ($result['status'] === 'skipped') {
+        echo "[NIGHT AUDIT] Skipped: {$result['message']}\n";
+    } else {
+        echo "[NIGHT AUDIT] Failed: {$result['error_message']}\n";
+    }
+} else {
+    echo "[NIGHT AUDIT] Not scheduled for this time (configured: {$auditTime}, current: " . date('H:i') . ")\n";
+}
+
+echo "\n";
+
+// ═══════════════════════════════════════════════════════════════
+// 1. DAILY SUMMARY — send at 11 PM IST
+// ═══════════════════════════════════════════════════════════════
+
+$hour = (int)date('G');
+if ($hour === 23) {
+    echo "[DAILY SUMMARY] Sending daily summary...\n";
+    // FIX: cron_scheduler.php lives in public_html/ — summary file is in public_html/api/
+    $summaryFile = __DIR__ . '/api/admin_daily_summary.php';
+    if (file_exists($summaryFile)) {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        ob_start();
+        require $summaryFile;
+        ob_get_clean();
+        echo "[DAILY SUMMARY] Sent.\n";
+    } else {
+        echo "[DAILY SUMMARY] Summary file not found at: {$summaryFile}\n";
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 2. ABANDONED HOLDS — Revert pending_hold older than 15 mins
+// ═══════════════════════════════════════════════════════════════
+
+echo "[SWEEP] Checking abandoned holds...\n";
+$sweepStmt = $db->prepare("UPDATE bookings SET payment_status = 'cancelled' 
+                           WHERE payment_status = 'pending_hold' 
+                           AND created_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)");
+$sweepStmt->execute();
+$sweptCount = $sweepStmt->rowCount();
+echo "[SWEEP] Swept {$sweptCount} abandoned holds.\n";
+
+// ═══════════════════════════════════════════════════════════════
+// 3. PRE-DEPARTURE WARNING — 30 minutes before check_out
+// ═══════════════════════════════════════════════════════════════
+
+echo "[PRE-DEPARTURE] Checking upcoming checkouts...\n";
+$warnStmt = $db->prepare("SELECT b.*, r.room_number, g.phone as guest_phone FROM bookings b 
+                          JOIN rooms r ON b.room_id = r.id 
+                          LEFT JOIN guests g ON b.guest_id = g.id
+                          WHERE b.payment_status = 'completed_paid'
+                          AND b.booking_status = 'checked_in'
+                          AND b.check_out BETWEEN DATE_ADD(NOW(), INTERVAL 25 MINUTE) AND DATE_ADD(NOW(), INTERVAL 30 MINUTE)");
+$warnStmt->execute();
+$warnings = $warnStmt->fetchAll();
+
+foreach ($warnings as $w) {
+    $msg = "Reminder: Your checkout for Room {$w['room_number']} is at " . date('H:i', strtotime($w['check_out'])) . ".";
+    $phoneE164 = PhoneHelper::toE164($w['guest_phone'] ?? '');
+    if ($phoneE164 === null) {
+        $phoneE164 = preg_replace('/[^0-9]/', '', $w['guest_phone'] ?? '');
+    }
+    if (empty($phoneE164)) continue;
+    
+    $autoTriggered = NotificationRelay::triggerAutomation('pre_departure', $phoneE164, (int)$w['id'], [
+        'checkout_time' => date('h:i A', strtotime($w['check_out']))
+    ]);
+    
+    if (!$autoTriggered) {
+        $waRes = NotificationRelay::sendWhatsApp($phoneE164, $msg, false);
+        echo "[PRE-DEPARTURE] Sent fallback warning for booking {$w['id']}.\n";
+    } else {
+        echo "[PRE-DEPARTURE] Triggered template warning for booking {$w['id']}.\n";
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 4. OVERSTAY FLAG — Current time surpassed check_out
+// ═══════════════════════════════════════════════════════════════
+
+echo "[OVERSTAY] Checking for overstays...\n";
+$overstayStmt = $db->prepare("SELECT b.*, r.room_number, g.name as guest_name, g.phone as guest_phone FROM bookings b 
+                              JOIN rooms r ON b.room_id = r.id
+                              LEFT JOIN guests g ON b.guest_id = g.id
+                              WHERE b.booking_status = 'checked_in'
+                              AND b.check_out BETWEEN DATE_SUB(NOW(), INTERVAL 5 MINUTE) AND NOW()");
+$overstayStmt->execute();
+$overstays = $overstayStmt->fetchAll();
+
+foreach ($overstays as $o) {
+    // FIX: Do NOT mark room dirty while guest is still checked_in (they are still occupying it).
+    // Room will be marked dirty on actual checkout via admin_booking_status.php or NightAudit auto-checkout.
+    // Here we only send the alert and flag the booking for staff attention.
+
+    $msg = "\u26a0\ufe0f <b>Overstay Alert</b>\n\nRoom: {$o['room_number']}\nGuest: " . htmlspecialchars($o['guest_name'] ?? 'N/A') . "\nCheckout was: {$o['check_out']}\nGuest has not checked out. Please investigate.";
+
+    $context = [
+        'guest_name'     => $o['guest_name'] ?? 'N/A',
+        'room_number'    => $o['room_number'],
+        'check_out_date' => $o['check_out']
+    ];
+    NotificationRelay::sendTelegram($msg, 'overstay', $context);
+    echo "[OVERSTAY] Flagged overstay for room {$o['room_number']}.\n";
+}
+
+echo "\n" . str_repeat('-', 40) . "\n";
+echo "Cron completed at " . date('H:i:s') . "\n";
+
+// Release the lock
+if (isset($lockHandle)) {
+    flock($lockHandle, LOCK_UN);
+    fclose($lockHandle);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HELPER: Get system setting
+// ═══════════════════════════════════════════════════════════════
+function getSetting(PDO $db, string $key, string $default = ''): string {
+    $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = ?");
+    $stmt->execute([$key]);
+    $value = $stmt->fetchColumn();
+    return $value !== false ? $value : $default;
+}

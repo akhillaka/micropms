@@ -1,0 +1,25 @@
+# Database files
+*.sqlite
+*.db
+pms_core/*.sqlite
+pms_core/*.db
+
+# Environment configuration
+.env
+
+# Logs
+*.log
+pms_core/*.log
+public_html/*.log
+
+# Local/Session test files
+cookie.txt
+test_session_setup.txt
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# User Uploads
+public_html/uploads/*
+!public_html/uploads/.gitkeep

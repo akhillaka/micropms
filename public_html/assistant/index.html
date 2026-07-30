@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hotel Booking Assistant</title>
+  
+  <!-- PWA Support -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1e3a8a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+
+  <!-- Lucide Icons & Phosphor Icons & Font Stylesheets -->
+  <link rel="stylesheet" href="https://unpkg.com/lucide-static@0.344.0/font/lucide.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css">
+  <link rel="stylesheet" href="css/assistant.css">
+  
+  <!-- Tesseract.js Client-side OCR -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.3/dist/tesseract.min.js"></script>
+  
+  <!-- Voice Commands (always-on) -->
+  <script src="js/voice_commands.js"></script>
+</head>
+<body class="">
+
+  <!-- Offline Status Banner -->
+  <div id="offline-banner" class="offline-banner">
+    ⚠️ Offline Mode - Bookings will save locally
+  </div>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="app-title">
+      <i class="ph ph-buildings" style="font-size: 1.5rem; margin-right: 6px;"></i>
+      <span>HOTEL ASSISTANT</span>
+    </div>
+    <div id="header-user" style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.9rem;">
+
+      <span id="user-display-name">Loading...</span>
+      <i class="ph ph-user-circle" style="font-size: 1.5rem; cursor: pointer;" onclick="app.showScreen('profile')"></i>
+    </div>
+  </header>
+
+  <!-- Main Scrollable Content Container -->
+  <main class="app-content" id="app-content">
+
+    <!-- 1. LOGIN SCREEN -->
+    <div id="screen-login" class="screen">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h2 style="font-family: 'Outfit', sans-serif; color: var(--color-brand); font-size: 1.85rem; margin-bottom: 8px;">Welcome Staff</h2>
+        <p style="color: var(--color-text-secondary); font-size: 0.95rem; font-weight: 700;">Tap your name to enter PIN</p>
+      </div>
+
+      <div id="login-staff-list" class="staff-avatar-grid">
+        <!-- Dyn list of staff cards -->
+      </div>
+
+      <!-- Quick Login Numpad -->
+      <div id="login-numpad-wrapper" class="numpad-container" style="display: none; margin-top: 20px;">
+        <div style="text-align: center; font-weight: 700; color: var(--color-text-secondary); margin-bottom: 8px;">
+          Enter 4-Digit PIN for <span id="login-target-username" style="color: var(--color-brand);"></span>
+        </div>
+        <div id="login-pin-display" class="display-box empty">● ● ● ●</div>
+        <div class="numpad-grid">
+          <button class="numpad-key" onclick="app.pressLoginKey('1')">1</button>
+          <button class="numpad-key" onclick="app.pressLoginKey('2')">2</button>
+          <button class="numpad-key" onclick="app.pressLoginKey('3')">3</button>
+          <button class="numpad-key" onclick="app.pressLoginKey('4')">4</button>
+          <button class="numpad-key" onclick="app.pressLoginKey('5')">5</button>
+          <button class="numpad-key" onclick="app.pressLoginKey('6')">6</button>
+          <button class="numpad-key" onclick="app.pressLoginKey('7')">7</button>
+          <button class="numpad-key" onclick="app.pressLoginKey('8')">8</button>
+          <button class="numpad-key" onclick="app.pressLoginKey('9')">9</button>
+          <button class="numpad-key special" onclick="app.pressLoginKey('clear')">CLEAR</button>
+          <button class="numpad-key" onclick="app.pressLoginKey('0')">0</button>
+          <button class="numpad-key special" onclick="app.pressLoginKey('back')">
+            ⌫
+          </button>
+        </div>
+        <button class="btn-large btn-brand" onclick="app.submitLoginPin()" style="margin-top: 10px;">
+          🔓 ENTER APP
+        </button>
+      </div>
+    </div>
+
+    <!-- 2. HOME DASHBOARD -->
+    <div id="screen-dashboard" class="screen">
+      <!-- Hidden placeholders to prevent JS crashes -->
+      <div style="display: none;">
+        <span id="stat-available">0</span>
+        <span id="stat-occupied">0</span>
+        <span id="stat-cleaning">0</span>
+        <span id="stat-pending-ids">0</span>
+        <span id="stat-pending-payments">0</span>
+        <span id="stat-arrivals">0</span>
+        <span id="stat-departures">0</span>
+      </div>
+
+      <!-- Massive Action Buttons Grid -->
+      <div style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 30px;">
+        
+        <button class="btn-large btn-brand" style="padding: 40px 20px; font-size: 1.8rem; font-weight: 900; border-radius: 20px; box-shadow: 0 10px 25px rgba(14, 165, 233, 0.4); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: linear-gradient(135deg, #0284c7, #38bdf8); border: none; cursor: pointer;" onclick="app.startNewBookingWizard()">
+          <span style="font-size: 4rem; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2));">🛎️</span>
+          NEW GUEST CHECK-IN
+        </button>
+
+        <button class="btn-large" style="padding: 30px 20px; font-size: 1.5rem; font-weight: 900; border-radius: 20px; background: linear-gradient(135deg, #16a34a, #4ade80); color: white; box-shadow: 0 10px 25px rgba(22, 163, 74, 0.4); border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; cursor: pointer;" onclick="app.showPaymentCollectScreen()">
+          <span style="font-size: 3rem; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2));">💵</span>
+          COLLECT PAYMENT
+        </button>
+
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px;">
+        <div class="dashboard-card" style="background: var(--color-glass); border: 2px solid var(--color-border); padding: 15px; text-align: center; cursor: pointer;" onclick="app.showScreen('history')">
+          <span style="font-size: 2rem; display: block; margin-bottom: 5px;">📅</span>
+          <span style="font-weight: 800; font-size: 1rem;">Booking History</span>
+        </div>
+        <div class="dashboard-card" style="background: var(--color-glass); border: 2px solid var(--color-border); padding: 15px; text-align: center; cursor: pointer;" onclick="app.showScreen('housekeeping')">
+          <span style="font-size: 2rem; display: block; margin-bottom: 5px;">🧹</span>
+          <span style="font-weight: 800; font-size: 1rem;">Housekeeping</span>
+        </div>
+      </div>
+
+      <!-- Action Required/Notifications alerts -->
+      <div style="margin-top: 10px;">
+        <h3 style="font-weight: 800; font-size: 1.05rem; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 1.25rem;">🔔</span> ATTENTION ALERTS
+        </h3>
+        <div id="dashboard-alerts-list">
+          <!-- Dyn Alert items -->
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. NEW BOOKING WIZARD SCREEN -->
+    <div id="screen-wizard" class="screen">
+      <!-- Step Progress Header -->
+      <div class="progress-bar-container">
+        <span class="progress-bar-text" id="wizard-step-label">Step 1 of 11</span>
+        <div class="progress-bar-fill">
+          <div class="progress-bar-fill-inner" id="wizard-progress-bar"></div>
+        </div>
+        <span class="progress-bar-text" id="wizard-percent-label">12%</span>
+      </div>
+
+      <!-- WIZARD STEP 1: GUEST SEARCH -->
+      <div id="wizard-step-1" class="wizard-step">
+        <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 8px; text-align: center;">Find Guest</h2>
+        <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 24px; text-align: center; font-weight: 700;">Find existing guest or create new one</p>
+
+        <!-- Search Input - Opens Numpad -->
+        <div style="margin-bottom: 16px;">
+          <label style="font-weight: 800; font-size: 0.85rem; color: var(--color-text-secondary); display: block; margin-bottom: 6px;">📱 ENTER MOBILE NUMBER</label>
+          <div id="wizard-search-phone-display" class="mock-input empty" onclick="app.openPhoneNumpad('search_phone')">
+            <span id="txt-search-phone">Tap to enter phone number</span>
+            <span style="font-size: 1.3rem;">📱</span>
+          </div>
+        </div>
+
+        <div class="voice-wave-container">
+          <button class="mic-btn" id="btn-search-voice" onclick="app.listenGuestNameForSearch()">
+            🎤
+          </button>
+          <span style="font-weight: 800; color: var(--color-text-secondary); font-size: 0.9rem;">OR Speak Guest Name</span>
+          <div class="voice-wave" id="voice-wave-search">
+            <div class="voice-bar"></div><div class="voice-bar"></div><div class="voice-bar"></div><div class="voice-bar"></div><div class="voice-bar"></div>
+          </div>
+        </div>
+
+        <div id="search-results-list" class="selection-list" style="margin-top: 16px;"></div>
+
+        <div style="margin-top: 24px;">
+          <button class="btn-large btn-outline" onclick="app.nextWizardStep(2)">
+            👤➕ NEW GUEST PROFILE
+          </button>
+        </div>
+      </div>
+
+      <!-- WIZARD STEP 2: NEW GUEST CREATION -->
+      <div id="wizard-step-2" class="wizard-step" style="display: none;">
+        <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 8px; text-align: center;">New Guest Details</h2>
+        <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 20px; text-align: center; font-weight: 700;">No typing. Enter Mobile + Speak Name</p>
+
+        <!-- Phone Input - Opens Numpad -->
+        <div style="margin-bottom: 16px;">
+          <label style="font-weight: 800; font-size: 0.85rem; color: var(--color-text-secondary); display: block; margin-bottom: 6px;">📱 GUEST MOBILE NUMBER</label>
+          <div id="new-guest-phone-display" class="mock-input empty" onclick="app.openPhoneNumpad('new_phone')">
+            <span id="txt-new-guest-phone">Tap to enter phone number</span>
+            <span style="font-size: 1.3rem;">📱</span>
+          </div>
+        </div>
+
+        <!-- Name Input with inline Mic button -->
+        <div style="margin-bottom: 20px;">
+          <label style="font-weight: 800; font-size: 0.85rem; color: var(--color-text-secondary); display: block; margin-bottom: 6px;">👤 GUEST NAME</label>
+          <div style="position: relative; display: flex; align-items: center;">
+            <input type="text" id="txt-spoken-guest-name-input" class="styled-input" placeholder="Type name or tap mic to speak..." style="padding-right: 50px; font-weight: 700; width: 100%; font-size: 1rem; height: 54px;" oninput="app.onGuestNameTyped(this.value)">
+            <button class="mic-icon-inside" id="btn-new-guest-voice" onclick="app.listenNewGuestName()" style="position: absolute; right: 8px; width: 40px; height: 40px; border-radius: 10px; border: none; background: var(--color-brand); color: white; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">
+              🎤
+            </button>
+          </div>
+          <div class="voice-wave" id="voice-wave-newguest" style="margin-top: 8px; justify-content: center;">
+            <div class="voice-bar"></div><div class="voice-bar"></div><div class="voice-bar"></div><div class="voice-bar"></div><div class="voice-bar"></div>
+          </div>
+        </div>
+
+        <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">
+          <button class="btn-large btn-outline" onclick="app.prevWizardStep(1)">⬅️</button>
+          <button class="btn-large btn-brand" onclick="app.saveNewGuestDetails()">➡️</button>
+        </div>
+      </div>
+
+      <!-- WIZARD STEP 3: ID PROOF VERIFICATION -->
+      <div id="wizard-step-3" class="wizard-step" style="display: none;">
+        <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 8px; text-align: center;">Verify Identity</h2>
+        <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 20px; text-align: center; font-weight: 700;">Choose scan method or skip</p>
+
+        <div class="selection-list">
+          <div class="selection-card" onclick="app.openIdScanner('physical')">
+            <div class="selection-card-avatar" style="background-color: var(--color-brand-light); font-size: 1.75rem;">📷</div>
+            <div class="selection-card-details">
+              <div class="selection-card-title">Physical Aadhaar Card</div>
+              <div class="selection-card-subtitle">Take Front & Back pictures</div>
+            </div>
+          </div>
+
+          <div class="selection-card" onclick="app.openIdScanner('whatsapp')">
+            <div class="selection-card-avatar" style="background-color: var(--color-brand-light); font-size: 1.75rem;">🖼️</div>
+            <div class="selection-card-details">
+              <div class="selection-card-title">Aadhaar from WhatsApp</div>
+              <div class="selection-card-subtitle">Select photo from gallery</div>
+            </div>
+          </div>
+
+          <div class="selection-card" onclick="app.openIdScanner('other')">
+            <div class="selection-card-avatar" style="background-color: var(--color-brand-light); font-size: 1.75rem;">🆔</div>
+            <div class="selection-card-details">
+              <div class="selection-card-title">Other ID Proof</div>
+              <div class="selection-card-subtitle">DL, Passport, Voter, PAN</div>
+            </div>
+          </div>
+
+          <div class="selection-card" onclick="app.skipIdVerification()">
+            <div class="selection-card-avatar" style="background-color: #f1f5f9; color: var(--color-text-secondary); font-size: 1.75rem;">⏭️</div>
+            <div class="selection-card-details">
+              <div class="selection-card-title">Skip Verification</div>
+              <div class="selection-card-subtitle">Mark as ID Pending</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">
+          <button class="btn-large btn-outline" onclick="app.prevWizardStep(2)">⬅️</button>
+          <button class="btn-large btn-brand" onclick="app.nextWizardStep(4)">➡️</button>
+        </div>
+      </div>
+
+            <!-- WIZARD STEP 4: CHECK-IN -->
+      <div id="wizard-step-4" class="wizard-step" style="display: none;">
+        <h2 style="font-weight: 800; font-size: 1.5rem; margin-bottom: 20px; text-align: center;">When is the guest checking in?</h2>
+        
+        <div style="display: flex; flex-direction: column; gap: 20px; margin-top: 30px;">
+          <button class="btn-large btn-brand" style="font-size: 1.5rem; padding: 30px; border-radius: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;" onclick="app.setQuickCheckInNow()">
+            <span style="font-size: 3rem;">⚡</span>
+            <span>RIGHT NOW</span>
+          </button>
+
+          <button class="btn-large btn-outline" style="font-size: 1.2rem; padding: 20px; border-radius: 15px;" onclick="document.getElementById('custom-checkin-div').style.display='block';">
+            📅 Select Custom Date/Time
+          </button>
+        </div>
+
+        <div id="custom-checkin-div" class="glass-panel" style="display: none; padding: 16px; border-radius: var(--border-radius-md); margin-top: 20px;">
+          <label style="display: block; font-weight: 700; color: var(--color-brand); margin-bottom: 8px;">Custom Check-in Date & Time</label>
+          <input type="datetime-local" id="stay-custom-checkin" class="form-control" style="font-size: 1.2rem; padding: 12px; border-radius: var(--border-radius-md);" onchange="app.setCustomCheckIn()">
+        </div>
+
+        <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">
+          <button class="btn-large btn-outline" onclick="app.prevWizardStep(3)">⬅️ BACK</button>
+          <button class="btn-large btn-brand" onclick="app.submitCheckIn()">NEXT ➡️</button>
+        </div>
+      </div>
+
+      <!-- WIZARD STEP 5: CHECK-OUT -->
+      <div id="wizard-step-5" class="wizard-step" style="display: none;">
+        <h2 style="font-weight: 800; font-size: 1.5rem; margin-bottom: 20px; text-align: center;">How long are they staying?</h2>
+        
+        <!-- Quick Duration Buttons -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+          <button class="btn-large btn-outline" style="padding: 20px; font-size: 1.3rem; font-weight: 800; border-width: 2px;" onclick="app.setQuickCheckout(2); app.submitCheckOut();">
+            <span style="display:block; font-size: 2rem; margin-bottom:5px;">⏱️</span>
+            2 HOURS
+          </button>
+          <button class="btn-large btn-outline" style="padding: 20px; font-size: 1.3rem; font-weight: 800; border-width: 2px;" onclick="app.setQuickCheckout(4); app.submitCheckOut();">
+            <span style="display:block; font-size: 2rem; margin-bottom:5px;">⏱️</span>
+            4 HOURS
+          </button>
+          <button class="btn-large btn-brand" style="padding: 20px; font-size: 1.3rem; font-weight: 800; grid-column: span 2;" onclick="app.setQuickCheckout(24); app.submitCheckOut();">
+            <span style="display:block; font-size: 2rem; margin-bottom:5px;">🌙</span>
+            1 NIGHT
+          </button>
+          <button class="btn-large btn-outline" style="padding: 20px; font-size: 1.3rem; font-weight: 800; grid-column: span 2; border-width: 2px;" onclick="app.setQuickCheckout(48); app.submitCheckOut();">
+            <span style="display:block; font-size: 2rem; margin-bottom:5px;">🌙</span>
+            2 NIGHTS
+          </button>
+        </div>
+
+        <button class="btn-large btn-outline" style="width: 100%; font-size: 1.1rem; margin-bottom: 15px;" onclick="document.getElementById('custom-checkout-div').style.display='block';">
+          📅 Custom Check-out Time
+        </button>
+
+        <div id="custom-checkout-div" class="glass-panel" style="display: none; padding: 16px; border-radius: var(--border-radius-md); margin-bottom: 14px;">
+          <label style="display: block; font-weight: 700; color: var(--color-brand); margin-bottom: 8px;">📅 End Date & Time</label>
+          <input type="datetime-local" id="stay-custom-checkout" class="form-control" style="font-size: 1.2rem; padding: 12px; border-radius: var(--border-radius-md);" onchange="app.setCustomCheckOut()">
+        </div>
+
+        <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">
+          <button class="btn-large btn-outline" onclick="app.prevWizardStep(4)">⬅️ BACK</button>
+          <button class="btn-large btn-brand" onclick="app.submitCheckOut()">NEXT ➡️</button>
+        </div>
+      </div>
+
+      <!-- WIZARD STEP 6: GUEST COUNTS -->
+      <div id="wizard-step-6" class="wizard-step" style="display: none;">
+        <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 8px; text-align: center;">Guest Count</h2>
+        
+        <div class="glass-panel" style="padding: 20px; border-radius: var(--border-radius-md); display: flex; flex-direction: column; gap: 20px;">
+          <!-- Adults -->
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              👥
+              <div>
+                <div style="font-weight: 800; font-size: 1.1rem;">Adults</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-secondary);">Ages 12 or above</div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 15px; background: rgba(0,0,0,0.05); border-radius: 30px; padding: 5px; border: 2px solid var(--color-border);">
+              <button class="btn-large" style="width: 45px; height: 45px; padding: 0; border-radius: 50%; font-size: 1.5rem; background: white; color: var(--color-text); box-shadow: var(--shadow-sm);" onclick="const inp=document.getElementById('stay-adults'); inp.value=Math.max(1, parseInt(inp.value)-1)">-</button>
+              <input type="number" id="stay-adults" value="2" readonly style="width: 30px; text-align: center; border: none; background: transparent; font-size: 1.5rem; font-weight: 800;">
+              <button class="btn-large btn-brand" style="width: 45px; height: 45px; padding: 0; border-radius: 50%; font-size: 1.5rem;" onclick="const inp=document.getElementById('stay-adults'); inp.value=parseInt(inp.value)+1">+</button>
+            </div>
+          </div>
+          <!-- Kids -->
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              👶
+              <div>
+                <div style="font-weight: 800; font-size: 1.1rem;">Children</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-secondary);">Ages 0-11</div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 15px; background: rgba(0,0,0,0.05); border-radius: 30px; padding: 5px; border: 2px solid var(--color-border);">
+              <button class="btn-large" style="width: 45px; height: 45px; padding: 0; border-radius: 50%; font-size: 1.5rem; background: white; color: var(--color-text); box-shadow: var(--shadow-sm);" onclick="const inp=document.getElementById('stay-children'); inp.value=Math.max(0, parseInt(inp.value)-1)">-</button>
+              <input type="number" id="stay-children" value="0" readonly style="width: 30px; text-align: center; border: none; background: transparent; font-size: 1.5rem; font-weight: 800;">
+              <button class="btn-large btn-brand" style="width: 45px; height: 45px; padding: 0; border-radius: 50%; font-size: 1.5rem;" onclick="const inp=document.getElementById('stay-children'); inp.value=parseInt(inp.value)+1">+</button>
+            </div>
+          </div>
+          <!-- Extra Bed -->
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              🛏️
+              <div>
+                <div style="font-weight: 800; font-size: 1.1rem;">Extra Bed</div>
+                <div style="font-size: 0.8rem; color: var(--color-text-secondary);">₹500 / bed</div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 15px; background: rgba(0,0,0,0.05); border-radius: 30px; padding: 5px; border: 2px solid var(--color-border);">
+              <button class="btn-large" style="width: 45px; height: 45px; padding: 0; border-radius: 50%; font-size: 1.5rem; background: white; color: var(--color-text); box-shadow: var(--shadow-sm);" onclick="const inp=document.getElementById('stay-extra-bed'); inp.value=Math.max(0, parseInt(inp.value)-1)">-</button>
+              <input type="number" id="stay-extra-bed" value="0" readonly style="width: 30px; text-align: center; border: none; background: transparent; font-size: 1.5rem; font-weight: 800;">
+              <button class="btn-large btn-brand" style="width: 45px; height: 45px; padding: 0; border-radius: 50%; font-size: 1.5rem;" onclick="const inp=document.getElementById('stay-extra-bed'); inp.value=parseInt(inp.value)+1">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">
+          <button class="btn-large btn-outline" onclick="app.prevWizardStep(5)">⬅️</button>
+          <button class="btn-large btn-brand" onclick="app.submitGuestCounts()">➡️</button>
+        </div>
+      </div>
+
+      <!-- WIZARD STEP 7: SELECT ROOM -->
+      <div id="wizard-step-7" class="wizard-step" style="display: none;">
+        <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 8px; text-align: center;">Select Room</h2>
+        <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 16px; text-align: center; font-weight: 700;">Tap a room to assign it</p>
+        
+        <div id="wizard-rooms-list" style="display: flex; flex-direction: column; gap: 10px; flex: 1; overflow-y: auto;">
+          <!-- Filled dynamically -->
+        </div>
+
+        <div class="grid-cards" style="margin-top: 20px; grid-template-columns: 1fr 1fr;">
+          <button class="btn-large btn-outline" onclick="app.prevWizardStep(6)">⬅️</button>
+          <button id="btn-room-next" class="btn-large btn-brand" onclick="app.submitSelectedRoom()" disabled>➡️</button>
+        </div>
+      </div>
+
+      <!-- WIZARD STEP 8: RATE PLAN -->
+      <div id="wizard-step-8" class="wizard-step" style="display: none;">
+        <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 8px; text-align: center;">Select Rate Plan</h2>
+        <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 16px; text-align: center; font-weight: 700;">Select pricing plan for <span id="plan-room-label"></span></p>
+
+        <div id="wizard-plans-list" style="display: flex; flex-direction: column; gap: 10px; flex: 1; overflow-y: auto;">
+          <!-- Filled dynamically -->
+        </div>
+
+        <div class="grid-cards" style="margin-top: 20px; grid-template-columns: 1fr 1fr;">
+          <button class="btn-large btn-outline" onclick="app.prevWizardStep(7)">⬅️</button>
+          <button id="btn-rate-next" class="btn-large btn-brand" onclick="app.submitSelectedRate()" disabled>➡️</button>
+        </div>
+      </div>
+
+      <!-- WIZARD STEP 9: MODIFY PRICE -->
+      <div id="wizard-step-9" class="wizard-step" style="display: none;">
+        <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 8px; text-align: center;">Confirm Price</h2>
+        
+        <div class="glass-panel" style="padding: 20px; border-radius: var(--border-radius-md); text-align: center; margin-bottom: 20px;">
+          <div style="color: var(--color-text-secondary); font-weight: 700; margin-bottom: 5px;">Calculated Base Rate</div>
+          <div id="calculated-price-display" style="font-size: 1.2rem; font-weight: 600; text-decoration: line-through; opacity: 0.6;">₹0</div>
+          <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin: 10px 0;">
+            <span style="font-size: 2.5rem; font-weight: 900; color: var(--color-brand);">₹</span>
+            <input type="number" id="wizard-final-price-input" class="form-control" style="font-size: 2.5rem; font-weight: 900; color: var(--color-brand); text-align: center; border: 1px solid var(--color-border); background: white; width: 220px; border-radius: var(--border-radius-md); padding: 5px;" oninput="app.updatePriceFromInput(this.value)">
+          </div>
+          <div style="color: var(--color-success); font-weight: 700; font-size: 0.9rem;" id="wizard-discount-display"></div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+          <button class="btn-large" style="background: white; border: 2px solid var(--color-border); color: var(--color-text); font-size: 1.2rem; font-weight: 800; padding: 15px;" onclick="app.adjustFinalPrice(-100)">- ₹100</button>
+          <button class="btn-large" style="background: white; border: 2px solid var(--color-border); color: var(--color-text); font-size: 1.2rem; font-weight: 800; padding: 15px;" onclick="app.adjustFinalPrice(100)">+ ₹100</button>
+        </div>
+
+        <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">
+          <button class="btn-large btn-outline" onclick="app.prevWizardStep(8)">⬅️</button>
+          <button class="btn-large btn-brand" onclick="app.submitPriceOverride()">➡️</button>
+        </div>
+      </div>
+
+      <!-- WIZARD STEP 10: PAYMENT -->
+      <div id="wizard-step-10" class="wizard-step" style="display: none;">
+        <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 8px; text-align: center;">Collect Payment</h2>
+        <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 16px; text-align: center; font-weight: 700;">Total stay cost: ₹<span id="payment-total-cost">0</span></p>
+
+        <div class="glass-panel" style="padding: 16px; border-radius: var(--border-radius-md); margin-bottom: 15px;">
+          <label style="display: block; font-weight: 700; margin-bottom: 8px; color: var(--color-brand);">Advance / Deposit (₹)</label>
+          <div style="position: relative;">
+            <span style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); font-size: 1.5rem; font-weight: 800; color: var(--color-text-muted);">₹</span>
+            <input type="number" id="wizard-advance-paid" class="form-control" style="font-size: 2rem; padding: 15px 15px 15px 40px; border-radius: var(--border-radius-md); text-align: right;" value="0" oninput="app.wizardData.payment_collected = parseFloat(this.value) || 0;">
+          </div>
+        </div>
+
+        <div class="glass-panel" style="padding: 16px; border-radius: var(--border-radius-md); margin-bottom: 15px;">
+          <label style="display: block; font-weight: 700; margin-bottom: 8px; color: var(--color-brand);">Offline Folio No (Optional)</label>
+          <input type="text" id="wizard-offline-folio" class="form-control" placeholder="Leave empty for auto-assign" style="font-size: 1.1rem; padding: 12px; border-radius: var(--border-radius-md);" oninput="app.wizardData.offline_folio_id = this.value.trim();">
+        </div>
+
+        <div class="glass-panel" style="padding: 16px; border-radius: var(--border-radius-md);">
+          <label style="display: block; font-weight: 700; margin-bottom: 12px; color: var(--color-brand);">💳 Payment Mode</label>
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;" id="wizard-payment-modes">
+            <button class="payment-mode-card active" data-mode="Cash" onclick="app.selectWizardPaymentMode(this, 'Cash')" style="display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: var(--border-radius-md); border: 2px solid var(--color-brand); background: var(--color-brand-light); cursor: pointer; transition: all 150ms ease;">
+              <span style="font-size: 1.8rem;">💵</span>
+              <span style="font-weight: 700; font-size: 0.95rem;">Cash</span>
+            </button>
+            <button class="payment-mode-card" data-mode="UPI" onclick="app.selectWizardPaymentMode(this, 'UPI')" style="display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: var(--border-radius-md); border: 2px solid var(--color-border); background: var(--color-glass); cursor: pointer; transition: all 150ms ease;">
+              <span style="font-size: 1.8rem;">📱</span>
+              <span style="font-weight: 700; font-size: 0.95rem;">UPI / QR</span>
+            </button>
+            <button class="payment-mode-card" data-mode="Card" onclick="app.selectWizardPaymentMode(this, 'Card')" style="display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: var(--border-radius-md); border: 2px solid var(--color-border); background: var(--color-glass); cursor: pointer; transition: all 150ms ease;">
+              <span style="font-size: 1.8rem;">💳</span>
+              <span style="font-weight: 700; font-size: 0.95rem;">Card</span>
+            </button>
+            <button class="payment-mode-card" data-mode="BankTransfer" onclick="app.selectWizardPaymentMode(this, 'BankTransfer')" style="display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: var(--border-radius-md); border: 2px solid var(--color-border); background: var(--color-glass); cursor: pointer; transition: all 150ms ease;">
+              <span style="font-size: 1.8rem;">🏦</span>
+              <span style="font-weight: 700; font-size: 0.95rem;">Bank</span>
+            </button>
+          </div>
+          <!-- Hidden input to store selected value -->
+          <input type="hidden" id="wizard-payment-mode" value="Cash">
+        </div>
+
+        <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">
+          <button class="btn-large btn-outline" onclick="app.prevWizardStep(9)">⬅️</button>
+          <button class="btn-large btn-brand" onclick="app.submitPaymentStep()">➡️</button>
+        </div>
+      </div>
+
+      <!-- WIZARD STEP 11: SUMMARY & CONFIRMATION -->
+      <div id="wizard-step-11" class="wizard-step" style="display: none;">
+        <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 8px; text-align: center;">Confirm Booking</h2>
+        
+        <div style="background: white; border-radius: var(--border-radius-md); box-shadow: var(--shadow-sm); padding: 20px; margin-bottom: 20px; border: 1px solid var(--color-border);">
+          <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px dashed var(--color-border);">
+            <div id="summary-guest-avatar" class="selection-card-avatar">G</div>
+            <div>
+              <div id="summary-guest-name" style="font-size: 1.15rem; font-weight: 800;">Ravi Kumar</div>
+              <div id="summary-guest-phone" style="font-size: 0.85rem; color: var(--color-text-secondary); font-weight: 700;">+91 98765 43210</div>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+            <div style="color: var(--color-text-secondary); font-weight: 600;">Room</div>
+            <div id="summary-room" style="font-weight: 800;">-</div>
+          </div>
+          
+          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+            <div style="color: var(--color-text-secondary); font-weight: 600;">Check-In</div>
+            <div id="summary-checkin" style="font-weight: 800;">-</div>
+          </div>
+          
+          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+            <div style="color: var(--color-text-secondary); font-weight: 600;">Check-Out</div>
+            <div id="summary-checkout" style="font-weight: 800;">-</div>
+          </div>
+          
+          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+            <div style="color: var(--color-text-secondary); font-weight: 600;">Guests</div>
+            <div id="summary-guests" style="font-weight: 800;">-</div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; margin-bottom: 15px; padding-top: 15px; border-top: 1px dashed var(--color-border);">
+            <div style="color: var(--color-text-secondary); font-weight: 600;">Total Cost</div>
+            <div id="summary-total" style="font-weight: 900; font-size: 1.2rem; color: var(--color-brand);">₹0</div>
+          </div>
+          
+          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+            <div style="color: var(--color-text-secondary); font-weight: 600;">Advance Paid</div>
+            <div id="summary-advance" style="font-weight: 800; color: var(--color-success);">₹0</div>
+          </div>
+        </div>
+
+        <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">
+          <button class="btn-large btn-outline" onclick="app.prevWizardStep(10)">⬅️</button>
+          <button class="btn-large btn-success" onclick="app.confirmBookingCreation()">✅</button>
+        </div>
+      </div>
+
+<!-- SUCCESS SCREEN (POST WIZARD) -->
+      <div id="wizard-success-screen" class="wizard-step" style="display: none; text-align: center; justify-content: center; gap: 20px;">
+        <div class="success-checkmark">
+          <div class="check-icon" style="font-size: 2.5rem; line-height: 1;">✅</div>
+        </div>
+        
+        <div>
+          <h2 style="font-family: 'Outfit', sans-serif; color: var(--color-success); font-size: 1.85rem; margin-bottom: 8px;">Booking Successful!</h2>
+          <p style="color: var(--color-text-secondary); font-weight: 700;">Booking saved to existing PMS database.</p>
+        </div>
+
+        <div class="glass-panel" style="padding: 16px; border-radius: var(--border-radius-md); text-align: left; margin: 10px 0;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: 700;">
+            <span>Booking ID:</span>
+            <strong id="success-booking-id" style="color: var(--color-brand);">BKG-2026-004</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-weight: 700;">
+            <span>Assigned Room:</span>
+            <strong id="success-room-number" style="color: var(--color-brand);">Room 104</strong>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px; width: 100%;">
+          <button class="btn-large btn-brand" onclick="app.shareBookingWhatsApp()">
+            💬 SHARE ON WHATSAPP
+          </button>
+          <button class="btn-large btn-outline" onclick="app.printReceipt()">
+            🖨️ PRINT RECEIPT
+          </button>
+          <button class="btn-large btn-success" onclick="app.finishBookingWizard()" style="margin-top: 10px;">
+            🏠 DONE
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. CHECK IN SCREEN -->
+    <div id="screen-checkin" class="screen">
+      <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 6px;">Today's Arrivals</h2>
+      <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 16px; font-weight: 700;">Select arriving guest to perform check-in</p>
+
+      <div id="checkin-arrivals-list" class="selection-list" style="flex: 1; overflow-y: auto;">
+        <!-- Dyn arrivals -->
+      </div>
+
+      <button class="btn-large btn-outline" onclick="app.showScreen('dashboard')" style="margin-top: auto;">
+        🏠 BACK TO DASHBOARD
+      </button>
+    </div>
+
+    <!-- 5. CHECK OUT SCREEN -->
+    <div id="screen-checkout" class="screen">
+      <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 6px;">Guest Check Out</h2>
+      <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 16px; font-weight: 700;">Select room/guest to check out</p>
+
+      <div id="checkout-list" class="selection-list" style="flex: 1; overflow-y: auto;">
+        <!-- Dyn occupied list -->
+      </div>
+
+      <button class="btn-large btn-outline" onclick="app.showScreen('dashboard')" style="margin-top: auto;">
+        🏠 BACK TO DASHBOARD
+      </button>
+    </div>
+
+    <!-- 6. COLLECT PAYMENT SCREEN -->
+    <div id="screen-payments" class="screen">
+      <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 6px;">Collect Pending Payment</h2>
+      <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 16px; font-weight: 700;">Select active guest booking to record payment</p>
+
+      <div id="payments-pending-list" class="selection-list" style="flex: 1; overflow-y: auto;">
+        <!-- Dyn pending payment bookings -->
+      </div>
+
+      <button class="btn-large btn-outline" onclick="app.showScreen('dashboard')" style="margin-top: auto;">
+        🏠 BACK TO DASHBOARD
+      </button>
+    </div>
+
+    <!-- 7. TODAY'S BOOKINGS / BOOKING HISTORY -->
+    <div id="screen-history" class="screen">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+        <h2 style="font-weight: 800; font-size: 1.35rem;">Booking List</h2>
+        <div style="display: flex; gap: 6px;">
+          <button id="history-filter-today" class="filter-chip active" style="padding: 6px 12px; font-size: 0.75rem;" onclick="app.setHistoryFilter('today')">Today</button>
+          <button id="history-filter-week" class="filter-chip" style="padding: 6px 12px; font-size: 0.75rem;" onclick="app.setHistoryFilter('week')">Week</button>
+          <button id="history-filter-month" class="filter-chip" style="padding: 6px 12px; font-size: 0.75rem;" onclick="app.setHistoryFilter('month')">Month</button>
+        </div>
+      </div>
+
+      <!-- Search Input with Voice -->
+      <div style="position: relative; margin-bottom: 14px; display: flex; gap: 8px;">
+        <div style="position: relative; flex: 1;">
+          <input type="text" id="history-search-input" class="form-control" placeholder="Search by name / phone / folio..." style="font-size: 1.1rem; padding: 12px 40px 12px 12px; border-radius: var(--border-radius-md); width: 100%; border: 1px solid var(--color-border);" oninput="app.handleHistorySearch(this.value)">
+          <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 1.25rem;">🔍</span>
+        </div>
+        <button onclick="app.voiceSearchHistory()" style="width: 48px; height: 48px; border-radius: var(--border-radius-md); background: var(--color-cta); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);" title="Voice Search">
+          🎤
+        </button>
+      </div>
+
+      <div id="history-bookings-list" class="selection-list" style="flex: 1; overflow-y: auto;">
+        <!-- Dyn bookings -->
+      </div>
+    </div>
+
+    <!-- 8. ROOM STATUS SCREEN -->
+    <div id="screen-rooms" class="screen">
+      <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 12px;">Housekeeping & Room Status</h2>
+      
+      <!-- Status Legend -->
+      <div style="display: flex; gap: 10px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px;">
+        <span class="badge badge-success" style="padding: 6px 12px;">🟢 Available</span>
+        <span class="badge badge-danger" style="padding: 6px 12px;">🔴 Occupied</span>
+        <span class="badge badge-warning" style="padding: 6px 12px;">🟡 Cleaning</span>
+      </div>
+
+      <div id="rooms-status-list" class="selection-list" style="flex: 1; overflow-y: auto;">
+        <!-- Dyn room listing with cleaning check updates -->
+      </div>
+    </div>
+
+    <!-- 9. NOTIFICATIONS SCREEN -->
+    <div id="screen-notifications" class="screen">
+      <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 6px;">Notifications</h2>
+      <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 16px; font-weight: 700;">Important tasks awaiting action</p>
+
+      <div id="notifications-list" style="flex: 1; overflow-y: auto;">
+        <!-- Dyn notification alerts -->
+      </div>
+    </div>
+
+    <!-- 10. STAFF PROFILE & SETTINGS -->
+    <div id="screen-profile" class="screen">
+      <h2 style="font-weight: 800; font-size: 1.35rem; margin-bottom: 20px;">Staff Profile</h2>
+
+      <div class="glass-panel" style="border-radius: var(--border-radius-md); padding: 20px; text-align: center; margin-bottom: 24px;">
+        <div class="staff-avatar-icon" style="width: 70px; height: 70px; font-size: 2rem; margin: 0 auto 12px auto;" id="profile-avatar">S</div>
+        <h3 id="profile-username" style="font-size: 1.25rem; font-weight: 800; margin-bottom: 4px;">Staff Username</h3>
+        <span id="profile-role" class="badge badge-info" style="text-transform: uppercase;">Front Desk</span>
+      </div>
+
+      <!-- Quick PIN Reset -->
+      <div class="glass-panel" style="border-radius: var(--border-radius-md); padding: 18px; margin-bottom: 24px;">
+        <h4 style="font-weight: 800; margin-bottom: 12px; color: var(--color-brand);">Change 4-Digit Login PIN</h4>
+        <div id="profile-pin-display" class="display-box empty" onclick="app.activateNumpadForProfilePin()" style="height: 55px; margin-bottom: 12px;">Enter New PIN</div>
+        <button class="btn-large btn-brand" onclick="app.submitNewProfilePin()">
+          🔑 UPDATE PIN
+        </button>
+      </div>
+
+      <button class="btn-large btn-cta" onclick="app.logout()" style="margin-top: auto;">
+        🚪 LOG OUT STAFF
+      </button>
+    </div>
+
+    <!-- HOUSEKEEPING SCREEN (Addon) -->
+    <div id="screen-housekeeping" class="screen">
+      <div class="screen-header">
+        <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.5rem; font-weight: 800; color: var(--color-brand); margin-bottom: 8px;">
+          HOUSEKEEPING
+        </h2>
+        <p style="color: var(--color-text-muted); font-size: 0.95rem;">Tap a room to mark it as clean.</p>
+      </div>
+
+      <!-- Segmented Control for Dirty / Clean -->
+      <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+        <button id="hk-filter-dirty" class="filter-chip active" style="flex: 1; padding: 12px; font-size: 1rem; text-align: center;" onclick="app.setHousekeepingFilter('dirty')">Dirty</button>
+        <button id="hk-filter-clean" class="filter-chip" style="flex: 1; padding: 12px; font-size: 1rem; text-align: center;" onclick="app.setHousekeepingFilter('clean')">Clean</button>
+      </div>
+
+      <button class="btn-large btn-outline" style="margin-bottom: 20px; font-weight: 700; border-color: var(--color-brand); color: var(--color-brand);" onclick="app.startHousekeepingVoiceAssist()">
+        🎤 VOICE ASSIST (e.g. "Room 101 clean")
+      </button>
+
+      <div id="housekeeping-list" style="display: flex; flex-direction: column; gap: 12px; padding-bottom: 30px;">
+        <!-- Filled dynamically -->
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Bottom Navigation Bar -->
+  <nav class="bottom-nav" id="bottom-nav">
+    <button class="nav-item active" id="nav-btn-home" onclick="app.showScreen('dashboard')">
+      <i class="ph ph-house" style="font-size: 1.5rem; margin-bottom: 2px;"></i>
+      <span>Home</span>
+    </button>
+    <button class="nav-item" id="nav-btn-bookings" onclick="app.showScreen('history')">
+      <i class="ph ph-list-checks" style="font-size: 1.5rem; margin-bottom: 2px;"></i>
+      <span>Bookings</span>
+    </button>
+    <button class="nav-item" id="nav-btn-notifications" onclick="app.showScreen('notifications')">
+      <div class="nav-item-container" style="position: relative; display: inline-flex;">
+        <i class="ph ph-bell" style="font-size: 1.5rem; margin-bottom: 2px;"></i>
+        <span class="nav-badge" id="bottom-nav-badge" style="display: none; position: absolute; top: -5px; right: -5px; background-color: var(--color-danger); color: white; border-radius: 50%; width: 18px; height: 18px; font-size: 0.7rem; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white;">0</span>
+      </div>
+      <span>Alerts</span>
+    </button>
+    <button class="nav-item" id="nav-btn-housekeeping" onclick="app.showScreen('housekeeping')">
+      <i class="ph ph-broom" style="font-size: 1.5rem; margin-bottom: 2px;"></i>
+      <span>Clean</span>
+    </button>
+    <button class="nav-item" id="nav-btn-profile" onclick="app.showScreen('profile')">
+      <i class="ph ph-gear-six" style="font-size: 1.5rem; margin-bottom: 2px;"></i>
+      <span>Profile</span>
+    </button>
+  </nav>
+
+  <!-- DYNAMIC BOTTOM SHEET/INPUT POPUP -->
+  <div id="numpad-popup" class="modal-overlay" onclick="app.closeNumpadPopup(event)">
+    <div class="modal-content-box numpad-container" style="margin-top: auto; border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <strong id="numpad-title" style="color: var(--color-text-secondary);">Enter Value</strong>
+        <span style="font-size: 1.5rem; cursor: pointer;" onclick="app.closeNumpadPopup()">❌</span>
+      </div>
+      <div style="margin: 15px 0;">
+        <input type="text" id="numpad-native-input" class="form-control" style="font-size: 2.2rem; font-weight: 800; text-align: center; padding: 12px; border-radius: var(--border-radius-md);" readonly>
+      </div>
+      <div id="numpad-quick-presets" style="display: none; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 15px;">
+        <button class="numpad-key" style="min-height: 45px; height: 45px; font-size: 0.9rem; font-weight: 800; border-radius: 8px; border: 1px solid var(--color-border); background: #f0fdf4; color: #166534; cursor: pointer;" onclick="app.addNumpadPreset(100)">+100</button>
+        <button class="numpad-key" style="min-height: 45px; height: 45px; font-size: 0.9rem; font-weight: 800; border-radius: 8px; border: 1px solid var(--color-border); background: #f0fdf4; color: #166534; cursor: pointer;" onclick="app.addNumpadPreset(500)">+500</button>
+        <button class="numpad-key" style="min-height: 45px; height: 45px; font-size: 0.9rem; font-weight: 800; border-radius: 8px; border: 1px solid var(--color-border); background: #f0fdf4; color: #166534; cursor: pointer;" onclick="app.addNumpadPreset(1000)">+1000</button>
+        <button class="numpad-key" style="min-height: 45px; height: 45px; font-size: 0.9rem; font-weight: 800; border-radius: 8px; border: 1px solid var(--color-border); background: #f0fdf4; color: #166534; cursor: pointer;" onclick="app.addNumpadPreset(5000)">+5000</button>
+      </div>
+      <div class="numpad-grid">
+        <button class="numpad-key" onclick="app.pressNumpadKey('1')">1</button>
+        <button class="numpad-key" onclick="app.pressNumpadKey('2')">2</button>
+        <button class="numpad-key" onclick="app.pressNumpadKey('3')">3</button>
+        <button class="numpad-key" onclick="app.pressNumpadKey('4')">4</button>
+        <button class="numpad-key" onclick="app.pressNumpadKey('5')">5</button>
+        <button class="numpad-key" onclick="app.pressNumpadKey('6')">6</button>
+        <button class="numpad-key" onclick="app.pressNumpadKey('7')">7</button>
+        <button class="numpad-key" onclick="app.pressNumpadKey('8')">8</button>
+        <button class="numpad-key" onclick="app.pressNumpadKey('9')">9</button>
+        <button class="numpad-key special" onclick="app.pressNumpadKey('clear')">CLEAR</button>
+        <button class="numpad-key" onclick="app.pressNumpadKey('0')">0</button>
+        <button class="numpad-key special" onclick="app.pressNumpadKey('back')">⌫</button>
+      </div>
+      <button class="btn-large btn-success" onclick="app.submitNumpadVal()" style="margin-top: 10px; width: 100%;">
+        ✅ CONFIRM VALUE
+      </button>
+    </div>
+  </div>
+
+  <!-- ID CAMERA CAPTURE SHEET -->
+  <div id="camera-popup" class="modal-overlay" onclick="app.closeCameraPopup(event)">
+    <div class="modal-content-box" style="margin-top: auto; border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <strong id="camera-title" style="color: var(--color-text-secondary);">Scan ID Card</strong>
+        <span style="font-size: 1.5rem; cursor: pointer;" onclick="app.closeCameraPopup()">❌</span>
+      </div>
+      
+      <!-- Video stream -->
+      <div class="camera-overlay">
+        <video id="video-stream" class="camera-stream" autoplay playsinline></video>
+        <div class="camera-guide-box" id="camera-guide-text">Align ID Card here</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
+        <button class="btn-large btn-brand" onclick="app.captureCameraImage()">
+          📷 SNAP PHOTO
+        </button>
+        <button class="btn-large btn-outline" onclick="app.triggerGalleryUpload()">
+          🖼️ CHOOSE FROM GALLERY / WHATSAPP
+        </button>
+      </div>
+      <input type="file" id="file-upload-input" style="display: none;" accept="image/*,application/pdf" onchange="app.handleGalleryFileSelected(event)">
+    </div>
+  </div>
+
+  <!-- OCR MATCH RESULTS VALIDATION POPUP -->
+  <div id="ocr-validation-popup" class="modal-overlay">
+    <div class="modal-content-box" style="max-width: 360px;">
+      <h3 style="font-family: 'Outfit', sans-serif; text-align: center; font-weight: 800; color: var(--color-brand);" id="ocr-match-title">ID Verified (97%)</h3>
+      
+      <div class="alert-box alert-box-warning" id="ocr-mismatch-alert" style="display: none; padding: 10px; font-size: 0.8rem; margin: 0;">
+        ⚠️ Spoken name and OCR name do not match!
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px; margin: 10px 0;">
+        <div>
+          <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-secondary);">SPOKEN NAME</span>
+          <div style="font-size: 1.15rem; font-weight: 800; color: var(--color-text-primary);" id="ocr-val-spoken">RAVI KUMAR</div>
+        </div>
+        <div>
+          <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-secondary);">OCR EXTRACTED NAME</span>
+          <div style="font-size: 1.15rem; font-weight: 800; color: var(--color-brand);" id="ocr-val-extracted">RAVI KUMAR</div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 8px;">
+          <div>
+            <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-secondary);">ID NUMBER</span>
+            <div style="font-size: 1.05rem; font-weight: 800;" id="ocr-val-aadhaar">987654321012</div>
+          </div>
+          <div>
+            <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-secondary);">GENDER / DOB</span>
+            <div style="font-size: 0.85rem; font-weight: 800;" id="ocr-val-meta">M / 15-08-1990</div>
+          </div>
+        </div>
+        <div>
+          <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-secondary);">ADDRESS</span>
+          <div style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-secondary); line-height: 1.4;" id="ocr-val-address">Not detected</div>
+        </div>
+        <div>
+          <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-secondary);">ID TYPE</span>
+          <div style="font-size: 0.85rem; font-weight: 700;" id="ocr-val-idtype">Aadhaar</div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button class="btn-large btn-success" onclick="app.acceptOcrData()">
+          ✅ ACCEPT DETAILS
+        </button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <button class="btn-large btn-outline" style="min-height: 50px; font-size: 0.85rem;" onclick="app.retakeOcrVoice()">RETAKE VOICE</button>
+          <button class="btn-large btn-outline" style="min-height: 50px; font-size: 0.85rem;" onclick="app.retakeOcrScan()">RESCAN ID</button>
+        </div>
+        <button class="btn-large btn-outline" onclick="app.acceptOcrData(true)" style="border-color: var(--color-warning); color: var(--color-warning);">
+          CONTINUE ANYWAY
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHECKOUT DETAIL OVERLAY SHEET -->
+  <div id="checkout-sheet-popup" class="modal-overlay" onclick="app.closeCheckoutSheet(event)">
+    <div class="modal-content-box" style="margin-top: auto; border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 10px;">
+        <strong style="font-size: 1.2rem;" id="checkout-sheet-room">Room 104 Folio Summary</strong>
+        <span style="font-size: 1.5rem; cursor: pointer;" onclick="app.closeCheckoutSheet()">❌</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px; margin: 12px 0;">
+        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 0.95rem;">
+          <span style="color: var(--color-text-secondary);">Room Rent</span>
+          <span id="bill-room-rent">₹0.00</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 0.95rem;">
+          <span style="color: var(--color-text-secondary);">Restaurant (Food)</span>
+          <span id="bill-restaurant">₹0.00</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 0.95rem;">
+          <span style="color: var(--color-text-secondary);">Laundry charges</span>
+          <span id="bill-laundry">₹0.00</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 0.95rem;">
+          <span style="color: var(--color-text-secondary);">Extra Bed charges</span>
+          <span id="bill-extrabed">₹0.00</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 0.95rem;">
+          <span style="color: var(--color-text-secondary);">Taxes & GST</span>
+          <span id="bill-taxes">₹0.00</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 0.95rem; border-top: 1px solid var(--color-border); padding-top: 8px; color: var(--color-success);">
+          <span>Total Payments / Advance</span>
+          <span id="bill-advance">₹0.00</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 1.3rem; font-weight: 800; border-top: 2px dashed var(--color-border); padding-top: 8px; margin-top: 4px;">
+          <span>BALANCE DUE</span>
+          <span id="bill-balance" style="color: var(--color-cta);">₹0.00</span>
+        </div>
+      </div>
+
+      <!-- Day-wise Itemized Folio Ledger Breakdown -->
+      <div style="margin-bottom: 14px; padding: 12px; background: #f8fafc; border-radius: var(--border-radius-md); border: 1px solid var(--color-border);">
+        <div style="font-weight: 800; font-size: 0.85rem; color: var(--color-brand); margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="display: flex; align-items: center; gap: 6px;"><i class="ph ph-receipt" style="font-size:1.1rem;"></i> DAY-WISE FOLIO LEDGER</span>
+          <span id="ledger-count-badge" class="badge badge-info" style="font-size: 0.75rem;">0 entries</span>
+        </div>
+        <div id="checkout-ledger-entries-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; padding-right: 4px;">
+          <!-- Dynamically rendered ledger entries -->
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
+        <!-- Quick Charges -->
+        <div id="quick-charges-section" style="display: none; flex-direction: column; gap: 8px;">
+          <label style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-secondary); letter-spacing: 0.5px;">ADD CHARGE</label>
+          <div id="quick-charges-grid" style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Payment Mode Selector -->
+        <div id="payment-mode-selector" style="display: none; flex-direction: column; gap: 8px;">
+          <label style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-secondary); letter-spacing: 0.5px;">PAYMENT MODE</label>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <!-- Payment pills will be dynamically generated here by app.js -->
+          </div>
+        </div>
+        <button class="btn-large btn-brand" id="btn-checkout-collect" onclick="app.checkoutCollectPayment()">
+          💵 COLLECT PAYMENT
+        </button>
+        <button class="btn-large btn-outline" onclick="app.checkoutGenerateBill()">
+          🖨️ GENERATE BILL / INVOICE
+        </button>
+        <button class="btn-large btn-outline" onclick="app.checkoutSendInvoiceWhatsApp()" style="background: #25D366; color: white; border: none;">
+          📱 SEND INVOICE VIA WHATSAPP
+        </button>
+        <button class="btn-large btn-danger" id="btn-checkout-execute" onclick="app.checkoutExecute()">
+          🚪 CONFIRM CHECKOUT
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay for OCR and API Submissions -->
+  <div id="loading-overlay" class="modal-overlay" style="z-index: 200;">
+    <div style="text-align: center; color: white;">
+      <div style="font-size: 3.5rem; animation: spin 1s linear infinite; margin-bottom: 12px; display: inline-block;">⚙️</div>
+      <div style="font-weight: 800; font-size: 1.25rem;" id="loading-text">Processing OCR...</div>
+    </div>
+  </div>
+
+  <style>
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  
+    .wheel-picker {
+      display: flex;
+      height: 150px;
+      overflow: hidden;
+      background: #f8fafc;
+      border-radius: 12px;
+      position: relative;
+      border: 2px solid #e2e8f0;
+    }
+    .wheel-col {
+      flex: 1;
+      overflow-y: scroll;
+      scroll-snap-type: y mandatory;
+      scrollbar-width: none;
+      text-align: center;
+      padding: 50px 0; /* pad top and bottom to allow first/last to reach center */
+    }
+    .wheel-col::-webkit-scrollbar { display: none; }
+    .wheel-item {
+      height: 50px;
+      line-height: 50px;
+      scroll-snap-align: center;
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #94a3b8;
+    }
+    .wheel-overlay {
+      position: absolute;
+      top: 50px;
+      left: 0;
+      right: 0;
+      height: 50px;
+      border-top: 2px solid var(--color-brand);
+      border-bottom: 2px solid var(--color-brand);
+      pointer-events: none;
+      background: rgba(14, 165, 233, 0.05);
+    }
+
+  </style>
+
+
+
+  <!-- Load App Code -->
+  <script src="js/voice.js"></script>
+  <script src="js/ocr.js"></script>
+  <!-- Booking Actions Bottom Sheet -->
+  <div class="modal-overlay" id="booking-actions-popup" onclick="app.closeBookingActionsSheet(event)">
+    <div class="numpad-container" style="width: 100%; max-height: 88vh; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(30px + env(safe-area-inset-bottom));" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; position: sticky; top: 0; background: var(--color-glass-prominent); z-index: 10; padding-bottom: 4px;">
+        <h3 style="font-weight: 800; font-size: 1.25rem;">Booking Options</h3>
+        <button onclick="app.closeBookingActionsSheet()" style="background: none; border: none; font-size: 1.5rem; color: var(--color-text-muted); padding: 5px; cursor: pointer;">&times;</button>
+      </div>
+      
+      <!-- Detailed Booking Info Card -->
+      <div style="margin-bottom: 16px; padding: 14px; background: white; border-radius: var(--border-radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+        <!-- Top row: Avatar + Name + Phone + Status -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed var(--color-border);">
+          <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+            <div id="action-sheet-avatar" class="selection-card-avatar" style="width: 44px; height: 44px; font-size: 1.1rem; flex-shrink: 0;">A</div>
+            <div style="min-width: 0;">
+              <div id="action-sheet-name" style="font-size: 1.1rem; font-weight: 800; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Guest Name</div>
+              <div id="action-sheet-phone" style="font-size: 0.85rem; color: var(--color-brand); font-weight: 700;">+91 98765 43210</div>
+            </div>
+          </div>
+          <div id="action-sheet-status" style="flex-shrink: 0;"></div>
+        </div>
+
+        <!-- Detailed Key-Value Grid -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.82rem;">
+          <div style="background: #f8fafc; padding: 8px 10px; border-radius: 8px; border: 1px solid #f1f5f9;">
+            <div style="color: var(--color-text-secondary); font-size: 0.7rem; font-weight: 700; text-transform: uppercase;">Booking ID</div>
+            <div id="action-sheet-bkg-id" style="font-weight: 800; color: var(--color-brand); font-size: 0.88rem; margin-top: 2px;">BKG-000</div>
+          </div>
+
+          <div style="background: #f8fafc; padding: 8px 10px; border-radius: 8px; border: 1px solid #f1f5f9;">
+            <div style="color: var(--color-text-secondary); font-size: 0.7rem; font-weight: 700; text-transform: uppercase;">Folio No</div>
+            <div id="action-sheet-folio-no" style="font-weight: 800; color: var(--color-brand); font-size: 0.88rem; margin-top: 2px;">FOL-000</div>
+          </div>
+
+          <div style="background: #f8fafc; padding: 8px 10px; border-radius: 8px; border: 1px solid #f1f5f9;">
+            <div style="color: var(--color-text-secondary); font-size: 0.7rem; font-weight: 700; text-transform: uppercase;">Room & Type</div>
+            <div id="action-sheet-room" style="font-weight: 800; color: var(--color-text-primary); font-size: 0.88rem; margin-top: 2px;">Room 000</div>
+          </div>
+
+          <div style="background: #f8fafc; padding: 8px 10px; border-radius: 8px; border: 1px solid #f1f5f9;">
+            <div style="color: var(--color-text-secondary); font-size: 0.7rem; font-weight: 700; text-transform: uppercase;">Rate Plan</div>
+            <div id="action-sheet-rate-plan" style="font-weight: 800; color: var(--color-text-primary); font-size: 0.88rem; margin-top: 2px;">Standard Rate</div>
+          </div>
+
+          <div style="background: #f8fafc; padding: 8px 10px; border-radius: 8px; border: 1px solid #f1f5f9;">
+            <div style="color: var(--color-text-secondary); font-size: 0.7rem; font-weight: 700; text-transform: uppercase;">Check-In Date & Time</div>
+            <div id="action-sheet-checkin" style="font-weight: 800; color: var(--color-text-primary); font-size: 0.85rem; margin-top: 2px;">-</div>
+          </div>
+
+          <div style="background: #f8fafc; padding: 8px 10px; border-radius: 8px; border: 1px solid #f1f5f9;">
+            <div style="color: var(--color-text-secondary); font-size: 0.7rem; font-weight: 700; text-transform: uppercase;">Check-Out Date & Time</div>
+            <div id="action-sheet-checkout" style="font-weight: 800; color: var(--color-text-primary); font-size: 0.85rem; margin-top: 2px;">-</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Guest ID proof section -->
+      <div id="action-sheet-id-section" style="margin-bottom: 16px; padding: 14px; border: 1px solid var(--color-border); border-radius: var(--border-radius-sm); background: white;">
+        <div style="font-weight: 700; font-size: 0.88rem; color: var(--color-brand); margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+          <span>ID Proof Status</span>
+          <span id="action-sheet-id-status" class="badge">Checking...</span>
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <!-- Front ID -->
+          <div style="flex: 1; text-align: center;">
+            <div id="action-id-front-preview" onclick="app.showIdProofOptions('id_proof_front')" style="height: 75px; border: 2px dashed var(--color-border); border-radius: var(--border-radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; position: relative; overflow: hidden; background: #fafafa;">
+              <span style="font-size: 1.3rem;">🖼️</span>
+              <span style="font-size: 0.75rem; color: var(--color-text-secondary); margin-top: 2px; font-weight:700;">Front Image</span>
+            </div>
+            <input type="file" id="action-id-front-picker" accept="image/*" style="display: none;" onchange="app.uploadIdProofImage('id_proof_front', this.files[0])">
+            <input type="file" id="action-id-front-camera" accept="image/*" capture="environment" style="display: none;" onchange="app.uploadIdProofImage('id_proof_front', this.files[0])">
+          </div>
+          <!-- Back ID -->
+          <div style="flex: 1; text-align: center;">
+            <div id="action-id-back-preview" onclick="app.showIdProofOptions('id_proof_back')" style="height: 75px; border: 2px dashed var(--color-border); border-radius: var(--border-radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; position: relative; overflow: hidden; background: #fafafa;">
+              <span style="font-size: 1.3rem;">🖼️</span>
+              <span style="font-size: 0.75rem; color: var(--color-text-secondary); margin-top: 2px; font-weight:700;">Back Image</span>
+            </div>
+            <input type="file" id="action-id-back-picker" accept="image/*" style="display: none;" onchange="app.uploadIdProofImage('id_proof_back', this.files[0])">
+            <input type="file" id="action-id-back-camera" accept="image/*" capture="environment" style="display: none;" onchange="app.uploadIdProofImage('id_proof_back', this.files[0])">
+          </div>
+        </div>
+      </div>
+
+      <!-- ID Proof Options Bottom Sheet (Nested) -->
+      <div class="modal-overlay" id="id-proof-options-popup" onclick="app.closeIdProofOptions(event)" style="z-index: 200;">
+        <div class="numpad-container" style="width: 100%; padding: 20px;" onclick="event.stopPropagation()">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="font-weight: 800; font-size: 1.25rem;">ID Proof Options</h3>
+            <button onclick="app.closeIdProofOptions()" style="background: none; border: none; font-size: 1.5rem; color: var(--color-text-muted); padding: 5px;">&times;</button>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <button id="btn-id-view" class="btn-large btn-outline" onclick="app.viewIdProof()" style="display: none; border-color: var(--color-brand); color: var(--color-brand);">
+              👁️ VIEW FULL IMAGE
+            </button>
+            <button class="btn-large" style="background: var(--color-glass); border: 1px solid var(--color-border); color: var(--color-text-primary);" onclick="app.triggerIdCamera()">
+              📸 TAKE PHOTO
+            </button>
+            <button class="btn-large" style="background: var(--color-glass); border: 1px solid var(--color-border); color: var(--color-text-primary);" onclick="app.triggerIdUpload()">
+              📁 UPLOAD FILE
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+        <button id="btn-action-checkin" class="btn-large btn-success" onclick="app.actionCheckIn()" style="display: none; flex-direction: flex; align-items: center; justify-content: center; min-height: 56px; padding: 12px; border-radius: var(--border-radius-md); font-weight: 800; gap: 8px; border: none; cursor: pointer;">
+          <i class="ph ph-key" style="font-size: 1.6rem;"></i>
+          <span style="font-size: 0.95rem; font-weight: 800; letter-spacing: 0.5px;">CHECK IN</span>
+        </button>
+        <button id="btn-action-extend" class="btn-large" onclick="app.actionExtendStay()" style="display: none; flex-direction: flex; align-items: center; justify-content: center; min-height: 56px; padding: 12px; border-radius: var(--border-radius-md); font-weight: 800; gap: 8px; background: #3B82F6; color: white; border: none; cursor: pointer;">
+          <i class="ph ph-clock-clockwise" style="font-size: 1.6rem;"></i>
+          <span style="font-size: 0.95rem; font-weight: 800; letter-spacing: 0.5px;">EXTEND</span>
+        </button>
+        <button id="btn-action-collect" class="btn-large" onclick="app.actionCollectPayment()" style="display: none; flex-direction: flex; align-items: center; justify-content: center; min-height: 56px; padding: 12px; border-radius: var(--border-radius-md); font-weight: 800; gap: 8px; background: #F59E0B; color: white; border: none; cursor: pointer;">
+          <i class="ph ph-currency-inr" style="font-size: 1.6rem;"></i>
+          <span style="font-size: 0.95rem; font-weight: 800; letter-spacing: 0.5px;">PAYMENT</span>
+        </button>
+        <button id="btn-action-checkout" class="btn-large btn-danger" onclick="app.actionCheckOut()" style="display: none; flex-direction: flex; align-items: center; justify-content: center; min-height: 56px; padding: 12px; border-radius: var(--border-radius-md); font-weight: 800; gap: 8px; border: none; cursor: pointer;">
+          <i class="ph ph-door-open" style="font-size: 1.6rem;"></i>
+          <span style="font-size: 0.95rem; font-weight: 800; letter-spacing: 0.5px;">CHECK OUT</span>
+        </button>
+      </div>
+
+      <button id="btn-action-bill" class="btn-large btn-outline" onclick="app.actionBillSummary()" style="display: none; border-color: var(--color-brand); color: var(--color-brand); margin-top: 14px; min-height: 52px; padding: 12px; width: 100%; font-weight: 800; justify-content: center; cursor: pointer; border-radius: var(--border-radius-md);">
+        👁️ VIEW BILL SUMMARY
+      </button>
+    </div>
+  </div>
+
+  <!-- EXTEND STAY POPUP -->
+  <div class="modal-overlay" id="extend-stay-popup" onclick="app.closeExtendStayPopup(event)">
+    <div class="numpad-container" style="width: 100%; padding: 24px;" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3 style="font-weight: 800; font-size: 1.25rem;">⏳ Extend Stay</h3>
+        <button onclick="app.closeExtendStayPopup()" style="background: none; border: none; font-size: 1.5rem; color: var(--color-text-muted); padding: 5px;">&times;</button>
+      </div>
+
+      <!-- Current & New Checkout display -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+        <div style="background: #fef3c7; border-radius: 12px; padding: 14px; text-align: center;">
+          <div style="font-size: 0.75rem; color: #92400e; font-weight: 700; margin-bottom: 4px;">CURRENT CHECKOUT</div>
+          <div id="extend-current-checkout" style="font-size: 1rem; font-weight: 800; color: #92400e;">—</div>
+        </div>
+        <div style="background: #dcfce7; border-radius: 12px; padding: 14px; text-align: center;">
+          <div style="font-size: 0.75rem; color: #166534; font-weight: 700; margin-bottom: 4px;">NEW CHECKOUT</div>
+          <div id="extend-new-checkout-display" style="font-size: 1rem; font-weight: 800; color: #166534;">Tap below</div>
+        </div>
+      </div>
+
+      <!-- Hidden input for compatibility -->
+      <input type="hidden" id="extend-new-checkout-date" />
+
+      <!-- Tap once to extend — no confirm needed -->
+      <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 700; text-align: center; margin-bottom: 12px; letter-spacing: 0.05em;">TAP ONCE TO EXTEND</div>
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px;">
+        <button class="btn-large" style="height: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 800; background: #e0f2fe; color: #0369a1; border: 2px solid #bae6fd; border-radius: 14px; cursor: pointer;" onclick="app.quickExtend(1)">
+          <span style="font-size: 1.4rem;">⏰</span> +1 Hr
+        </button>
+        <button class="btn-large" style="height: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 800; background: #e0f2fe; color: #0369a1; border: 2px solid #bae6fd; border-radius: 14px; cursor: pointer;" onclick="app.quickExtend(6)">
+          <span style="font-size: 1.4rem;">⏰</span> +6 Hr
+        </button>
+        <button class="btn-large" style="height: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 800; background: #e0f2fe; color: #0369a1; border: 2px solid #bae6fd; border-radius: 14px; cursor: pointer;" onclick="app.quickExtend(12)">
+          <span style="font-size: 1.4rem;">⏰</span> +12 Hr
+        </button>
+        <button class="btn-large btn-brand" style="height: 84px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1.1rem; font-weight: 800; border-radius: 14px; cursor: pointer;" onclick="app.quickExtend(24)">
+          <span style="font-size: 1.6rem;">📅</span> +1 DAY
+        </button>
+        <button class="btn-large btn-brand" style="height: 84px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1.1rem; font-weight: 800; border-radius: 14px; cursor: pointer;" onclick="app.quickExtend(48)">
+          <span style="font-size: 1.6rem;">📅</span> +2 DAY
+        </button>
+        <button class="btn-large btn-brand" style="height: 84px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1.1rem; font-weight: 800; border-radius: 14px; cursor: pointer;" onclick="app.quickExtend(72)">
+          <span style="font-size: 1.6rem;">📅</span> +3 DAY
+        </button>
+      </div>
+
+      <div>
+        <button class="btn-large btn-outline" onclick="app.closeExtendStayPopup()" style="width: 100%; height: 52px; font-weight: 800; font-size: 1rem; cursor: pointer;">
+          ❌ CANCEL
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+
+  <!-- FIRST-LAUNCH TUTORIAL OVERLAY -->
+  <div id="tutorial-overlay" style="display:none; position:fixed; inset:0; z-index:999; background:rgba(0,0,0,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);">
+    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; padding:24px; text-align:center;">
+      
+      <!-- Tutorial Step Container -->
+      <div id="tutorial-content" style="max-width:360px; width:100%;">
+        <div id="tutorial-icon" style="font-size:5rem; margin-bottom:16px; line-height:1;">🏨</div>
+        <h2 id="tutorial-title" style="font-size:1.6rem; font-weight:900; color:white; margin-bottom:12px;">Welcome to Hotel Assistant</h2>
+        <p id="tutorial-desc" style="font-size:1.1rem; color:rgba(255,255,255,0.8); font-weight:600; margin-bottom:32px; line-height:1.5;">
+          Your voice-guided hotel management tool. No reading required!
+        </p>
+        
+        <!-- Progress dots -->
+        <div id="tutorial-dots" style="display:flex; justify-content:center; gap:8px; margin-bottom:32px;">
+          <div class="tutorial-dot active" style="width:10px; height:10px; border-radius:50%; background:white;"></div>
+          <div class="tutorial-dot" style="width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,0.3);"></div>
+          <div class="tutorial-dot" style="width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,0.3);"></div>
+          <div class="tutorial-dot" style="width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,0.3);"></div>
+          <div class="tutorial-dot" style="width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,0.3);"></div>
+        </div>
+        
+        <!-- Navigation -->
+        <div style="display:flex; gap:12px;">
+          <button id="tutorial-skip" onclick="app.closeTutorial(true)" class="btn-large" style="flex:1; min-height:52px; background:rgba(255,255,255,0.15); color:white; border:1px solid rgba(255,255,255,0.3); font-size:0.9rem;">
+            SKIP
+          </button>
+          <button id="tutorial-next" onclick="app.nextTutorialStep()" class="btn-large btn-brand" style="flex:2; min-height:52px; font-size:1rem;">
+            NEXT ➡️
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Tutorial data
+    const TUTORIAL_STEPS = [
+      {
+        icon: '🏨',
+        title: 'Welcome to Hotel Assistant',
+        desc: 'Your voice-guided hotel management tool. No reading required! Every action has voice feedback in Telugu.',
+        voice: 'Welcome to Hotel Assistant. Your voice-guided hotel management tool. No reading required.'
+      },
+      {
+        icon: '🛎️',
+        title: 'New Booking',
+        desc: 'Tap the bell icon to create a new booking. Follow the voice prompts at each step. Quick buttons for check-in/out times!',
+        voice: 'Tap the bell icon to create a new booking. Follow the voice prompts at each step.'
+      },
+      {
+        icon: '🎤',
+        title: 'Voice Commands',
+        desc: 'Say "New booking", "Check in", "Dirty rooms", or "Room 101 clean" anytime. The assistant is always listening!',
+        voice: 'You can use voice commands anytime. Say new booking, check in, dirty rooms, or room number followed by clean.'
+      },
+      {
+        icon: '📱',
+        title: 'Bottom Navigation',
+        desc: '🏠 Home = Dashboard  |  📋 Bookings  |  🔔 Alerts  |  🧹 Housekeeping  |  ⚙️ Settings',
+        voice: 'Use the bottom navigation: Home for dashboard, Bookings for history, Alerts for notifications, Clean for housekeeping, Settings for profile.'
+      },
+      {
+        icon: '✅',
+        title: 'You\'re Ready!',
+        desc: 'Tap the bell icon to start your first booking. The assistant will guide you through every step with voice!',
+        voice: 'You are ready! Tap the bell icon to start your first booking. The assistant will guide you through every step.'
+      }
+    ];
+  </script>
+</body>
+</html>

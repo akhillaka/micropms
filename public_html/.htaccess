@@ -1,0 +1,10 @@
+RewriteEngine On
+RewriteBase /
+
+# Allow direct access to existing files and directories (css, js, images)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Route all other requests to router.php
+RewriteRule ^(.*)$ router.php [L,QSA]
