@@ -7,6 +7,20 @@ declare(strict_types=1);
 class SaaSPlans {
 
     private const DEFAULTS = [
+        'free_tier' => [
+            'name' => 'Free (All Modules)',
+            'price' => 0,
+            'max_rooms' => 5,
+            'max_staff' => 2,
+            'features' => [
+                'ocr_google_vision' => true,
+                'whatsapp_automations' => true,
+                'custom_domain_mapping' => true,
+                'pos_module' => true,
+                'whatsapp_module' => true,
+                'housekeeping_module' => true
+            ]
+        ],
         'starter' => [
             'name' => 'Starter',
             'price' => 1999,

@@ -78,9 +78,6 @@ class CsrfToken {
 
         foreach ($candidates as $candidate) {
             if (hash_equals($sessionToken, (string)$candidate)) {
-                // Rotate token after successful validation to prevent replay
-                unset($_SESSION[self::TOKEN_NAME]);
-                self::generate();
                 return true;
             }
         }

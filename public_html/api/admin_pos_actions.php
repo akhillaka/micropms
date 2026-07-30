@@ -21,7 +21,7 @@ if (!isset($_SESSION['user_id'])) {
 
 $headers = getallheaders();
 $csrfToken = $headers['X-CSRF-Token'] ?? $headers['x-csrf-token'] ?? '';
-if (!CsrfToken::verify($csrfToken)) {
+if (!CsrfToken::validate($csrfToken)) {
     echo json_encode(['success' => false, 'message' => 'CSRF verification failed. Please refresh the page.']);
     exit;
 }
@@ -478,11 +478,11 @@ try {
             FolioService::postCharge($db, $bookingId, $totalAmount, $description, 'pos_order');
         } else {
             $insFinance = $db->prepare("
-                INSERT INTO finance_transactions (type, category, amount, description, payment_method, staff_id)
-                VALUES ('income', 'pos', ?, ?, ?, ?)
+                INSERT INTO finance_transactions (property_id, type, category, amount, description, payment_method, staff_id)
+                VALUES (?, 'income', 'pos', ?, ?, ?, ?)
             ");
             $desc = "POS Direct Sale - Order #{$orderId}";
-            $insFinance->execute([$totalAmount, $desc, $method, (int)$_SESSION['user_id']]);
+            $insFinance->execute([$propertyId, $totalAmount, $desc, $method, (int)$_SESSION['user_id']]);
         }
 
         AuditLogger::log((int)$_SESSION['user_id'], 'POS_CREATE_ORDER', 'POS_ORDER', $orderId, [

@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../../../pms_core/services/FolioService.php';
 require_once __DIR__ . '/../../../../pms_core/services/SaaSEntitlementsService.php';
 require_once __DIR__ . '/../../../../pms_core/AuditLogger.php';
+require_once __DIR__ . '/../../../../pms_core/CsrfToken.php';
 
 AuthHelper::requireLoginOrRedirect();
 
@@ -160,6 +161,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>POS & Inventory | StayFlexi</title>
+    <?= CsrfToken::meta() ?>
     <?php include __DIR__ . '/../../components/ui_head.php'; ?>
     <style>
         .stayflexi-badge {
