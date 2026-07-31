@@ -87,3 +87,35 @@ class Database {
         }
     }
 }
+
+/**
+ * TenantQuery Helper
+ * Provides utility methods to enforce property_id isolation in multi-tenant environments.
+ */
+class TenantQuery {
+    /**
+     * Appends a property_id filter to a WHERE clause and parameter array.
+     * 
+     * @param string $whereClause Existing WHERE clause (e.g., "status = 'active'")
+     * @param array $params Existing parameters array
+     * @param string $tableAlias Optional table alias (e.g., "b")
+     * @return array [0 => newWhereClause, 1 => newParams]
+     */
+    public static function scope(string $whereClause, array $params = [], string $tableAlias = ''): array {
+        require_once __DIR__ . '/AuthHelper.php';
+        $propertyId = AuthHelper::getPropertyId();
+        
+        $prefix = $tableAlias ? "{$tableAlias}." : "";
+        $clause = trim($whereClause);
+        
+        if (empty($clause)) {
+            $newWhere = "{$prefix}property_id = ?";
+        } else {
+            $newWhere = "({$clause}) AND {$prefix}property_id = ?";
+        }
+        
+        $params[] = $propertyId;
+        
+        return [$newWhere, $params];
+    }
+}

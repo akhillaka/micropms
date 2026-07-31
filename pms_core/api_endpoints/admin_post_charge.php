@@ -30,17 +30,25 @@ if (!isset($data['booking_id']) || !isset($data['item_name']) || !isset($data['a
     // single source of truth for balance. Updating total_amount separately causes
     // it to diverge from SUM(folio_ledger.amount) over time.
 
+    // Assume 18% inclusive tax for simplicity (9% CGST, 9% SGST)
+    $taxable = $amount / 1.18;
+    $totalTax = $amount - $taxable;
+    $cgst = $totalTax / 2;
+    $sgst = $totalTax / 2;
+
     // Insert into folio ledger
-    $folioStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description) VALUES (:id, 'INCIDENTAL', :amount, :desc)");
+    $folioStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, cgst_amount, sgst_amount, description) VALUES (:id, 'INCIDENTAL', :amount, :cgst, :sgst, :desc)");
     $folioStmt->execute([
         'id' => $data['booking_id'],
         'amount' => $amount, // Charges are positive
+        'cgst' => $cgst,
+        'sgst' => $sgst,
         'desc' => $data['item_name']
     ]);
     
     SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
     
-    AuditLogger::log($_SESSION['user_id'], 'POST_CHARGE', 'FOLIO', $data['booking_id'], ['item' => $data['item_name'], 'amount' => $amount]);
+    AuditLogger::log($_SESSION['user_id'], 'POST_CHARGE', 'FOLIO', $data['booking_id'], ['item' => $data['item_name'], 'amount' => $amount, 'cgst' => $cgst, 'sgst' => $sgst]);
     
     $bStmt = $db->prepare("SELECT r.room_number, g.name as guest_name, b.total_amount FROM bookings b JOIN rooms r ON b.room_id = r.id LEFT JOIN guests g ON b.guest_id = g.id WHERE b.id = :id");
     $bStmt->execute(['id' => $data['booking_id']]);

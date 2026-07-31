@@ -483,26 +483,53 @@ class BookingService {
         $pStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ?");
         $pStmt->execute([$bookingId]);
         $propertyId = (int)$pStmt->fetchColumn() ?: 1;
-        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description) VALUES (:pid, :bid, 'ROOM_CHARGE', :amount, 'MANUAL', :desc)");
 
-        if ($priceOverride !== null) {
-            $ledgerStmt->execute([
-                'pid'    => $propertyId,
-                'bid'    => $bookingId,
-                'amount' => $priceOverride,
-                'desc'   => "Room Charges - {$categoryName} (Manual Override)",
-            ]);
-            SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
-        } else {
-            $breakdown = PricingEngine::getCostBreakdown($categoryId, $checkIn, $checkOut, $ratePlanName);
-            foreach ($breakdown as $item) {
+        $taxEnabled = defined('TAX_ENABLED') && TAX_ENABLED === 'true';
+        $taxRate = (defined('TAX_RATE') && is_numeric(TAX_RATE)) ? (float)TAX_RATE : 12.0;
+        $taxLabel = defined('TAX_LABEL') ? TAX_LABEL : 'GST';
+
+        $postCharge = function(float $grossAmount, string $baseDesc) use ($db, $propertyId, $bookingId, $taxEnabled, $taxRate, $taxLabel) {
+            $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description) VALUES (:pid, :bid, :type, :amount, 'MANUAL', :desc)");
+            
+            if ($taxEnabled && $taxRate > 0) {
+                $baseAmount = round($grossAmount / (1 + ($taxRate / 100)), 2);
+                $taxAmount = round($grossAmount - $baseAmount, 2);
+                
                 $ledgerStmt->execute([
                     'pid'    => $propertyId,
                     'bid'    => $bookingId,
-                    'amount' => $item['cost'],
-                    'desc'   => "Day {$item['day']} - Room Charges - {$categoryName} ({$item['duration']})",
+                    'type'   => 'ROOM_CHARGE',
+                    'amount' => $baseAmount,
+                    'desc'   => $baseDesc,
                 ]);
                 SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
+                
+                $ledgerStmt->execute([
+                    'pid'    => $propertyId,
+                    'bid'    => $bookingId,
+                    'type'   => 'INCIDENTAL',
+                    'amount' => $taxAmount,
+                    'desc'   => "{$taxLabel} ({$taxRate}%) - " . $baseDesc,
+                ]);
+                SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
+            } else {
+                $ledgerStmt->execute([
+                    'pid'    => $propertyId,
+                    'bid'    => $bookingId,
+                    'type'   => 'ROOM_CHARGE',
+                    'amount' => $grossAmount,
+                    'desc'   => $baseDesc,
+                ]);
+                SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
+            }
+        };
+
+        if ($priceOverride !== null) {
+            $postCharge($priceOverride, "Room Charges - {$categoryName} (Manual Override)");
+        } else {
+            $breakdown = PricingEngine::getCostBreakdown($categoryId, $checkIn, $checkOut, $ratePlanName);
+            foreach ($breakdown as $item) {
+                $postCharge((float)$item['cost'], "Day {$item['day']} - Room Charges - {$categoryName} ({$item['duration']})");
             }
         }
     }

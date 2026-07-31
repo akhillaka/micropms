@@ -193,7 +193,7 @@ class BookingAssistant {
   async loadHousekeepingData() {
     this.showLoading('Loading rooms...');
     try {
-      const res = await this.apiCall('api/housekeeping.php', { action: 'list' });
+      const res = await this.apiCall('/api/admin/housekeeping', { action: 'list' });
       this.hideLoading();
       if (res && res.success) {
         this.housekeepingData = res;
@@ -343,7 +343,7 @@ class BookingAssistant {
 
     this.showLoading('Saving room status...');
     try {
-      const res = await this.apiCall('api/housekeeping.php', {
+      const res = await this.apiCall('/api/admin/housekeeping', {
         action: 'mark_clean',
         room_id: roomId,
         completed_items: completedItems
@@ -1889,7 +1889,7 @@ class BookingAssistant {
   async executeCheckIn(bookingId, guestName, roomNumber) {
     this.showLoading('Recording check-in...');
     try {
-      const res = await this.apiCall('../api/admin_booking_status.php', {
+      const res = await this.apiCall('/api/admin/booking_status', {
         action: 'check_in',
         booking_id: bookingId
       });
@@ -2017,9 +2017,16 @@ class BookingAssistant {
 
         if (res.bill.balance > 0) {
           collectBtn.style.display = 'inline-flex';
+          collectBtn.innerHTML = '💵 COLLECT PAYMENT';
           executeBtn.disabled = true;
           executeBtn.style.opacity = 0.5;
           Voice.speak(`Room ${res.booking.room_number} has pending dues of ₹${res.bill.balance}. Please collect payment first.`);
+        } else if (res.bill.balance < 0) {
+          collectBtn.style.display = 'inline-flex';
+          collectBtn.innerHTML = '💵 PROCESS REFUND';
+          executeBtn.disabled = true;
+          executeBtn.style.opacity = 0.5;
+          Voice.speak(`Room ${res.booking.room_number} has a negative balance. Please process a refund or adjust charges before checkout.`);
         } else {
           collectBtn.style.display = 'none';
           executeBtn.disabled = false;
@@ -2182,6 +2189,43 @@ class BookingAssistant {
     }
   }
 
+  checkoutOpenChangeDate() {
+    if (!this.activeCheckoutData || !this.activeCheckoutData.booking) return;
+    document.getElementById('new-checkout-datetime').value = this.activeCheckoutData.booking.check_out_raw;
+    document.getElementById('change-checkout-modal').classList.add('active');
+  }
+
+  closeChangeCheckoutModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('change-checkout-modal').classList.remove('active');
+  }
+
+  async checkoutSubmitChangeDate() {
+    const newDate = document.getElementById('new-checkout-datetime').value;
+    if (!newDate) {
+      this.showToast('Please select a valid date and time', 'warning');
+      return;
+    }
+    this.closeChangeCheckoutModal();
+    this.showLoading('Recalculating folio...');
+    try {
+      const res = await this.apiCall('/api/admin/update_checkout_date', {
+        booking_id: this.activeCheckoutData.booking.id,
+        new_checkout_date: newDate.replace('T', ' ')
+      });
+      this.hideLoading();
+      if (res && res.success) {
+        this.showToast('Checkout date updated and folio recalculated.', 'success');
+        this.showCheckoutDetailsSheet(this.activeCheckoutData.booking.id);
+      } else {
+        this.showToast(res.message || 'Failed to update checkout date', 'danger');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.showToast(e.message || 'Connection error', 'danger');
+    }
+  }
+
   // --- PAYMENT MODE PICKER ---
   openPaymentModePickerThenNumpad() {
     const icons = { 'Cash': 'lucide-banknote', 'UPI': 'lucide-smartphone', 'Card': 'lucide-credit-card', 'BankTransfer': 'lucide-building-2', 'Online': 'lucide-globe' };
@@ -2288,7 +2332,7 @@ class BookingAssistant {
     
     this.showLoading('Processing payment...');
     try {
-      const res = await this.apiCall('../api/admin_record_payment.php', {
+      const res = await this.apiCall('/api/admin/record_payment', {
         booking_id: this.activePaymentBookingId,
         amount: amount,
         method: method,   // matches PMS: cash | upi | card | online
@@ -2718,7 +2762,7 @@ class BookingAssistant {
       }
 
       if (hasFront) {
-        frontPreview.innerHTML = `<img src="/uploads/${frontFilename}" style="width:100%; height:100%; object-fit:cover;">`;
+        frontPreview.innerHTML = `<img src="/api/admin/view_document?file=${frontFilename}" style="width:100%; height:100%; object-fit:cover;">`;
       } else {
         frontPreview.innerHTML = `
           <i class="lucide-image" style="font-size: 1.5rem; color: var(--color-text-muted);"></i>
@@ -2727,7 +2771,7 @@ class BookingAssistant {
       }
 
       if (hasBack) {
-        backPreview.innerHTML = `<img src="/uploads/${backFilename}" style="width:100%; height:100%; object-fit:cover;">`;
+        backPreview.innerHTML = `<img src="/api/admin/view_document?file=${backFilename}" style="width:100%; height:100%; object-fit:cover;">`;
       } else {
         backPreview.innerHTML = `
           <i class="lucide-image" style="font-size: 1.5rem; color: var(--color-text-muted);"></i>
@@ -2756,7 +2800,7 @@ class BookingAssistant {
     this.closeIdProofOptions();
     const filename = this.currentIdProofType === 'id_proof_front' ? this.activeActionIdFront : this.activeActionIdBack;
     if (filename) {
-      window.open(`/uploads/${filename}`, '_blank');
+      window.open(`/api/admin/view_document?file=${filename}`, '_blank');
     }
   }
 
@@ -2828,7 +2872,37 @@ class BookingAssistant {
 
   actionCheckOut() {
     this.closeBookingActionsSheet();
+    document.getElementById('checkout-type-modal').classList.add('active');
+  }
+
+  closeCheckoutTypeModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('checkout-type-modal').classList.remove('active');
+  }
+
+  proceedWithNormalCheckout() {
+    this.closeCheckoutTypeModal();
     this.showCheckoutDetailsSheet(this.activeActionBookingId);
+  }
+
+  async proceedWithEarlyCheckout() {
+    this.closeCheckoutTypeModal();
+    this.showLoading('Fetching booking details...');
+    try {
+      const res = await this.apiCall(`api/checkout.php?action=details&booking_id=${this.activeActionBookingId}`);
+      this.hideLoading();
+      if (res && res.success) {
+        this.activeCheckoutData = res;
+        // Format to YYYY-MM-DDTHH:MM for the datetime-local input
+        document.getElementById('new-checkout-datetime').value = res.booking.check_out_raw;
+        document.getElementById('change-checkout-modal').classList.add('active');
+      } else {
+        this.showToast('Failed to load booking details', 'danger');
+      }
+    } catch(e) {
+      this.hideLoading();
+      this.showToast('Network error', 'danger');
+    }
   }
 
   actionCollectPayment() {
@@ -2993,7 +3067,7 @@ class BookingAssistant {
   async markRoomClean(roomId, roomNumber) {
     this.showLoading('Marking room clean...');
     try {
-      const res = await this.apiCall('../api/admin_room_action.php', {
+      const res = await this.apiCall('/api/admin/room_action', {
         action: 'mark_clean',
         room_id: roomId
       });

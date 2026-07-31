@@ -14,6 +14,30 @@ CREATE TABLE IF NOT EXISTS `audit_logs` (
   CONSTRAINT `audit_logs_ibfk_1` FOREIGN KEY (`staff_id`) REFERENCES `staff_users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB ;
 
+CREATE TABLE IF NOT EXISTS `companies` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) NOT NULL DEFAULT 1,
+  `name` varchar(255) NOT NULL,
+  `contact_details` varchar(255) DEFAULT NULL,
+  `credit_limit` decimal(10,2) DEFAULT 0.00,
+  `balance` decimal(10,2) DEFAULT 0.00,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB ;
+
+CREATE TABLE IF NOT EXISTS `city_ledger` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `company_id` int(11) NOT NULL,
+  `booking_id` int(11) DEFAULT NULL,
+  `amount` decimal(10,2) NOT NULL,
+  `type` enum('charge','payment') NOT NULL,
+  `status` enum('pending','paid') DEFAULT 'pending',
+  `recorded_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `company_id` (`company_id`),
+  CONSTRAINT `city_ledger_company_fk` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB ;
+
 CREATE TABLE IF NOT EXISTS `bookings` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `display_id` varchar(50) DEFAULT NULL,
@@ -22,6 +46,7 @@ CREATE TABLE IF NOT EXISTS `bookings` (
   `guest_id` int(11) DEFAULT NULL,
   `check_in` datetime NOT NULL,
   `check_out` datetime NOT NULL,
+  `company_id` int(11) DEFAULT NULL,
   `payment_status` enum('pending_hold','completed_paid','cancelled') DEFAULT 'pending_hold',
   `booking_status` enum('booked','checked_in','checked_out','cancelled') NOT NULL DEFAULT 'booked',
   `razorpay_order_id` varchar(50) DEFAULT NULL,
@@ -35,8 +60,10 @@ CREATE TABLE IF NOT EXISTS `bookings` (
   PRIMARY KEY (`id`),
   KEY `guest_id` (`guest_id`),
   KEY `idx_collision_guard` (`room_id`,`check_in`,`check_out`,`payment_status`),
+  KEY `company_id` (`company_id`),
   CONSTRAINT `bookings_ibfk_1` FOREIGN KEY (`room_id`) REFERENCES `rooms` (`id`),
-  CONSTRAINT `bookings_ibfk_2` FOREIGN KEY (`guest_id`) REFERENCES `guests` (`id`)
+  CONSTRAINT `bookings_ibfk_2` FOREIGN KEY (`guest_id`) REFERENCES `guests` (`id`),
+  CONSTRAINT `bookings_company_fk` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB ;
 
 CREATE TABLE IF NOT EXISTS `finance_transactions` (
@@ -1147,3 +1174,31 @@ ALTER TABLE `pos_outlets`
 CREATE INDEX IF NOT EXISTS `idx_pos_orders_property` ON `pos_orders` (`property_id`);
 CREATE INDEX IF NOT EXISTS `idx_inventory_property`  ON `inventory_items` (`property_id`);
 CREATE INDEX IF NOT EXISTS `idx_pos_outlets_property` ON `pos_outlets` (`property_id`);
+
+CREATE TABLE IF NOT EXISTS `jobs_queue` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `queue_name` VARCHAR(50) DEFAULT 'default',
+    `payload_json` JSON NOT NULL,
+    `status` ENUM('pending', 'processing', 'completed', 'failed') DEFAULT 'pending',
+    `attempts` INT DEFAULT 0,
+    `max_attempts` INT DEFAULT 3,
+    `available_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX `idx_status_queue` (`status`, `queue_name`, `available_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Phase 16: Granular Tax Breakdown
+ALTER TABLE `folio_ledger` ADD COLUMN IF NOT EXISTS `cgst_amount` DECIMAL(10,2) DEFAULT 0.00;
+ALTER TABLE `folio_ledger` ADD COLUMN IF NOT EXISTS `sgst_amount` DECIMAL(10,2) DEFAULT 0.00;
+
+-- Phase 16: F&B Inventory
+CREATE TABLE IF NOT EXISTS `pos_inventory` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `stock_quantity` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `property_id` (`property_id`),
+  KEY `item_id` (`item_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

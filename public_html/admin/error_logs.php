@@ -253,7 +253,7 @@ try {
             const resolved = document.getElementById('filter-resolved').value;
 
             try {
-                const res = await fetch(`../api/admin_error_logs.php?action=list&severity=${severity}&category=${category}&resolved=${resolved}&page=${page}`);
+                const res = await fetch(`/api/admin/error_logs?action=list&severity=${severity}&category=${category}&resolved=${resolved}&page=${page}`);
                 const data = await res.json();
                 
                 if (data.success) {
@@ -335,7 +335,7 @@ try {
 
         async function updateStatsHeader() {
             try {
-                const res = await fetch(`../api/admin_error_logs.php?action=list&resolved=0`);
+                const res = await fetch(`/api/admin/error_logs?action=list&resolved=0`);
                 const data = await res.json();
                 if (data.success) {
                     const unresolved = data.logs.filter(l => l.resolved == 0);
@@ -381,7 +381,7 @@ try {
 
         async function resolveError(id) {
             try {
-                const res = await fetch('../api/admin_error_logs.php', {
+                const res = await fetch('/api/admin/error_logs', {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
@@ -409,7 +409,7 @@ try {
             const cat = document.getElementById('bulk-category-select').value;
             hideModal('bulk-modal');
             try {
-                const res = await fetch('../api/admin_error_logs.php', {
+                const res = await fetch('/api/admin/error_logs', {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',

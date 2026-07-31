@@ -292,7 +292,7 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
 
                 timeout = setTimeout(async () => {
                     try {
-                        const res = await fetch(`../api/search_guests.php?q=${encodeURIComponent(val)}`);
+                        const res = await fetch(`/api/system/search_guests?q=${encodeURIComponent(val)}`);
                         const data = await res.json();
                         
                         if (data.success && data.guests && data.guests.length > 0) {

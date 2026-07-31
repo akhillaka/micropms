@@ -249,7 +249,7 @@ $monthEnd = date('Y-m-t');
             ids.forEach(id => document.getElementById(id).innerHTML = `<div class="skeleton h-6 w-1/2 mt-1"></div>`);
 
             try {
-                const res = await fetch(`../api/admin_reports.php?type=revpar&start_date=${start}&end_date=${end}`);
+                const res = await fetch(`/api/admin/reports?type=revpar&start_date=${start}&end_date=${end}`);
                 const json = await res.json();
                 if(json.success && json.data) {
                     let tRev = 0, tRooms = 0, tOccRooms = 0;
@@ -307,7 +307,7 @@ $monthEnd = date('Y-m-t');
 
             try {
                 console.log(`[Reports] Fetching: type=${type} start=${start} end=${end}`);
-                const res = await fetch(`../api/admin_reports.php?type=${type}&start_date=${start}&end_date=${end}`);
+                const res = await fetch(`/api/admin/reports?type=${type}&start_date=${start}&end_date=${end}`);
                 const json = await res.json();
                 console.log(`[Reports] Response:`, json);
                 

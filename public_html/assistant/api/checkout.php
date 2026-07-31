@@ -93,7 +93,8 @@ ApiHandler::run(function(\PDO $db) {
                 'guest_photo' => $booking['guest_photo'],
                 'booking_status' => $booking['booking_status'],
                 'check_in' => date('d M Y, g:i A', strtotime($booking['check_in'])),
-                'check_out' => date('d M Y, g:i A', strtotime($booking['check_out']))
+                'check_out' => date('d M Y, g:i A', strtotime($booking['check_out'])),
+                'check_out_raw' => date('Y-m-d\TH:i', strtotime($booking['check_out']))
             ],
             'bill' => [
                 'room_rent' => $roomRent,

@@ -589,7 +589,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <div class="flex items-center gap-4">
                             <div class="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center text-slate-700 text-2xl font-bold">
                                 <?php if($booking['guest_photo']): ?>
-                                    <img src="../uploads/<?= htmlspecialchars($booking['guest_photo']) ?>" class="w-full h-full object-cover">
+                                    <img src="/api/admin/view_document?file=<?= htmlspecialchars($booking['guest_photo']) ?>" class="w-full h-full object-cover">
                                 <?php else: ?>
                                     <?= htmlspecialchars(strtoupper(substr($booking['guest_name'], 0, 1))) ?>
                                 <?php endif; ?>
@@ -647,9 +647,9 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <!-- Photo -->
                         <div class="border border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:bg-slate-50 transition-colors relative overflow-hidden group min-h-[140px]">
                             <?php if($booking['guest_photo']): ?>
-                                <img src="../uploads/<?= htmlspecialchars($booking['guest_photo']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('../uploads/<?= htmlspecialchars($booking['guest_photo']) ?>')">
+                                <img src="/api/admin/view_document?file=<?= htmlspecialchars($booking['guest_photo']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($booking['guest_photo']) ?>')">
                                 <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center gap-2">
-                                    <button onclick="UI.viewImage('../uploads/<?= htmlspecialchars($booking['guest_photo']) ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
+                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($booking['guest_photo']) ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
                                     <label class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Replace<input type="file" class="hidden" onchange="uploadDoc('guest_photo', this)"></label>
                                 </div>
                             <?php else: ?>

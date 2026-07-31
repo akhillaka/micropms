@@ -25,10 +25,10 @@ ApiHandler::run(function(\PDO $db) {
     // Normalize type to column name
     $dbCol = ($idType === 'guest_photo') ? 'photo' : $idType;
 
-    $uploadDir = realpath(__DIR__ . '/../../uploads');
+    $uploadDir = realpath(__DIR__ . '/../../../pms_core/uploads');
     if (!$uploadDir) {
         // Try creating it if missing
-        $uploadDir = __DIR__ . '/../../uploads';
+        $uploadDir = __DIR__ . '/../../../pms_core/uploads';
         if (!file_exists($uploadDir)) {
             mkdir($uploadDir, 0755, true);
         }
@@ -95,7 +95,7 @@ ApiHandler::run(function(\PDO $db) {
     ApiResponse::success([
         'message' => 'Document uploaded and linked successfully',
         'filename' => $savedFilename,
-        'url' => '/uploads/' . $savedFilename
+        'url' => '/api/admin/view_document?file=' . $savedFilename
     ]);
 
 }, true, false, false);

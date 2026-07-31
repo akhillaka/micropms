@@ -44,6 +44,15 @@ class AuthHelper {
         ],
         'housekeeping' => [
             'view_dashboard', 'housekeeping'
+        ],
+        'maintenance' => [
+            'view_dashboard', 'manage_rooms' // Can update room states
+        ],
+        'fb_cashier' => [
+            'view_dashboard', 'manage_pos' // Need to add manage_pos to permissions
+        ],
+        'night_auditor' => [
+            'view_dashboard', 'view_reports', 'view_finance', 'run_night_audit' // Need to add run_night_audit
         ]
     ];
     
@@ -119,8 +128,55 @@ class AuthHelper {
             return false;
         }
         
+        // Check if user has a custom role with custom permissions loaded in session
+        if (isset($_SESSION['custom_permissions']) && is_array($_SESSION['custom_permissions'])) {
+            return in_array($permission, $_SESSION['custom_permissions'], true);
+        }
+        
         $allowedPerms = self::PERMISSIONS[$role] ?? [];
         return in_array($permission, $allowedPerms, true);
+    }
+
+    /**
+     * Returns a map of all available system permissions with human-readable labels.
+     */
+    public static function getAllPermissions(): array {
+        $permissions = [
+            'view_dashboard' => 'View Dashboard',
+            'create_booking' => 'Create Booking',
+            'edit_booking' => 'Edit Booking',
+            'cancel_booking' => 'Cancel Booking',
+            'check_in_out' => 'Check-in / Check-out',
+            'view_folio' => 'View Folio',
+            'edit_folio' => 'Edit Folio',
+            'record_payment' => 'Record Payment',
+            'refund_payment' => 'Refund Payment',
+            'generate_payment_link' => 'Generate Payment Link',
+            'view_finance' => 'View Finance',
+            'manage_finance' => 'Manage Finance',
+            'export_finance' => 'Export Finance Data',
+            'view_reports' => 'View Reports',
+            'manage_guests' => 'Manage Guests',
+            'upload_document' => 'Upload Documents',
+            'housekeeping' => 'Housekeeping',
+            'manage_rooms' => 'Manage Rooms',
+            'manage_staff' => 'Manage Staff',
+            'manage_settings' => 'Manage Property Settings',
+            'view_audit_logs' => 'View Audit Logs',
+            'send_whatsapp' => 'Send WhatsApp Messages',
+            'view_error_logs' => 'View Error Logs',
+            'resolve_error_logs' => 'Resolve Error Logs',
+            'manage_pos' => 'Manage Point of Sale',
+            'run_night_audit' => 'Run Night Audit'
+        ];
+        
+        if (self::isSuperAdmin()) {
+            $permissions['manage_properties'] = 'Manage Properties';
+            $permissions['manage_saas'] = 'Manage SaaS Platform';
+            $permissions['manage_billing'] = 'Manage Billing';
+        }
+        
+        return $permissions;
     }
 
     /**

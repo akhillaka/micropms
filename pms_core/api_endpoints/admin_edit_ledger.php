@@ -27,6 +27,13 @@ if (!$ledgerId || !$desc) {
     $origStmt->execute(['id' => $ledgerId]);
     $origAmt = (float)$origStmt->fetchColumn();
     
+    $role = AuthHelper::getRole();
+    $canEditAmount = in_array($role, ['superadmin', 'owner', 'admin'], true);
+
+    if (!$canEditAmount && $amount != abs($origAmt)) {
+        ApiResponse::error('You do not have permission to edit amounts. Please post a Rebate instead.', 403);
+    }
+    
     // Ensure we keep the same mathematical sign (payments remain negative, charges remain positive)
     $amount = abs($amount);
     if ($origAmt < 0) {

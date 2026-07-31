@@ -80,11 +80,13 @@ class GoogleSheetService {
         $data = self::buildBookingData($pdo, $bookingId);
         if (!$data) return false;
 
-        return self::sendWebhook([
+        require_once __DIR__ . '/services/QueueService.php';
+        QueueService::push('google_sheets', [
             'action' => 'sync_row',
             'sheet_type' => 'booking',
             'data' => $data
         ]);
+        return true;
     }
 
     /**
@@ -94,11 +96,13 @@ class GoogleSheetService {
         $data = self::buildPaymentData($pdo, $ledgerId);
         if (!$data) return false;
 
-        return self::sendWebhook([
+        require_once __DIR__ . '/services/QueueService.php';
+        QueueService::push('google_sheets', [
             'action' => 'sync_row',
             'sheet_type' => 'payment',
             'data' => $data
         ]);
+        return true;
     }
 
     /**
@@ -108,11 +112,13 @@ class GoogleSheetService {
         $data = self::buildExpenseData($pdo, $expenseId);
         if (!$data) return false;
 
-        return self::sendWebhook([
+        require_once __DIR__ . '/services/QueueService.php';
+        QueueService::push('google_sheets', [
             'action' => 'sync_row',
             'sheet_type' => 'expense',
             'data' => $data
         ]);
+        return true;
     }
 
     /**
@@ -159,14 +165,13 @@ class GoogleSheetService {
         $chunks = array_chunk($items, 50);
         $totalSynced = 0;
 
+        require_once __DIR__ . '/services/QueueService.php';
         foreach ($chunks as $chunk) {
-            $resp = self::sendWebhook([
+            QueueService::push('google_sheets', [
                 'action' => 'bulk_sync',
                 'items' => $chunk
             ]);
-            if ($resp && isset($resp['count'])) {
-                $totalSynced += $resp['count'];
-            }
+            $totalSynced += count($chunk);
         }
 
         return ['success' => true, 'count' => $totalSynced, 'message' => "Synced $totalSynced records to Google Sheets."];

@@ -94,7 +94,7 @@ require_once __DIR__ . '/../pms_core/config.php';
             };
 
             try {
-                const res = await fetch('api/guest_auth.php', {
+                const res = await fetch('/api/guest/auth', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)

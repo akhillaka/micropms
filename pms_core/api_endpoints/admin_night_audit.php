@@ -11,13 +11,24 @@ ApiHandler::run(function(\PDO $db) {
 
     // Action: Run night audit manually
     if ($action === 'run') {
-        AuthHelper::requirePermission('manage_settings');
+        AuthHelper::requirePermission('run_night_audit');
         
         $username = $_SESSION['username'] ?? 'admin';
-        $audit = new NightAudit($db);
-        $result = $audit->run($username);
         
-        ApiResponse::success(['result' => $result]);
+        // Push job to queue for async processing to ensure scalability
+        $payload = json_encode([
+            'job_type' => 'night_audit',
+            'run_by' => $username,
+            'property_id' => AuthHelper::getPropertyId() // ensure multi-tenancy context
+        ]);
+        
+        $stmt = $db->prepare("INSERT INTO jobs_queue (queue_name, payload_json) VALUES ('night_audit', ?)");
+        $stmt->execute([$payload]);
+        
+        ApiResponse::success([
+            'message' => 'Night audit has been queued and will be processed shortly.',
+            'job_id' => $db->lastInsertId()
+        ]);
     }
 
     // Action: Get audit history
@@ -27,6 +38,52 @@ ApiHandler::run(function(\PDO $db) {
         $limit = isset($data['limit']) ? (int)$data['limit'] : 30;
         $history = NightAudit::getHistory($db, $limit);
         ApiResponse::success(['history' => $history]);
+    }
+
+    // Action: Get audit exceptions
+    elseif ($action === 'exceptions') {
+        AuthHelper::requireLogin();
+        $propertyId = AuthHelper::getPropertyId();
+        
+        // Find overdue checkouts
+        $stmt = $db->prepare("
+            SELECT b.id, b.room_id, r.room_number, b.guest_name, b.check_in, b.check_out, b.booking_status
+            FROM bookings b
+            JOIN rooms r ON b.room_id = r.id
+            WHERE b.property_id = ? AND b.booking_status = 'checked_in' AND b.check_out < NOW()
+        ");
+        $stmt->execute([$propertyId]);
+        $exceptions = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        
+        ApiResponse::success(['exceptions' => $exceptions]);
+    }
+
+    // Action: Bulk resolve exceptions (Auto-checkout)
+    elseif ($action === 'bulk_resolve') {
+        AuthHelper::requirePermission('run_night_audit');
+        $bookingIds = $data['booking_ids'] ?? [];
+        if (empty($bookingIds) || !is_array($bookingIds)) {
+            ApiResponse::error('No bookings selected');
+        }
+        
+        $propertyId = AuthHelper::getPropertyId();
+        $count = 0;
+        foreach ($bookingIds as $bid) {
+            // Verify booking belongs to property and is checked in
+            $stmt = $db->prepare("SELECT room_id FROM bookings WHERE id = ? AND property_id = ? AND booking_status = 'checked_in'");
+            $stmt->execute([$bid, $propertyId]);
+            $roomId = $stmt->fetchColumn();
+            
+            if ($roomId) {
+                // Check out
+                $db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = ?")->execute([$bid]);
+                // Mark room dirty
+                $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?")->execute([$roomId]);
+                $count++;
+            }
+        }
+        
+        ApiResponse::success(['message' => "$count exceptions resolved successfully."]);
     }
 
     // Action: Get last audit
@@ -45,7 +102,7 @@ ApiHandler::run(function(\PDO $db) {
         $keys = [
             'night_audit_enabled', 'night_audit_time', 'night_audit_auto_checkout',
             'night_audit_auto_checkout_hours', 'night_audit_mark_dirty',
-            'night_audit_notify_telegram', 'night_audit_notify_whatsapp',
+            'night_audit_notify_telegram', 'night_audit_notify_whatsapp', 'night_audit_notify_email',
             'night_audit_report_revenue', 'night_audit_report_occupancy',
             'night_audit_report_room_status', 'night_audit_report_bookings'
         ];

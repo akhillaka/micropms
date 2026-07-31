@@ -290,7 +290,7 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
             
             badges.forEach(badge => {
                 const logId = badge.getAttribute('data-log-id');
-                fetch(`../api/wa_sync_status.php?log_id=${logId}`)
+                fetch(`/api/whatsapp/sync_status?log_id=${logId}`)
                     .then(r => r.json())
                     .then(data => {
                         if (data.success && data.meta_status) {

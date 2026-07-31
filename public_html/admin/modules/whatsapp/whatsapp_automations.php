@@ -457,7 +457,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
             }
 
             try {
-                const res = await fetch('../api/admin_save_wa_automation.php', {
+                const res = await fetch('/api/admin/save_wa_automation', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ event_key: eventKey, template_id: tempId, status: status, mapping: mapping })
@@ -474,7 +474,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
             const name = document.getElementById('new_event_name').value.trim();
             if(!name) return;
             try {
-                const res = await fetch('../api/admin_add_automation_event.php', {
+                const res = await fetch('/api/admin/add_automation_event', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ name: name })
@@ -490,7 +490,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
         async function deleteEvent(id) {
             if(!await pmsConfirm("Are you sure you want to delete this custom event? Automations using it will fail.", "Delete Event", "danger")) return;
             try {
-                const res = await fetch('../api/admin_delete_automation_event.php', {
+                const res = await fetch('/api/admin/delete_automation_event', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ id: id })
@@ -523,7 +523,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
                 _csrf_token: document.querySelector('meta[name="csrf-token"]').getAttribute('content')
             };
             try {
-                const res = await fetch('../api/admin_save_settings.php', {
+                const res = await fetch('/api/admin/save_settings', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(data)
@@ -542,7 +542,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
             btn.disabled = true;
             btn.innerHTML = '<i class="ph ph-arrows-counter-clockwise animate-spin"></i> Syncing...';
             try {
-                const res = await fetch('../api/admin_sync_wa_templates.php');
+                const res = await fetch('/api/admin/sync_wa_templates');
                 const data = await res.json();
                 if (data.success) {
                     showToast(`Successfully synced ${data.count} templates!`);

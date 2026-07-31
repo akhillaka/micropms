@@ -26,6 +26,20 @@ if (str_ends_with(strtolower($request), '.php')) {
     $request = substr($request, 0, -4);
 }
 
+// ── API Router Interceptor ───────────────────────────────────────────────────
+if (str_starts_with($request, '/api/')) {
+    $apiRoutes = require __DIR__ . '/../pms_core/api_routes.php';
+    $originalFile = array_search($request, $apiRoutes);
+    if ($originalFile) {
+        require __DIR__ . '/../pms_core/api_endpoints/' . $originalFile;
+        exit;
+    }
+    http_response_code(404);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'error' => 'API Endpoint Not Found']);
+    exit;
+}
+
 // ── Setup Guard ─────────────────────────────────────────────────────────────
 // If setup is not complete, redirect all non-setup requests to /setup
 if (!str_starts_with($request, '/setup') && !str_starts_with($request, '/saas-admin')) {

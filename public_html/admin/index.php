@@ -432,6 +432,12 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                                 } else {
                                     $badgeColor = 'text-emerald-700 bg-emerald-50 border-emerald-100';
                                 }
+                                $deepCleanFreq = (int)(defined('DEEP_CLEAN_FREQ_DAYS') ? DEEP_CLEAN_FREQ_DAYS : 15);
+                                $needsDeepClean = false;
+                                if ($deepCleanFreq > 0) {
+                                    $lastDeepClean = !empty($room['last_deep_clean']) ? strtotime($room['last_deep_clean']) : 0;
+                                    $needsDeepClean = (time() - $lastDeepClean) > ($deepCleanFreq * 86400);
+                                }
                             ?>
                             <div class="flex items-center justify-between p-2.5 border border-slate-100 rounded-xl hover:shadow-sm transition-all bg-white" id="hk-room-<?= $room['id'] ?>">
                                 <div>
@@ -439,11 +445,19 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                                     <span class="text-[9px] text-slate-400 block mt-0.5"><?= htmlspecialchars($room['category_name']) ?></span>
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    <?php if ($needsDeepClean): ?>
+                                    <span title="Requires Deep Clean" class="text-rose-500"><i class="ph ph-sparkle text-lg"></i></span>
+                                    <?php endif; ?>
                                     <span class="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border <?= $badgeColor ?>"><?= str_replace('_', ' ', $room['state']) ?></span>
                                     <?php if ($isDirty): ?>
-                                    <button onclick="quickCleanRoom(<?= $room['id'] ?>)" title="Mark Clean" class="w-7 h-7 border border-amber-200 rounded-full bg-amber-500 text-white flex items-center justify-center hover:bg-amber-600 active:scale-95 transition-all shadow-sm">
-                                        <i class="ph ph-sparkle text-xs"></i>
-                                    </button>
+                                        <?php if ($needsDeepClean): ?>
+                                        <button onclick="quickDeepCleanRoom(<?= $room['id'] ?>)" title="Mark Deep Cleaned" class="w-7 h-7 border border-rose-200 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 active:scale-95 transition-all shadow-sm">
+                                            <i class="ph ph-sparkle text-xs"></i>
+                                        </button>
+                                        <?php endif; ?>
+                                        <button onclick="quickCleanRoom(<?= $room['id'] ?>)" title="Mark Clean" class="w-7 h-7 border border-amber-200 rounded-full bg-amber-500 text-white flex items-center justify-center hover:bg-amber-600 active:scale-95 transition-all shadow-sm">
+                                            <i class="ph ph-broom text-xs"></i>
+                                        </button>
                                     <?php endif; ?>
                                 </div>
                             </div>
@@ -571,7 +585,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                     <div class="guest-card flex flex-col md:flex-row justify-between items-start md:items-center gap-4 animate-fade-up">
                         <div class="flex items-center gap-3.5">
                             <div class="w-11 h-11 rounded-full bg-slate-100 border border-slate-200/50 flex items-center justify-center font-bold text-slate-700 text-sm overflow-hidden relative uppercase shrink-0 font-display">
-                                ${b.guest_photo ? `<img src="../uploads/${b.guest_photo}" class="w-full h-full object-cover">` : initials}
+                                ${b.guest_photo ? `<img src="/api/admin/view_document?file=${b.guest_photo}" class="w-full h-full object-cover">` : initials}
                             </div>
                             <div>
                                 <div class="flex items-center gap-2 flex-wrap">
@@ -613,13 +627,8 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                 if(data.success) {
                     const roomCard = document.getElementById('hk-room-' + roomId);
                     if (roomCard) {
-                        const badge = roomCard.querySelector('.uppercase');
-                        if (badge) {
-                            badge.className = 'text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border text-emerald-700 bg-emerald-50 border-emerald-100';
-                            badge.textContent = 'clean';
-                        }
-                        const btn = roomCard.querySelector('button');
-                        if (btn) btn.remove();
+                        roomCard.style.opacity = '0.5';
+                        setTimeout(() => roomCard.remove(), 300);
                     }
                     if (!silent) showToast('Room marked clean!', 'success');
                     return true;
@@ -630,6 +639,26 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             } catch(e) {
                 if (!silent) showToast('Connection error', 'error');
                 return false;
+            }
+        }
+
+        async function quickDeepCleanRoom(roomId) {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            try {
+                const res = await fetch('../api/admin_room_action.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    body: JSON.stringify({ room_id: roomId, action: 'mark_deep_clean' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Room marked as deep cleaned', 'success');
+                    setTimeout(() => window.location.reload(), 500);
+                } else {
+                    showToast('Error: ' + data.message, 'error');
+                }
+            } catch (e) {
+                showToast('Connection error', 'error');
             }
         }
 

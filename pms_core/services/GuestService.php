@@ -71,7 +71,7 @@ class GuestService {
         try {
             // Check if guest exists
             $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
-            $stmt = $db->prepare("SELECT id FROM guests WHERE phone = ? AND property_id = ?");
+            $stmt = $db->prepare("SELECT id FROM guests WHERE phone = ? AND property_id = ? FOR UPDATE");
             $stmt->execute([$phone, $propId]);
             $existing = $stmt->fetch();
 
@@ -83,17 +83,32 @@ class GuestService {
             }
 
             // Create new guest
-            $insertStmt = $db->prepare("INSERT INTO guests (property_id, phone, name) VALUES (:pid, :phone, :name)");
-            $insertStmt->execute(['pid' => $propId, 'phone' => $phone, 'name' => trim($name)]);
-            $guestId = (int)$db->lastInsertId();
+            try {
+                $insertStmt = $db->prepare("INSERT INTO guests (property_id, phone, name) VALUES (:pid, :phone, :name)");
+                $insertStmt->execute(['pid' => $propId, 'phone' => $phone, 'name' => trim($name)]);
+                $guestId = (int)$db->lastInsertId();
 
-            // Assign display ID
-            SequenceGenerator::assignDisplayId($db, 'guests', $guestId, 'SEQ_GUEST_FORMAT');
-
-            if ($shouldCommit) {
-                $db->commit();
+                // Assign display ID
+                SequenceGenerator::assignDisplayId($db, 'guests', $guestId, 'SEQ_GUEST_FORMAT');
+                
+                if ($shouldCommit) {
+                    $db->commit();
+                }
+                return ['guest_id' => $guestId, 'is_new' => true];
+            } catch (\PDOException $e) {
+                // Handle duplicate entry race condition (23000 unique constraint)
+                if ($e->getCode() == 23000) {
+                    $stmt->execute([$phone, $propId]);
+                    $existing = $stmt->fetch();
+                    if ($existing) {
+                        if ($shouldCommit) {
+                            $db->commit();
+                        }
+                        return ['guest_id' => (int)$existing['id'], 'is_new' => false];
+                    }
+                }
+                throw $e;
             }
-            return ['guest_id' => $guestId, 'is_new' => true];
         } catch (\Throwable $e) {
             if ($shouldCommit && $db->inTransaction()) {
                 $db->rollBack();

@@ -13,13 +13,17 @@ ApiHandler::run(function(\PDO $db) {
     $action = $data['action'] ?? '';
     $roomId = (int)($data['room_id'] ?? 0);
     
-    if (!$roomId || !in_array($action, ['mark_clean', 'mark_ooo'])) {
+    if (!$roomId || !in_array($action, ['mark_clean', 'mark_ooo', 'mark_deep_clean'])) {
         ApiResponse::error('Invalid request');
     }
 
-    if ($action === 'mark_clean') {
+    if ($action === 'mark_clean' || $action === 'mark_deep_clean') {
         // Guard: only transition from dirty to clean (matching assistant behavior)
-        $stmt = $db->prepare("UPDATE rooms SET state = 'clean' WHERE id = :id AND state = 'dirty'");
+        if ($action === 'mark_deep_clean') {
+            $stmt = $db->prepare("UPDATE rooms SET state = 'clean', last_deep_clean = CURRENT_TIMESTAMP WHERE id = :id AND state = 'dirty'");
+        } else {
+            $stmt = $db->prepare("UPDATE rooms SET state = 'clean' WHERE id = :id AND state = 'dirty'");
+        }
         $stmt->execute(['id' => $roomId]);
         
         if ($stmt->rowCount() === 0) {

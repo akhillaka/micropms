@@ -226,7 +226,7 @@ $totalCatExpenses = array_sum($catSummary);
                 <button onclick="window.print()" class="text-indigo-600 bg-indigo-50 p-2 rounded-full hover:bg-indigo-100 transition-colors" title="Print Report">
                     <i class="ph ph-printer text-xl"></i>
                 </button>
-                <a href="../api/admin_export_finance.php?start=<?= urlencode($start) ?>&end=<?= urlencode($end) ?>" class="text-amber-600 bg-amber-50 p-2 rounded-full hover:bg-amber-100 transition-colors" title="Export CSV">
+                <a href="/api/admin/export_finance?start=<?= urlencode($start) ?>&end=<?= urlencode($end) ?>" class="text-amber-600 bg-amber-50 p-2 rounded-full hover:bg-amber-100 transition-colors" title="Export CSV">
                     <i class="ph ph-download-simple text-xl"></i>
                 </a>
                 <?php include __DIR__ . '/components/desktop_nav.php'; ?>
@@ -715,7 +715,7 @@ $totalCatExpenses = array_sum($catSummary);
             const data = Object.fromEntries(formData.entries());
             
             try {
-                const res = await fetch('../api/admin_add_finance.php', {
+                const res = await fetch('/api/admin/add_finance', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
@@ -751,7 +751,7 @@ $totalCatExpenses = array_sum($catSummary);
             const data = Object.fromEntries(formData.entries());
             
             try {
-                const res = await fetch('../api/admin_edit_finance.php', {
+                const res = await fetch('/api/admin/edit_finance', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
@@ -779,7 +779,7 @@ $totalCatExpenses = array_sum($catSummary);
             const confirmed = await pmsConfirm("Are you sure you want to delete this transaction? This will permanently affect your cash ledger.");
             if(!confirmed) return;
             try {
-                const res = await fetch('../api/admin_delete_finance.php', {
+                const res = await fetch('/api/admin/delete_finance', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: id })

@@ -895,7 +895,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
 
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ action: 'delete_order', order_id: orderId })
@@ -987,7 +987,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify(payload)
@@ -1021,7 +1021,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify(payload)
@@ -1046,7 +1046,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
             };
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify(payload)
@@ -1066,7 +1066,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
         async function updateOrderStatus(orderId, status) {
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ action: 'update_order_status', order_id: orderId, status: status })
@@ -1127,7 +1127,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
 
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify(payload)
@@ -1155,7 +1155,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify(payload)
@@ -1176,7 +1176,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
             if (!confirm('Are you sure you want to delete this shop? Connected inventory products will be moved to General.')) return;
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ action: 'delete_outlet', outlet_id: outletId })
@@ -1201,7 +1201,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
             
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({
@@ -1229,7 +1229,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
         async function editOrder(orderId) {
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ action: 'get_order_full', order_id: orderId })
@@ -1371,7 +1371,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
 
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             try {
-                const res = await fetch('../../../api/admin_pos_actions.php', {
+                const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify(payload)

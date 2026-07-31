@@ -82,7 +82,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                 <div class="card-minimal p-6 lg:col-span-2 flex flex-col sm:flex-row gap-6 items-start sm:items-center relative">
                     <div class="w-24 h-24 sm:w-32 sm:h-32 rounded-2xl bg-brand-900 flex items-center justify-center text-white text-4xl sm:text-5xl font-black shadow-minimal overflow-hidden shrink-0 border-4 border-white">
                         <?php if($guest['photo']): ?>
-                            <img src="../uploads/<?= htmlspecialchars($guest['photo']) ?>" class="w-full h-full object-cover">
+                            <img src="/api/admin/view_document?file=<?= htmlspecialchars($guest['photo']) ?>" class="w-full h-full object-cover">
                         <?php else: ?>
                             <?= strtoupper(substr($guest['name'] ?: '?', 0, 1)) ?>
                         <?php endif; ?>
@@ -159,9 +159,9 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                         <!-- ID Proof Front -->
                         <div class="border-2 border-dashed border-brand-300 rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:border-brand-900 hover:bg-brand-50 transition-all relative overflow-hidden group min-h-[220px]">
                             <?php if($guest['id_proof_front']): ?>
-                                <img src="../uploads/<?= htmlspecialchars($guest['id_proof_front']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('../uploads/<?= htmlspecialchars($guest['id_proof_front']) ?>')">
+                                <img src="/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_front']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_front']) ?>')">
                                 <div class="absolute inset-0 bg-brand-900/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-                                    <button onclick="UI.viewImage('../uploads/<?= htmlspecialchars($guest['id_proof_front']) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
+                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_front']) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
                                     <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
                                 </div>
                             <?php else: ?>
@@ -177,9 +177,9 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                         <!-- ID Proof Back -->
                         <div class="border-2 border-dashed border-brand-300 rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:border-brand-900 hover:bg-brand-50 transition-all relative overflow-hidden group min-h-[220px]">
                             <?php if($guest['id_proof_back']): ?>
-                                <img src="../uploads/<?= htmlspecialchars($guest['id_proof_back']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('../uploads/<?= htmlspecialchars($guest['id_proof_back']) ?>')">
+                                <img src="/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_back']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_back']) ?>')">
                                 <div class="absolute inset-0 bg-brand-900/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-                                    <button onclick="UI.viewImage('../uploads/<?= htmlspecialchars($guest['id_proof_back']) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
+                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_back']) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
                                     <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
                                 </div>
                             <?php else: ?>
@@ -195,9 +195,9 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                         <!-- Guest Photo -->
                         <div class="border-2 border-dashed border-brand-300 rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:border-brand-900 hover:bg-brand-50 transition-all relative overflow-hidden group min-h-[220px]">
                             <?php if($guest['photo']): ?>
-                                <img src="../uploads/<?= htmlspecialchars($guest['photo']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('../uploads/<?= htmlspecialchars($guest['photo']) ?>')">
+                                <img src="/api/admin/view_document?file=<?= htmlspecialchars($guest['photo']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['photo']) ?>')">
                                 <div class="absolute inset-0 bg-brand-900/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-                                    <button onclick="UI.viewImage('../uploads/<?= htmlspecialchars($guest['photo']) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
+                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['photo']) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
                                     <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" class="hidden" onchange="uploadDoc('photo', this)"></label>
                                 </div>
                             <?php else: ?>
@@ -370,7 +370,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
             
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
             try {
-                const res = await fetch('../api/admin_edit_guest_profile.php', {
+                const res = await fetch('/api/admin/edit_guest_profile', {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
@@ -421,7 +421,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                     formData.append('guest_id', guestId);
                     formData.append('_csrf_token', csrfToken);
                     
-                    const res = await fetch('../api/admin_upload_document.php', {
+                    const res = await fetch('/api/admin/upload_document', {
                         method: 'POST', body: formData
                     });
                     const text = await res.text();
@@ -441,7 +441,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                 formData.append('guest_id', guestId);
                 formData.append('_csrf_token', csrfToken);
                 
-                const res = await fetch('../api/admin_upload_document.php', {
+                const res = await fetch('/api/admin/upload_document', {
                     method: 'POST', body: formData
                 });
                 const text = await res.text();

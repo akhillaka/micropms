@@ -65,10 +65,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $user = $stmt->fetch();
         
         if ($user && password_verify($password, $user['password_hash'])) {
-            if ($user['access_level'] === 'superadmin' || $user['role'] === 'superadmin') {
-                header("Location: /saas-admin/login");
-                exit;
-            }
+            // Superadmin gets normal session variables so they can use group_dashboard
+            // We removed the redirect to /saas-admin/login so they can access both seamlessly.
 
             $isUserActive = 1;
             if (isset($user['is_active'])) {
@@ -111,6 +109,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['access_level'] = $user['access_level']; // Ensure legacy check passes
                 $_SESSION['username'] = $user['username'];
                 
+                // Automatically log them into the SaaS control panel if they are a superadmin
+                if ($user['access_level'] === 'superadmin' || $user['role'] === 'superadmin') {
+                    $_SESSION['saas_admin_id'] = $user['id'];
+                    $_SESSION['saas_admin_username'] = $user['username'];
+                    $_SESSION['saas_admin_role'] = 'superadmin';
+                }
+                
+                if (!empty($user['role_id'])) {
+                    try {
+                        $roleStmt = $db->prepare("SELECT permissions FROM roles WHERE id = ?");
+                        $roleStmt->execute([$user['role_id']]);
+                        $roleData = $roleStmt->fetch();
+                        if ($roleData && !empty($roleData['permissions'])) {
+                            $_SESSION['custom_permissions'] = json_decode($roleData['permissions'], true) ?? [];
+                        }
+                    } catch (\PDOException $e) {
+                        // ignore if roles table doesn't exist yet
+                    }
+                }
+                
+
                 header("Location: group_dashboard.php");
                 exit;
             }

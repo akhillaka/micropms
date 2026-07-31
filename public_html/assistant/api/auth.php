@@ -19,7 +19,7 @@ ApiHandler::run(function(\PDO $db) {
         if ($checkCol2 && $checkCol2->rowCount() === 0) {
             $db->exec("ALTER TABLE staff_users ADD COLUMN assistant_access TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = Allowed to access Booking Assistant PWA'");
             // Assign default access to owner and admin
-            $db->exec("UPDATE staff_users SET assistant_access = 1 WHERE access_level = 'owner' OR username = 'admin'");
+            $db->exec("UPDATE staff_users SET assistant_access = 1 WHERE access_level = 'superadmin' OR access_level = 'owner' OR username = 'admin'");
         }
         
         // Check and add is_active column

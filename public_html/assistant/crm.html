@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MicroPMS CRM Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #f8f9fa; padding-top: 20px; }
+        .stat-card { border: none; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .stat-card .card-body { padding: 25px; }
+        .stat-title { font-size: 0.9rem; text-transform: uppercase; color: #6c757d; font-weight: 600; }
+        .stat-value { font-size: 2rem; font-weight: 700; color: #212529; margin-top: 10px; }
+        .chart-container { background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 class="mb-4">Guest CRM & Analytics</h2>
+        
+        <!-- Key Metrics -->
+        <div class="row" id="metrics-row">
+            <div class="col-md-4">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <div class="stat-title">Total Guest LTV</div>
+                        <div class="stat-value" id="val-ltv">₹0</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <div class="stat-title">Repeat Guest Ratio</div>
+                        <div class="stat-value" id="val-repeat">0%</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <div class="stat-title">Avg. Length of Stay</div>
+                        <div class="stat-value" id="val-los">0 days</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Source Breakdown Chart -->
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h5>Booking Sources</h5>
+                    <canvas id="sourceChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Top LTV Guests -->
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h5>Top Guests by LTV</h5>
+                    <table class="table table-hover mt-3" id="top-guests-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Phone</th>
+                                <th>Bookings</th>
+                                <th>Spent</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            fetch('/api/admin/crm_dashboard')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        const d = data.data;
+                        
+                        // Update Metrics
+                        document.getElementById('val-ltv').textContent = '₹' + parseFloat(d.total_ltv).toLocaleString('en-IN');
+                        document.getElementById('val-repeat').textContent = d.repeat_guest_ratio + '%';
+                        document.getElementById('val-los').textContent = d.avg_los + ' days';
+
+                        // Render Chart
+                        const ctx = document.getElementById('sourceChart').getContext('2d');
+                        new Chart(ctx, {
+                            type: 'doughnut',
+                            data: {
+                                labels: d.sources.labels,
+                                datasets: [{
+                                    data: d.sources.revenue,
+                                    backgroundColor: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b']
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                plugins: {
+                                    legend: { position: 'bottom' },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: function(context) {
+                                                let label = context.label || '';
+                                                if (label) label += ': ';
+                                                label += '₹' + context.raw.toLocaleString('en-IN');
+                                                return label;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+
+                        // Populate Top Guests
+                        const tbody = document.querySelector('#top-guests-table tbody');
+                        d.top_guests.forEach(g => {
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td>${g.name}</td>
+                                <td>${g.phone}</td>
+                                <td>${g.booking_count}</td>
+                                <td>₹${parseFloat(g.total_spent).toLocaleString('en-IN')}</td>
+                            `;
+                            tbody.appendChild(tr);
+                        });
+                    } else {
+                        alert('Error loading CRM data');
+                    }
+                })
+                .catch(err => console.error('Error fetching CRM data:', err));
+        });
+    </script>
+</body>
+</html>

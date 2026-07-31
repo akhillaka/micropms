@@ -69,7 +69,7 @@
         <a href="<?php echo $adminBaseUrl; ?>api_docs.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-book text-lg text-slate-400"></i> API Docs</a>
         
         <div class="border-t border-slate-100 my-1"></div>
-        <?php if (($_SESSION['access_level'] ?? '') === 'owner'): ?>
+        <?php if (AuthHelper::isSuperAdmin()): ?>
             <p class="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest text-emerald-600">SaaS Controls</p>
             <a href="<?php echo $adminBaseUrl; ?>modules/saas/saas_properties.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50 transition-colors"><i class="ph ph-shield-check text-lg text-emerald-500"></i> Return to SaaS Panel</a>
             <div class="border-t border-slate-100 my-1"></div>

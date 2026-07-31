@@ -10,14 +10,35 @@ ApiHandler::run(function(\PDO $db) {
 
     $data = json_decode(file_get_contents('php://input'), true);
     $action = $data['action'] ?? null;
-    $validRoles = ['owner', 'admin', 'manager', 'receptionist', 'housekeeping'];
+    $validRoles = ['owner', 'admin', 'manager', 'receptionist', 'housekeeping', 'maintenance', 'fb_cashier', 'night_auditor'];
+    $propertyId = AuthHelper::getPropertyId();
 
+    // Helper function to resolve role input to access_level and role_id
+    $resolveRole = function(string $roleInput) use ($db, $validRoles, $propertyId) {
+        if (str_starts_with($roleInput, 'custom_')) {
+            $roleId = (int)substr($roleInput, 7);
+            $stmt = $db->prepare("SELECT id, name FROM roles WHERE id = ? AND property_id = ?");
+            $stmt->execute([$roleId, $propertyId]);
+            $customRole = $stmt->fetch();
+            if (!$customRole) {
+                throw new Exception("Invalid custom role selected");
+            }
+            return ['access_level' => 'manager', 'role_id' => $roleId, 'role_name' => $customRole['name']];
+        }
+        if (!in_array($roleInput, $validRoles, true)) {
+            throw new Exception("Invalid role selection");
+        }
+        return ['access_level' => $roleInput, 'role_id' => null, 'role_name' => $roleInput];
+    };
 
     if ($action === 'add') {
         $username = trim($data['username'] ?? '');
         $password = $data['password'] ?? '';
         $pin = $data['pin'] ?? '';
-        $role = $data['role'] ?? 'manager';
+        $roleInput = $data['role'] ?? 'manager';
+        
+        $resolvedRole = $resolveRole($roleInput);
+
 
         if (empty($username) || empty($password)) {
             throw new Exception("Username and password are required");
@@ -28,10 +49,6 @@ ApiHandler::run(function(\PDO $db) {
         if (!empty($pin) && !preg_match('/^\d{4}$/', $pin)) {
             throw new Exception("PIN must be exactly 4 digits");
         }
-        if (!in_array($role, $validRoles, true)) {
-            throw new Exception("Invalid role selection");
-        }
-
         // Enforce SaaS seat limit before adding a new staff member
         $propertyId = AuthHelper::getPropertyId();
         require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
@@ -43,7 +60,7 @@ ApiHandler::run(function(\PDO $db) {
             throw new Exception("Username already exists");
         }
 
-        $stmt = $db->prepare("INSERT INTO staff_users (property_id, username, password_hash, pin_hash, access_level, role, is_active) VALUES (:prop, :u, :p, :pin, :a, :r, 1)");
+        $stmt = $db->prepare("INSERT INTO staff_users (property_id, username, password_hash, pin_hash, access_level, role, role_id, is_active) VALUES (:prop, :u, :p, :pin, :a, :r, :rid, 1)");
         $hash = password_hash($password, PASSWORD_DEFAULT);
         $pinHash = !empty($pin) ? password_hash($pin, PASSWORD_DEFAULT) : null;
         $stmt->execute([
@@ -51,14 +68,15 @@ ApiHandler::run(function(\PDO $db) {
             'u' => $username, 
             'p' => $hash, 
             'pin' => $pinHash,
-            'a' => $role, // Sync access_level for safety
-            'r' => $role
+            'a' => $resolvedRole['access_level'],
+            'r' => $resolvedRole['role_name'],
+            'rid' => $resolvedRole['role_id']
         ]);
         $newId = $db->lastInsertId();
 
-        AuditLogger::log($_SESSION['user_id'], 'ADD_USER', 'SYSTEM', $newId, [
+        AuditLogger::log($_SESSION['user_id'], 'ADD_USER', 'SYSTEM', (int)$newId, [
             'username' => $username,
-            'role' => $role
+            'role' => $roleInput
         ]);
 
         ApiResponse::success(['message' => 'User added successfully']);
@@ -67,14 +85,13 @@ ApiHandler::run(function(\PDO $db) {
         $userId = $data['user_id'] ?? null;
         $username = trim($data['username'] ?? '');
         $password = $data['password'] ?? '';
-        $role = $data['role'] ?? 'manager';
+        $roleInput = $data['role'] ?? 'manager';
         $isActive = isset($data['is_active']) ? (int)$data['is_active'] : 1;
+        
+        $resolvedRole = $resolveRole($roleInput);
 
         if (!$userId || empty($username)) {
             throw new Exception("User ID and username are required");
-        }
-        if (!in_array($role, $validRoles, true)) {
-            throw new Exception("Invalid role selection");
         }
 
         // Get target user details
@@ -86,8 +103,13 @@ ApiHandler::run(function(\PDO $db) {
         }
 
         // Prevent modifying own active status or role
-        if ((int)$userId === (int)$_SESSION['user_id'] && ($isActive === 0 || $role !== $targetUser['access_level'])) {
+        if ((int)$userId === (int)$_SESSION['user_id'] && ($isActive === 0 || $resolvedRole['access_level'] !== $targetUser['access_level'])) {
             throw new Exception("Cannot deactivate or change the role of your own logged-in account");
+        }
+
+        // Prevent non-superadmins from modifying a superadmin account
+        if ($targetUser['access_level'] === 'superadmin' && !AuthHelper::isSuperAdmin()) {
+            throw new Exception("Access denied: You cannot modify a superadmin account");
         }
 
         $stmt = $db->prepare("SELECT id FROM staff_users WHERE username = :u AND id != :id");
@@ -112,12 +134,14 @@ ApiHandler::run(function(\PDO $db) {
             "username = :u",
             "access_level = :a",
             "role = :r",
+            "role_id = :rid",
             "is_active = :ia"
         ];
         $params = [
             'u' => $username,
-            'a' => $role,
-            'r' => $role,
+            'a' => $resolvedRole['access_level'],
+            'r' => $resolvedRole['role_name'],
+            'rid' => $resolvedRole['role_id'],
             'ia' => $isActive,
             'id' => $userId
         ];
@@ -136,9 +160,9 @@ ApiHandler::run(function(\PDO $db) {
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
 
-        AuditLogger::log($_SESSION['user_id'], 'EDIT_USER', 'SYSTEM', $userId, [
+        AuditLogger::log($_SESSION['user_id'], 'EDIT_USER', 'SYSTEM', (int)$userId, [
             'username' => $username,
-            'role' => $role,
+            'role' => $roleInput,
             'is_active' => $isActive,
             'password_changed' => !empty($password),
             'pin_changed' => !empty($pin)
@@ -155,11 +179,16 @@ ApiHandler::run(function(\PDO $db) {
             throw new Exception("Cannot delete your own account");
         }
 
-        $stmt = $db->prepare("SELECT username FROM staff_users WHERE id = :id");
+        $stmt = $db->prepare("SELECT username, access_level FROM staff_users WHERE id = :id");
         $stmt->execute(['id' => $userId]);
         $user = $stmt->fetch();
         if (!$user) {
             throw new Exception("User not found");
+        }
+
+        // Prevent non-superadmins from deleting a superadmin account
+        if ($user['access_level'] === 'superadmin' && !AuthHelper::isSuperAdmin()) {
+            throw new Exception("Access denied: You cannot delete a superadmin account");
         }
 
         // Soft delete: deactivate the user instead of hard delete to preserve historical integrity
@@ -175,16 +204,13 @@ ApiHandler::run(function(\PDO $db) {
 
     } elseif ($action === 'invite') {
         $email = trim($data['email'] ?? '');
-        $role = $data['role'] ?? 'manager';
+        $roleInput = $data['role'] ?? 'manager';
         
         if (empty($email)) {
             throw new Exception("Email is required for invitation");
         }
-        if (!in_array($role, $validRoles, true)) {
-            throw new Exception("Invalid role selection");
-        }
         
-        $propertyId = AuthHelper::getPropertyId();
+        $resolvedRole = $resolveRole($roleInput);
         
         require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
         SaaSEntitlementsService::checkStaffLimit($db, $propertyId);
@@ -193,7 +219,7 @@ ApiHandler::run(function(\PDO $db) {
         $expires = date('Y-m-d H:i:s', strtotime('+7 days'));
         
         $stmt = $db->prepare("INSERT INTO team_invitations (property_id, email, role, token, expires_at) VALUES (?, ?, ?, ?, ?)");
-        $stmt->execute([$propertyId, $email, $role, $token, $expires]);
+        $stmt->execute([$propertyId, $email, $roleInput, $token, $expires]);
         
         $proto = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
@@ -201,7 +227,7 @@ ApiHandler::run(function(\PDO $db) {
         
         AuditLogger::log($_SESSION['user_id'], 'INVITE_USER', 'SYSTEM', null, [
             'email' => $email,
-            'role' => $role
+            'role' => $roleInput
         ]);
         
         ApiResponse::success([

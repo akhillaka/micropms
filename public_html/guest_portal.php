@@ -399,7 +399,7 @@ try {
                 formData.append('id_back', document.getElementById('id_back').files[0]);
 
                 try {
-                    const res = await fetch('api/guest_self_checkin.php', {
+                    const res = await fetch('/api/guest/self_checkin', {
                         method: 'POST',
                         body: formData // FormData sets multipart automatically
                     });
@@ -899,7 +899,7 @@ try {
             
             try {
                 // 1. Create order on the backend
-                const orderRes = await fetch('api/guest_create_razorpay_order.php', {
+                const orderRes = await fetch('/api/guest/create_razorpay_order', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ booking_id: bookingId, token: token, amount: amount })
@@ -922,7 +922,7 @@ try {
                     handler: async function (response) {
                         // 3. Record payment upon success
                         try {
-                            const recRes = await fetch('api/guest_record_payment.php', {
+                            const recRes = await fetch('/api/guest/record_payment', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
@@ -967,7 +967,7 @@ try {
             const bookingId = "<?= $bookingId ?>";
             const token = "<?= $token ?>";
             try {
-                const res = await fetch(`api/guest_pos_menu.php?id=${bookingId}&token=${token}&_t=${Date.now()}`);
+                const res = await fetch(`/api/guest/pos_menu?id=${bookingId}&token=${token}&_t=${Date.now()}`);
                 const data = await res.json();
                 if (data.success) {
                     guestMenuData = data;
@@ -1117,7 +1117,7 @@ try {
             };
 
             try {
-                const res = await fetch('api/guest_pos_order.php', {
+                const res = await fetch('/api/guest/pos_order', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(payload)

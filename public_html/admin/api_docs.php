@@ -29,7 +29,7 @@ $baseUrl = $scheme . '://' . $host;
                     <p class="text-sm font-medium text-brand-900/60 mt-1">Webhooks & External Integrations</p>
                 </div>
             </div>
-            <a href="whatsapp_crm.php" class="bg-brutal-green text-brand-900 font-semibold px-4 py-2 rounded-xl border border-brand-200 shadow-minimal hover:translate-y-1 hover: transition-all flex items-center gap-2">
+            <a href="modules/whatsapp/whatsapp_automations.php" class="bg-brutal-green text-brand-900 font-semibold px-4 py-2 rounded-xl border border-brand-200 shadow-minimal hover:translate-y-1 hover: transition-all flex items-center gap-2">
                 <i class="ph ph-whatsapp-logo text-xl"></i> Back to CRM
             </a>
         </div>

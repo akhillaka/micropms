@@ -46,7 +46,7 @@ async function submitStatusChange(btn) {
     btn.disabled = true;
 
     try {
-        const res = await fetch('../api/admin_booking_status.php', {
+        const res = await fetch('/api/admin/booking_status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -110,7 +110,7 @@ async function editBooking(btn) {
     btn.disabled = true;
 
     try {
-        const res = await fetch('../api/admin_edit_booking.php', {
+        const res = await fetch('/api/admin/edit_booking', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -144,7 +144,7 @@ async function extendStay(btn, hours) {
     btn.innerText = 'Wait...';
     btn.disabled = true;
     try {
-        const res = await fetch('../api/admin_extend_stay.php', {
+        const res = await fetch('/api/admin/extend_stay', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ booking_id: bookingId, hours: hours })
@@ -191,7 +191,7 @@ async function postCharge(btn) {
     btn.disabled = true;
 
     try {
-        const res = await fetch('../api/admin_post_charge.php', {
+        const res = await fetch('/api/admin/post_charge', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ booking_id: bookingId, item_name: itemName, amount: amount })
@@ -228,7 +228,7 @@ async function checkout(btn) {
     btn.disabled = true;
 
     try {
-        const res = await fetch('../api/admin_booking_status.php', {
+        const res = await fetch('/api/admin/booking_status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'check_out', booking_id: bookingId, reason: 'Manual checkout from Folio' })
@@ -258,7 +258,7 @@ async function saveGuestEdit(btn) {
     const pincode = document.getElementById('edit_g_pincode').value;
 
     UI.setLoading(btn, true);
-    const res = await fetch('../api/admin_edit_guest.php', {
+    const res = await fetch('/api/admin/edit_guest', {
         method: 'POST',
         body: JSON.stringify({
             booking_id: bookingId,
@@ -291,7 +291,7 @@ async function saveLedgerEdit(btn) {
     const method = document.getElementById('edit_l_method').value;
 
     try {
-        const res = await fetch('../api/admin_edit_ledger.php', {
+        const res = await fetch('/api/admin/edit_ledger', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ ledger_id: id, description: desc, amount: amt, payment_method: method })
@@ -307,7 +307,7 @@ async function saveLedgerEdit(btn) {
 function refundRazorpay(ledgerId) {
     if (!confirm('Are you sure you want to issue a refund for this online payment? This action cannot be undone.')) return;
     
-    fetch('../api/admin_refund_razorpay.php', {
+    fetch('/api/admin/refund_razorpay', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ ledger_id: ledgerId })
@@ -327,7 +327,7 @@ function refundRazorpay(ledgerId) {
 
 async function deleteLedger(id) {
     if(!confirm('Are you sure you want to delete this ledger entry?')) return;
-    const res = await fetch('../api/admin_delete_ledger.php', {
+    const res = await fetch('/api/admin/delete_ledger', {
         method: 'POST', body: JSON.stringify({ledger_id: id})
     });
     const data = await res.json();
@@ -350,7 +350,7 @@ async function uploadDoc(type, input) {
             formData.append('doc_type', type);
             formData.append('booking_id', bookingId);
 
-            const res = await fetch('../api/admin_upload_document.php', {
+            const res = await fetch('/api/admin/upload_document', {
                 method: 'POST', body: formData
             });
             const text = await res.text();
@@ -369,7 +369,7 @@ async function uploadDoc(type, input) {
         formData.append('doc_type', type);
         formData.append('booking_id', bookingId);
 
-        const res = await fetch('../api/admin_upload_document.php', {
+        const res = await fetch('/api/admin/upload_document', {
             method: 'POST', body: formData
         });
         const text = await res.text();
@@ -392,7 +392,7 @@ async function recordManualPayment(btn, method) {
     btn.disabled = true;
 
     try {
-        const res = await fetch('../api/admin_record_payment.php', {
+        const res = await fetch('/api/admin/record_payment', {
             method: 'POST', body: JSON.stringify({
                 booking_id: bookingId, amount: amt, method: method, ref: 'MANUAL_' + Date.now()
             })
@@ -420,7 +420,7 @@ async function payViaGateway(btn) {
 
     let orderId = '';
     try {
-        const orderRes = await fetch('../api/admin_create_razorpay_order.php', {
+        const orderRes = await fetch('/api/admin/create_razorpay_order', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ booking_id: bookingId, amount: amt })
@@ -449,7 +449,7 @@ async function payViaGateway(btn) {
         description: 'Folio Payment Collection',
         order_id: orderId,
         handler: async function (response) {
-            const res = await fetch('../api/admin_record_payment.php', {
+            const res = await fetch('/api/admin/record_payment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -484,7 +484,7 @@ async function triggerWhatsAppAutomation(eventKey, btn) {
     btn.innerHTML = `<span class="flex items-center gap-2"><i class="ph ph-spinner animate-spin"></i> Sending...</span>`;
     
     try {
-        const res = await fetch('../api/trigger_automation.php', {
+        const res = await fetch('/api/system/trigger_automation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ event: eventKey, booking_id: bookingId })

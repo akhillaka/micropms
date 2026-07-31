@@ -261,7 +261,7 @@ if ($view === 'weekly') {
     async function loadData(){
         var s,e;
         if(VIEW==='hourly'){s=e=CAL_DATE}else{s=WEEK[0].date;e=WEEK[6].date}
-        try{var r=await fetch('../../../api/admin_calendar_data.php?start='+s+'&end='+e);var j=await r.json();if(j.success){rooms=j.rooms;bookings=j.bookings}}catch(x){}
+        try{var r=await fetch('/api/admin/calendar_data?start='+s+'&end='+e);var j=await r.json();if(j.success){rooms=j.rooms;bookings=j.bookings}}catch(x){}
     }
 
     /* ═══ ROOM STATE ═══ */
@@ -609,7 +609,7 @@ if ($view === 'weekly') {
         var orig=btn.innerHTML;
         btn.innerHTML='<i class="ph ph-spinner animate-spin text-xs"></i>';btn.disabled=true;
         try{
-            var r=await fetch('../api/admin_room_action.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room_id:id,action:'mark_clean'})});
+            var r=await fetch('/api/admin/room_action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room_id:id,action:'mark_clean'})});
             var d=await r.json();
             if(d.success){var rm=rooms.find(function(r){return r.id===id});if(rm)rm.state='clean';render()}
             else{showToast(d.message);btn.innerHTML=orig;btn.disabled=false}

@@ -34,6 +34,20 @@ ApiHandler::run(function(\PDO $db) {
     if (!$booking) {
         ApiResponse::error('Booking not found or cancelled');
     }
+    
+    // Validate City Ledger
+    if (strtoupper($method) === 'CITY_LEDGER') {
+        $companyId = $booking['company_id'] ?? (int)($data['company_id'] ?? 0);
+        if (!$companyId) {
+            ApiResponse::error('A Corporate Company must be selected to route to City Ledger');
+        }
+        
+        // Link it to the booking if not already linked
+        if (!$booking['company_id']) {
+            $db->prepare("UPDATE bookings SET company_id = ? WHERE id = ?")->execute([$companyId, $bookingId]);
+            $booking['company_id'] = $companyId;
+        }
+    }
 
     // Auto-capture Razorpay payment if applicable
     if ($method === 'online' && str_starts_with($ref, 'pay_')) {
@@ -75,15 +89,28 @@ ApiHandler::run(function(\PDO $db) {
     $receiptStmt->execute([$entryId]);
     $receiptDisplayId = $receiptStmt->fetchColumn() ?: 'RCPT-' . $entryId;
     
-    $financeStmt = $db->prepare("INSERT INTO finance_transactions (type, category, booking_id, amount, description, payment_method, staff_id) VALUES ('income', 'booking', :bid, :amount, :desc, :method, :staff)");
-    $financeStmt->execute([
-        'bid' => $bookingId,
-        'amount' => $amount,
-        'desc' => "Payment - " . ucfirst($method) . " (Receipt {$receiptDisplayId})",
-        'method' => strtolower($method),
-        'staff' => $_SESSION['user_id'] ?? null
-    ]);
-    SequenceGenerator::assignDisplayId($db, 'finance_transactions', (int)$db->lastInsertId(), 'SEQ_TRANSACTION_FORMAT');
+    // Record finance transaction or city ledger
+    if (strtoupper($method) === 'CITY_LEDGER') {
+        $cityStmt = $db->prepare("INSERT INTO city_ledger (company_id, booking_id, amount, type, status, recorded_at) VALUES (:cid, :bid, :amount, 'charge', 'pending', NOW())");
+        $cityStmt->execute([
+            'cid' => $booking['company_id'],
+            'bid' => $bookingId,
+            'amount' => $amount
+        ]);
+        
+        // Update company balance
+        $db->prepare("UPDATE companies SET balance = balance + ? WHERE id = ?")->execute([$amount, $booking['company_id']]);
+    } else {
+        $financeStmt = $db->prepare("INSERT INTO finance_transactions (type, category, booking_id, amount, description, payment_method, staff_id) VALUES ('income', 'booking', :bid, :amount, :desc, :method, :staff)");
+        $financeStmt->execute([
+            'bid' => $bookingId,
+            'amount' => $amount,
+            'desc' => "Payment - " . ucfirst($method) . " (Receipt {$receiptDisplayId})",
+            'method' => strtolower($method),
+            'staff' => $_SESSION['user_id'] ?? null
+        ]);
+        SequenceGenerator::assignDisplayId($db, 'finance_transactions', (int)$db->lastInsertId(), 'SEQ_TRANSACTION_FORMAT');
+    }
 
     // Telegram notification
     $tgMsg = "💰 <b>Payment Received</b>\n\nRoom: {$booking['room_number']}\nGuest: " . htmlspecialchars($booking['guest_name']) . "\nAmount: ₹" . number_format($amount, 2) . "\nMethod: " . ucfirst($method);

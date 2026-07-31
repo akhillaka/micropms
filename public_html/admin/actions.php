@@ -68,7 +68,7 @@ CsrfToken::checkTimeout();
             icon.classList.add('animate-spin');
 
             try {
-                const res = await fetch('../api/admin_actions.php');
+                const res = await fetch('/api/admin/actions');
                 const data = await res.json();
 
                 if (data.success) {

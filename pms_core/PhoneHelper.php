@@ -27,22 +27,28 @@ class PhoneHelper
      *
      * Returns null if the number can't be reduced to exactly 10 digits.
      */
-    public static function toLocal(string $raw): ?string
+    public static function toLocal(string $raw, string $countryCode = 'IN'): ?string
     {
         $digits = preg_replace('/[^0-9]/', '', $raw);
-
-        if (strlen($digits) === 10) {
+        
+        // India
+        if ($countryCode === 'IN') {
+            if (strlen($digits) === 10) return $digits;
+            if (strlen($digits) === 12 && str_starts_with($digits, '91')) return substr($digits, 2);
+            if (strlen($digits) === 11 && str_starts_with($digits, '0')) return substr($digits, 1);
+            return null;
+        }
+        
+        // US/Canada
+        if ($countryCode === 'US' || $countryCode === 'CA') {
+            if (strlen($digits) === 10) return $digits;
+            if (strlen($digits) === 11 && str_starts_with($digits, '1')) return substr($digits, 1);
+            return null;
+        }
+        
+        // Default / Rest of World - store as is if it looks somewhat valid (7 to 15 digits)
+        if (strlen($digits) >= 7 && strlen($digits) <= 15) {
             return $digits;
-        }
-
-        // Strip leading country code 91 → 10 digits
-        if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
-            return substr($digits, 2);
-        }
-
-        // Strip leading 0 (STD prefix) → 10 digits
-        if (strlen($digits) === 11 && str_starts_with($digits, '0')) {
-            return substr($digits, 1);
         }
 
         return null; // Unrecognised format
@@ -57,27 +63,41 @@ class PhoneHelper
      *   "917702233496"  → "917702233496"
      *   "+917702233496" → "917702233496"
      */
-    public static function toE164(string $raw): ?string
+    public static function toE164(string $raw, string $countryCode = 'IN'): ?string
     {
-        $local = self::toLocal($raw);
+        $local = self::toLocal($raw, $countryCode);
         if ($local === null) {
             // If toLocal fails, try stripping non-digits and using as-is
             // (for non-Indian numbers already with country code)
             $digits = preg_replace('/[^0-9]/', '', $raw);
-            return (strlen($digits) >= 10 && strlen($digits) <= 15) ? $digits : null;
+            return (strlen($digits) >= 7 && strlen($digits) <= 15) ? $digits : null;
         }
-        return '91' . $local;
+        if ($countryCode === 'IN') return '91' . $local;
+        if ($countryCode === 'US' || $countryCode === 'CA') return '1' . $local;
+        return $local; // Already stored with country code maybe?
     }
 
     /**
-     * Validate that $raw looks like a valid Indian mobile number.
-     * Indian mobiles start with 6, 7, 8, or 9.
+     * Validate that $raw looks like a valid number based on region.
      */
-    public static function isValidIndian(string $raw): bool
+    public static function isValidNumber(?string $raw, string $countryCode = 'IN'): bool
     {
-        $local = self::toLocal($raw);
+        if ($raw === null) return false;
+        $local = self::toLocal($raw, $countryCode);
         if ($local === null) return false;
-        return (bool)preg_match('/^[6-9]\d{9}$/', $local);
+        if ($countryCode === 'IN') {
+            return (bool)preg_match('/^[6-9]\d{9}$/', $local);
+        }
+        if ($countryCode === 'US' || $countryCode === 'CA') {
+            return (bool)preg_match('/^[2-9]\d{9}$/', $local);
+        }
+        return true; // Weak validation for other countries
+    }
+
+    public static function isValidIndian(?string $raw): bool
+    {
+        if ($raw === null) return false;
+        return self::isValidNumber($raw, 'IN');
     }
 
     /**

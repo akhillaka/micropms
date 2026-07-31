@@ -18,7 +18,7 @@ $userId = (int)$_SESSION['user_id'];
 
 // Fetch all hotels this user is mapped to with details
 try {
-    if (($_SESSION['access_level'] ?? '') === 'owner') {
+    if (AuthHelper::isSuperAdmin()) {
         // Super-Admins have access to all hotels
         $stmt = $db->query("SELECT id as property_id, name, property_code, plan, address, city, state, is_active FROM properties ORDER BY id ASC");
         $assignedHotels = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -131,7 +131,7 @@ if (count($assignedHotels) === 0) {
                 </div>
 
                 <!-- Add Property Button -->
-                <?php if (($_SESSION['access_level'] ?? '') === 'owner'): ?>
+                <?php if (AuthHelper::isSuperAdmin()): ?>
                     <a href="/admin/saas_properties.php" class="flex items-center gap-1.5 px-4 py-2 bg-black hover:bg-slate-900 text-white font-bold rounded-lg text-sm transition">
                         <i class="ph ph-plus font-bold"></i> Add Property
                     </a>

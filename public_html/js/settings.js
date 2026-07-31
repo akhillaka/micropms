@@ -6,7 +6,7 @@ if (!CSS.escape) {
 }
 
 let currentTab = 'categories';
-const tabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'staff', 'property', 'folio-items', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
+const tabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'staff', 'roles', 'property', 'folio-items', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
 
 function getHeaders() {
     return {
@@ -250,7 +250,7 @@ async function submitBulkRates(e, form) {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     
     try {
-        const res = await fetch('../api/admin_settings.php', {
+        const res = await fetch('/api/admin/settings', {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
@@ -287,7 +287,7 @@ function closeModals() {
     const overlay = document.getElementById('modalOverlay');
     overlay.classList.add('opacity-0');
 
-    ['catModal', 'roomModal', 'rateModal', 'staffModal'].forEach(id => {
+    ['catModal', 'roomModal', 'rateModal', 'staffModal', 'roleModal'].forEach(id => {
         document.getElementById(id).classList.add('translate-y-full');
     });
 
@@ -321,7 +321,7 @@ async function deleteItem(type, id, name, rateName = null) {
     if (!await pmsConfirm(message)) return;
 
     try {
-        const res = await fetch('../api/admin_settings.php', {
+        const res = await fetch('/api/admin/settings', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -363,7 +363,7 @@ async function submitForm(e, form, modalId) {
     data['_csrf_token'] = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
     try {
-        const res = await fetch('../api/admin_settings.php', {
+        const res = await fetch('/api/admin/settings', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -406,7 +406,7 @@ async function submitIntegrations(e) {
     data['_csrf_token'] = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
     try {
-        const res = await fetch('../api/admin_save_settings.php', {
+        const res = await fetch('/api/admin/save_settings', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -444,7 +444,7 @@ async function testTelegram() {
     btn.disabled = true;
 
     try {
-        const res = await fetch('../api/admin_test_telegram.php', {
+        const res = await fetch('/api/admin/test_telegram', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -512,7 +512,7 @@ async function submitPaymentMethods(e) {
             payment_methods: JSON.stringify(methods),
             _csrf_token: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
         };
-        const res = await fetch('../api/admin_save_settings.php', {
+        const res = await fetch('/api/admin/save_settings', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -596,7 +596,7 @@ async function submitStaff(e) {
     if (!isEdit && !payload.password) return showToast('Password is required');
     if (payload.password && payload.password.length < 6) return showToast('Password must be at least 6 characters');
     try {
-        const res = await fetch('../api/admin_manage_staff.php', {
+        const res = await fetch('/api/admin/manage_staff', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -611,7 +611,7 @@ async function submitStaff(e) {
 async function deleteStaff(id, username) {
     if (!await pmsConfirm(`Delete user "${username}"? This cannot be undone.`)) return;
     try {
-        const res = await fetch('../api/admin_manage_staff.php', {
+        const res = await fetch('/api/admin/manage_staff', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -634,7 +634,7 @@ async function sendDailySummary() {
     btn.disabled = true;
 
     try {
-        const res = await fetch('../api/admin_daily_summary.php', {
+        const res = await fetch('/api/admin/daily_summary', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -683,7 +683,7 @@ async function submitPropertySettings(e) {
     data['_csrf_token'] = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
     try {
-        const res = await fetch('../api/admin_save_settings.php', {
+        const res = await fetch('/api/admin/save_settings', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -812,7 +812,7 @@ function applyCrop() {
 async function toggleRoomOOO(roomId, isOOO) {
     try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-        const res = await fetch('../api/admin_room_action.php', {
+        const res = await fetch('/api/admin/room_action', {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
@@ -1078,7 +1078,7 @@ async function submitFolioItems(e) {
     data['_csrf_token'] = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
     try {
-        const res = await fetch('../api/admin_save_settings.php', {
+        const res = await fetch('/api/admin/save_settings', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -1117,7 +1117,7 @@ async function submitSequences(e) {
     data['_csrf_token'] = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
     try {
-        const res = await fetch('../api/admin_save_settings.php', {
+        const res = await fetch('/api/admin/save_settings', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -1145,7 +1145,7 @@ async function submitSequences(e) {
 // ═══════════════════════════════════════════════════════════════
 
 function loadNightAuditSettings() {
-    fetch('../api/admin_night_audit.php?action=settings', {
+    fetch('/api/admin/night_audit?action=settings', {
         credentials: 'same-origin',
         headers: getHeaders()
     })
@@ -1159,6 +1159,7 @@ function loadNightAuditSettings() {
             document.getElementById('night_audit_auto_checkout_hours').value = s.night_audit_auto_checkout_hours || '2';
             document.getElementById('night_audit_mark_dirty').checked = s.night_audit_mark_dirty !== 'false';
             document.getElementById('night_audit_notify_telegram').checked = s.night_audit_notify_telegram !== 'false';
+            document.getElementById('night_audit_notify_email').value = s.night_audit_notify_email || '';
             document.getElementById('night_audit_report_revenue').checked = s.night_audit_report_revenue !== 'false';
             document.getElementById('night_audit_report_occupancy').checked = s.night_audit_report_occupancy !== 'false';
             document.getElementById('night_audit_report_room_status').checked = s.night_audit_report_room_status !== 'false';
@@ -1168,8 +1169,81 @@ function loadNightAuditSettings() {
     .catch(() => showToast('Failed to load night audit settings', 'error'));
 }
 
+function loadAuditExceptions() {
+    fetch('/api/admin/night_audit?action=exceptions', {
+        credentials: 'same-origin',
+        headers: getHeaders()
+    })
+    .then(res => res.json())
+    .then(data => {
+        const container = document.getElementById('audit-exceptions-list');
+        if (data.success && data.exceptions && data.exceptions.length > 0) {
+            container.innerHTML = data.exceptions.map(e => `
+                <div class="flex items-center gap-3 p-3 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors">
+                    <input type="checkbox" value="${e.id}" class="audit-exception-cb w-4 h-4 rounded border-brand-300 text-amber-600 focus:ring-amber-500">
+                    <div class="flex-1">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-sm text-brand-900">${e.guest_name}</span>
+                            <span class="text-xs font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700">Room ${e.room_number}</span>
+                        </div>
+                        <div class="text-[10px] text-brand-500 mt-1">
+                            In: ${e.check_in} &bull; Out: <span class="text-red-500 font-bold">${e.check_out}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            container.innerHTML = '<div class="text-center py-4 text-slate-400 text-sm">No overdue checkouts found</div>';
+        }
+    })
+    .catch(err => {
+        console.error('Audit exceptions fetch error:', err);
+        document.getElementById('audit-exceptions-list').innerHTML = '<div class="text-center py-4 text-red-400 text-sm">Failed to load exceptions</div>';
+    });
+}
+
+function toggleAllExceptions(source) {
+    const checkboxes = document.querySelectorAll('.audit-exception-cb');
+    checkboxes.forEach(cb => cb.checked = source.checked);
+}
+
+function bulkResolveExceptions() {
+    const checkboxes = document.querySelectorAll('.audit-exception-cb:checked');
+    if (checkboxes.length === 0) {
+        showToast('Please select at least one booking', 'info');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to auto-checkout ${checkboxes.length} booking(s) and mark their rooms dirty?`)) return;
+    
+    const ids = Array.from(checkboxes).map(cb => cb.value);
+    
+    showLoading('Resolving exceptions...');
+    fetch('/api/admin/night_audit?action=bulk_resolve', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: getHeaders(),
+        body: JSON.stringify({ booking_ids: ids })
+    })
+    .then(res => res.json())
+    .then(data => {
+        hideLoading();
+        if (data.success) {
+            showToast(data.message, 'success');
+            loadAuditExceptions();
+        } else {
+            showToast('Error: ' + data.error, 'error');
+        }
+    })
+    .catch(err => {
+        hideLoading();
+        console.error('Bulk resolve error:', err);
+        showToast('Connection error', 'error');
+    });
+}
+
 function loadAuditHistory() {
-    fetch('../api/admin_night_audit.php?action=history', {
+    fetch('/api/admin/night_audit?action=history', {
         credentials: 'same-origin',
         headers: getHeaders()
     })
@@ -1216,6 +1290,7 @@ async function saveNightAuditSettings() {
         night_audit_auto_checkout_hours: document.getElementById('night_audit_auto_checkout_hours').value,
         night_audit_mark_dirty: document.getElementById('night_audit_mark_dirty').checked ? 'true' : 'false',
         night_audit_notify_telegram: document.getElementById('night_audit_notify_telegram').checked ? 'true' : 'false',
+        night_audit_notify_email: document.getElementById('night_audit_notify_email').value,
         night_audit_report_revenue: document.getElementById('night_audit_report_revenue').checked ? 'true' : 'false',
         night_audit_report_occupancy: document.getElementById('night_audit_report_occupancy').checked ? 'true' : 'false',
         night_audit_report_room_status: document.getElementById('night_audit_report_room_status').checked ? 'true' : 'false',
@@ -1223,7 +1298,7 @@ async function saveNightAuditSettings() {
     };
 
     try {
-        const res = await fetch('../api/admin_night_audit.php?action=save_settings', {
+        const res = await fetch('/api/admin/night_audit?action=save_settings', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -1245,7 +1320,7 @@ async function runNightAuditNow() {
     statusDiv.innerHTML = '<div class="bg-blue-50 border border-blue-200 text-blue-800 p-3 rounded-xl text-sm font-semibold"><i class="ph ph-spinner animate-spin"></i> Running night audit...</div>';
 
     try {
-        const res = await fetch('../api/admin_night_audit.php?action=run', {
+        const res = await fetch('/api/admin/night_audit?action=run', {
             method: 'POST',
             credentials: 'same-origin',
             headers: getHeaders(),
@@ -1289,6 +1364,7 @@ switchTab = function(tabId) {
     if (tabId === 'night-audit') {
         loadNightAuditSettings();
         loadAuditHistory();
+        loadAuditExceptions();
     }
 };
 
@@ -1296,7 +1372,7 @@ switchTab = function(tabId) {
 document.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    const validTabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'staff', 'property', 'folio-items', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
+    const validTabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'staff', 'roles', 'property', 'folio-items', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
     
     if (tabParam && validTabs.includes(tabParam)) {
         switchTab(tabParam);
@@ -1304,3 +1380,87 @@ document.addEventListener('DOMContentLoaded', function() {
         switchTab('categories');
     }
 });
+
+// Roles & Permissions Management
+function openRoleModal() {
+    openModal('roleModal');
+    document.getElementById('role_id').value = '';
+    document.getElementById('role_name').value = '';
+    document.querySelectorAll('#roleForm input[type="checkbox"]').forEach(cb => cb.checked = false);
+    document.getElementById('roleModalTitle').innerText = 'Create Custom Role';
+}
+
+function editRoleFromBtn(btn) {
+    const id = btn.getAttribute('data-role-id');
+    const name = btn.getAttribute('data-role-name');
+    let permissions = [];
+    try {
+        permissions = JSON.parse(btn.getAttribute('data-role-perms') || '[]');
+    } catch(e) {
+        console.error('Failed to parse permissions:', e);
+    }
+    editRole(id, name, permissions);
+}
+
+function editRole(id, name, permissions) {
+    openModal('roleModal');
+    document.getElementById('role_id').value = id;
+    document.getElementById('role_name').value = name;
+    
+    document.querySelectorAll('#roleForm input[type="checkbox"]').forEach(cb => {
+        cb.checked = permissions.includes(cb.value);
+    });
+    
+    document.getElementById('roleModalTitle').innerText = 'Edit Role';
+}
+
+async function deleteRole(id, name) {
+    if (!await pmsConfirm(`Delete role "${name}"? Staff users with this role will lose their custom permissions.`)) return;
+    
+    try {
+        const formData = new FormData();
+        formData.append('action', 'delete');
+        formData.append('role_id', id);
+        
+        const res = await fetch('/api/admin/manage_roles', { method: 'POST', body: formData });
+        const data = await res.json();
+        
+        if (data.success) {
+            showToast(data.message, 'success');
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            showToast(data.message, 'error');
+        }
+    } catch (e) {
+        showToast('Connection error', 'error');
+    }
+}
+
+async function submitRole(e) {
+    e.preventDefault();
+    const form = e.target;
+    const btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.innerText = 'Saving...';
+    
+    try {
+        const formData = new FormData(form);
+        formData.append('action', formData.get('role_id') ? 'update' : 'create');
+        
+        const res = await fetch('/api/admin/manage_roles', { method: 'POST', body: formData });
+        const data = await res.json();
+        
+        if (data.success) {
+            showToast(data.message, 'success');
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            showToast(data.message, 'error');
+            btn.disabled = false;
+            btn.innerText = 'Save Role';
+        }
+    } catch (e) {
+        showToast('Connection error', 'error');
+        btn.disabled = false;
+        btn.innerText = 'Save Role';
+    }
+}

@@ -272,7 +272,7 @@ function renderTimeOptions(string $selectedVal = ''): string {
                             </select>
                             <i class="ph ph-caret-down absolute right-3 top-3.5 text-slate-400 pointer-events-none text-xs"></i>
                         </div>
-                        <input type="tel" id="guest_phone" placeholder="10-digit number..." class="flex-1 input-glass rounded-xl p-3 text-sm font-semibold text-slate-800" pattern="[0-9]{10}" maxlength="10" required>
+                        <input type="tel" id="guest_phone" placeholder="Phone number..." class="flex-1 input-glass rounded-xl p-3 text-sm font-semibold text-slate-800" required>
                     </div>
                     <div id="guest-suggestions" class="absolute z-10 w-full mt-2 bg-white rounded-2xl shadow-xl border border-slate-100 hidden overflow-hidden max-h-48 overflow-y-auto"></div>
                 </div>
@@ -624,7 +624,7 @@ function renderTimeOptions(string $selectedVal = ''): string {
             goToStep2(checkIn, checkOut);
 
             // Now fetch rooms in background
-            fetch('api/check_availability.php', {
+            fetch('/api/system/check_availability', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ check_in: checkIn, check_out: checkOut })
@@ -1047,7 +1047,7 @@ function renderTimeOptions(string $selectedVal = ''): string {
             if(photo) formData.append('guest_photo', photo);
 
             try {
-                const res = await fetch('api/create_hold.php', {
+                const res = await fetch('/api/system/create_hold', {
                     method: 'POST',
                     body: formData
                 });
@@ -1084,7 +1084,7 @@ function renderTimeOptions(string $selectedVal = ''): string {
             
             suggestionTimeout = setTimeout(async () => {
                 try {
-                    const res = await fetch(`api/search_guests.php?q=${encodeURIComponent(q)}`);
+                    const res = await fetch(`/api/system/search_guests?q=${encodeURIComponent(q)}`);
                     const data = await res.json();
                     
                     const container = document.getElementById('guest-suggestions');

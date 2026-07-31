@@ -22,6 +22,7 @@ ApiHandler::run(function(\PDO $db) {
     $durationHours = max(1, (int)($data['duration_hours'] ?? 2));
     $paymentMethod = trim($data['payment_method'] ?? 'Cash');
     $bookingSource = trim($data['booking_source'] ?? 'Walk-in');
+    $ratePlanName  = trim($data['rate_plan_name'] ?? 'Standard');
     $priceOverride = isset($data['price_override']) && $data['price_override'] !== ''
         ? (float)$data['price_override'] : null;
 
@@ -81,25 +82,38 @@ ApiHandler::run(function(\PDO $db) {
         } else {
             try {
                 $totalAmount = PricingEngine::calculateTotalCost(
-                    (int)$room['category_id'], $checkIn, $checkOut
+                    (int)$room['category_id'], $checkIn, $checkOut, $ratePlanName
                 );
             } catch (\Exception $e) {
                 // Fallback: use sliding_rates direct lookup
+                if (empty($ratePlanName)) {
+                    $ratePlanName = 'Base Rate';
+                }
                 $rateStmt = $db->prepare(
                     "SELECT price FROM sliding_rates
-                     WHERE category_id = :cid AND hours >= :h
+                     WHERE category_id = :cid AND rate_plan_name = :rp AND hours >= :h
                      ORDER BY hours ASC LIMIT 1"
                 );
-                $rateStmt->execute(['cid' => $room['category_id'], 'h' => $durationHours]);
+                $rateStmt->execute(['cid' => $room['category_id'], 'rp' => $ratePlanName, 'h' => $durationHours]);
                 $fallbackRate = (float)($rateStmt->fetchColumn() ?: 0);
-                // If no exact match, use highest available rate
+                // If no exact match, use highest available rate for that plan
                 if ($fallbackRate <= 0) {
                     $rateStmt2 = $db->prepare(
+                        "SELECT price FROM sliding_rates WHERE category_id = :cid AND rate_plan_name = :rp ORDER BY hours DESC LIMIT 1"
+                    );
+                    $rateStmt2->execute(['cid' => $room['category_id'], 'rp' => $ratePlanName]);
+                    $fallbackRate = (float)($rateStmt2->fetchColumn() ?: 0);
+                }
+                
+                // If STILL no match, just take any valid price for that category
+                if ($fallbackRate <= 0) {
+                    $rateStmt3 = $db->prepare(
                         "SELECT price FROM sliding_rates WHERE category_id = :cid ORDER BY hours DESC LIMIT 1"
                     );
-                    $rateStmt2->execute(['cid' => $room['category_id']]);
-                    $fallbackRate = (float)($rateStmt2->fetchColumn() ?: 1000);
+                    $rateStmt3->execute(['cid' => $room['category_id']]);
+                    $fallbackRate = (float)($rateStmt3->fetchColumn() ?: 1000);
                 }
+                
                 $totalAmount = $fallbackRate;
             }
         }
@@ -112,10 +126,10 @@ ApiHandler::run(function(\PDO $db) {
         $insertStmt = $db->prepare("
             INSERT INTO bookings
                 (room_id, guest_id, check_in, check_out, payment_status, booking_status,
-                 total_amount, booking_source, price_override, adults, children, extra_bed)
+                 total_amount, booking_source, price_override, adults, children, extra_bed, rate_plan_name)
             VALUES
                 (:room_id, :guest_id, :check_in, :check_out, 'completed_paid', 'checked_in',
-                 :total_amount, :booking_source, :price_override, 1, 0, 0)
+                 :total_amount, :booking_source, :price_override, 1, 0, 0, :rate_plan_name)
         ");
         $insertStmt->execute([
             'room_id'        => $roomId,
@@ -125,6 +139,7 @@ ApiHandler::run(function(\PDO $db) {
             'total_amount'   => $totalAmount,
             'booking_source' => $bookingSource,
             'price_override' => $priceOverride,
+            'rate_plan_name' => $ratePlanName,
         ]);
         $bookingId = (int)$db->lastInsertId();
 

@@ -2,8 +2,8 @@
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
-if (($_SESSION['access_level'] ?? '') !== 'owner') {
-    header('Location: login.php');
+if (!AuthHelper::can('manage_settings')) {
+    header('Location: index.php');
     exit;
 }
 CsrfToken::checkTimeout();
@@ -24,7 +24,12 @@ if (empty($paymentMethods)) {
     $paymentMethods = ["Cash", "UPI"];
 }
 
-$staffUsers = $db->query("SELECT * FROM staff_users ORDER BY created_at DESC")->fetchAll();
+$isSuperAdminUser = AuthHelper::isSuperAdmin() ? 1 : 0;
+if ($isSuperAdminUser) {
+    $staffUsers = $db->query("SELECT * FROM staff_users ORDER BY created_at DESC")->fetchAll();
+} else {
+    $staffUsers = $db->query("SELECT * FROM staff_users WHERE access_level != 'superadmin' ORDER BY created_at DESC")->fetchAll();
+}
 
 $currentLogoB64 = defined('PROPERTY_LOGO_BASE64') ? PROPERTY_LOGO_BASE64 : '';
 $currentHotelName = defined('PROPERTY_NAME') ? PROPERTY_NAME : 'MicroPMS';
@@ -43,6 +48,14 @@ try {
         $pgConfigs[$row['gateway']] = $row;
     }
 } catch (\PDOException $e) {}
+
+$customRoles = [];
+try {
+    $rolesStmt = $db->prepare("SELECT * FROM roles WHERE property_id = ? ORDER BY name ASC");
+    $rolesStmt->execute([$propId]);
+    $customRoles = $rolesStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (\PDOException $e) {}
+
 
 // Current counts
 $roomCount = (int)$db->query("SELECT COUNT(*) FROM rooms WHERE property_id = $propId OR ($propId = 1 AND (property_id IS NULL OR property_id = 0))")->fetchColumn();
@@ -153,6 +166,9 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                     </button>
                     <button onclick="switchTab('staff')" id="tab-staff" class="settings-tab-btn tab-inactive">
                         <i class="ph ph-users text-lg opacity-80"></i> Staff Users
+                    </button>
+                    <button onclick="switchTab('roles')" id="tab-roles" class="settings-tab-btn tab-inactive">
+                        <i class="ph ph-shield-check text-lg opacity-80"></i> Roles & Permissions
                     </button>
                     <button onclick="switchTab('housekeeping')" id="tab-housekeeping" class="settings-tab-btn tab-inactive">
                         <i class="ph ph-list-checks text-lg opacity-80"></i> Housekeeping Checklist
@@ -719,8 +735,11 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                                 <?php endif; ?>
                             </div>
                         </div>
+                        <?php 
+                            $staffDropdownValue = (!empty($su['role_id'])) ? 'custom_' . $su['role_id'] : $su['access_level'];
+                        ?>
                         <div class="flex gap-2 self-end md:self-auto">
-                            <button onclick="editStaff(<?= $su['id'] ?>, '<?= htmlspecialchars(addslashes($su['username'])) ?>', '<?= htmlspecialchars($suRole) ?>', <?= $isActive ? 1 : 0 ?>)" class="w-10 h-10 rounded-full bg-brand-50 text-brand-900 flex items-center justify-center hover:bg-brand-100 transition-colors" title="Edit User">
+                            <button onclick="editStaff(<?= $su['id'] ?>, '<?= htmlspecialchars(addslashes($su['username'])) ?>', '<?= htmlspecialchars($staffDropdownValue) ?>', <?= $isActive ? 1 : 0 ?>)" class="w-10 h-10 rounded-full bg-brand-50 text-brand-900 flex items-center justify-center hover:bg-brand-100 transition-colors" title="Edit User">
                                 <i class="ph ph-pencil-simple text-base"></i>
                             </button>
                             <?php if($su['id'] != $_SESSION['user_id']): ?>
@@ -732,6 +751,60 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                     </div>
                     <?php endforeach; ?>
                 </div>
+            </div>            <!-- Custom Roles Config Tab -->
+            <div id="content-roles" class="pb-24 max-w-3xl mx-auto space-y-6" style="display:none">
+                <div class="card-minimal p-6">
+                    <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
+                        <div>
+                            <h2 class="font-extrabold text-brand-900 text-xl">Custom Roles & Permissions</h2>
+                            <p class="text-sm font-semibold text-slate-500 mt-1">Create fine-grained roles to assign to your staff users</p>
+                        </div>
+                        <button onclick="openRoleModal()" class="bg-brand-900 hover:bg-brand-800 text-white font-bold px-4 py-2.5 rounded-xl transition-colors shadow-sm flex items-center gap-2">
+                            <i class="ph ph-plus-circle text-lg"></i> Create Custom Role
+                        </button>
+                    </div>
+
+                    <div id="roles-list-container" class="space-y-3">
+                        <?php if (empty($customRoles)): ?>
+                            <div class="text-center py-10 bg-slate-50 rounded-2xl border border-slate-100 border-dashed">
+                                <i class="ph ph-shield-check text-4xl text-slate-300 mb-3 block"></i>
+                                <p class="text-sm text-slate-500 font-bold">No custom roles created yet.</p>
+                                <p class="text-xs text-slate-400 mt-1">Staff will use the default system roles.</p>
+                            </div>
+                        <?php else: ?>
+                            <?php foreach ($customRoles as $crole): ?>
+                                <?php 
+                                    $rawPerms = $crole['permissions'] ?? '[]';
+                                    $cperms = json_decode($rawPerms, true);
+                                    if (!is_array($cperms)) $cperms = [];
+                                    
+                                    // Ensure it's a flat indexed array of strings
+                                    $flatPerms = [];
+                                    array_walk_recursive($cperms, function($a) use (&$flatPerms) { $flatPerms[] = $a; });
+                                    
+                                    $permCount = count($flatPerms);
+                                    
+                                    $jsRoleName = htmlspecialchars(json_encode($crole['name']), ENT_QUOTES, 'UTF-8');
+                                    $jsPerms = htmlspecialchars(json_encode($flatPerms), ENT_QUOTES, 'UTF-8');
+                                ?>
+                                <div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-all shadow-sm">
+                                    <div>
+                                        <h3 class="font-bold text-brand-900 text-base"><?= htmlspecialchars($crole['name']) ?></h3>
+                                        <p class="text-xs font-semibold text-slate-500 mt-0.5"><span class="text-indigo-600 font-bold"><?= $permCount ?></span> permissions assigned</p>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <button data-role-id="<?= (int)$crole['id'] ?>" data-role-name="<?= htmlspecialchars($crole['name']) ?>" data-role-perms="<?= htmlspecialchars(json_encode($flatPerms), ENT_QUOTES, 'UTF-8') ?>" onclick="editRoleFromBtn(this)" class="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-brand-50 hover:text-brand-600 transition-colors" title="Edit Role">
+                                            <i class="ph ph-pencil-simple text-base"></i>
+                                        </button>
+                                        <button onclick="deleteRole(<?= (int)$crole['id'] ?>, <?= $jsRoleName ?>)" class="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-colors" title="Delete Role">
+                                            <i class="ph ph-trash text-base"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
             </div>
 
             <!-- Housekeeping Checklist Config Tab -->
@@ -741,6 +814,17 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                         <div>
                             <h2 class="font-bold text-slate-900 text-lg">Housekeeping Cleaning Checklist</h2>
                             <p class="text-xs text-slate-500 font-semibold">Configure task items for staff room cleaning & inspection</p>
+                        </div>
+                    </div>
+
+                    <!-- Deep Clean Config -->
+                    <div class="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                        <h3 class="font-bold text-sm text-slate-800 mb-2">Deep Cleaning Schedule</h3>
+                        <p class="text-xs text-slate-500 mb-3">Set how often a room requires a deep clean (in days).</p>
+                        <div class="flex items-center gap-3">
+                            <input type="number" id="deep_clean_frequency" min="0" value="<?= htmlspecialchars(defined('DEEP_CLEAN_FREQ_DAYS') ? DEEP_CLEAN_FREQ_DAYS : '15') ?>" class="w-24 bg-white border border-slate-300 p-2 rounded-lg text-sm font-bold text-slate-900 outline-none focus:border-indigo-500">
+                            <span class="text-sm font-semibold text-slate-600">days</span>
+                            <button onclick="saveDeepCleanFreq()" class="ml-4 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-4 py-2 rounded-lg transition-all">Save</button>
                         </div>
                     </div>
 
@@ -1167,6 +1251,12 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                                     <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
                             </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1.5 uppercase tracking-wider">Email Report To (Optional)</label>
+                                <input type="email" id="night_audit_notify_email" placeholder="manager@hotel.com" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-bold text-brand-900 outline-none focus:border-indigo-500">
+                                <p class="text-[10px] text-brand-900/60 mt-1">Send a copy of the Night Audit report to this email address</p>
+                            </div>
                         </div>
 
                         <!-- Report Sections -->
@@ -1214,6 +1304,29 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                             <i class="ph ph-play text-xl"></i> Run Night Audit Now
                         </button>
                     </form>
+                </div>
+
+                <!-- Night Audit Exceptions -->
+                <div class="card-minimal p-6">
+                    <div class="flex items-center gap-3 mb-6 border-b border-brand-100 pb-4">
+                        <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                            <i class="ph ph-warning-circle text-2xl"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h2 class="font-bold text-brand-900">Overdue Checkouts (Exceptions)</h2>
+                            <p class="text-xs text-brand-900/70">Bookings past their checkout time</p>
+                        </div>
+                        <button onclick="bulkResolveExceptions()" class="bg-amber-100 hover:bg-amber-200 text-amber-700 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 transition-all">
+                            <i class="ph ph-check-square"></i> Auto-Checkout Selected
+                        </button>
+                    </div>
+                    <div class="mb-3 flex items-center gap-2 px-2">
+                        <input type="checkbox" id="selectAllExceptions" onchange="toggleAllExceptions(this)" class="w-4 h-4 rounded border-brand-300 text-amber-600 focus:ring-amber-500">
+                        <label for="selectAllExceptions" class="text-xs font-bold text-brand-900 cursor-pointer">Select All</label>
+                    </div>
+                    <div id="audit-exceptions-list" class="space-y-3">
+                        <div class="text-center py-4 text-brand-400">Loading exceptions...</div>
+                    </div>
                 </div>
 
                 <!-- Audit History -->
@@ -1445,9 +1558,17 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                         <label class="block text-xs font-bold text-brand-900/70 mb-1.5 uppercase tracking-wider">Role</label>
                         <div class="relative">
                             <select name="access_level" id="staff_access_level" required class="w-full bg-brand-50 rounded-none border border-brand-200 focus:shadow-minimal transition-all p-3.5 transition-all outline-none font-bold text-brand-900 appearance-none">
-                                <option value="manager">Manager (Front Desk + Operations)</option>
-                                <option value="housekeeping">Housekeeping (Rooms only)</option>
-                                <option value="owner">Owner (Full Access)</option>
+                                <?php if (!empty($customRoles)): ?>
+                                    <optgroup label="Custom Roles">
+                                    <?php foreach ($customRoles as $cr): ?>
+                                        <option value="custom_<?= $cr['id'] ?>"><?= htmlspecialchars($cr['name']) ?></option>
+                                    <?php endforeach; ?>
+                                    </optgroup>
+                                <?php else: ?>
+                                    <option value="manager">Manager (Front Desk + Operations)</option>
+                                    <option value="housekeeping">Housekeeping (Rooms only)</option>
+                                    <option value="owner">Owner (Full Access)</option>
+                                <?php endif; ?>
                             </select>
                             <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
                         </div>
@@ -1466,6 +1587,42 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                 </form>
             </div>
         </div>
+
+        <!-- 5. Role Modal -->
+        <div id="roleModal" class="fixed bottom-0 left-0 right-0 max-w-2xl mx-auto modal-brutal z-50 transform translate-y-full transition-transform duration-300 ease-out h-[85vh] flex flex-col bg-white rounded-t-3xl shadow-2xl">
+            <div class="p-6 pb-4 border-b border-slate-100 shrink-0">
+                <div class="w-12 h-1.5 bg-brand-200 rounded-full mx-auto mb-6"></div>
+                <div class="flex justify-between items-center">
+                    <h3 id="roleModalTitle" class="text-2xl font-extrabold text-brand-900 tracking-tight">Create Custom Role</h3>
+                    <button type="button" onclick="closeModals()" class="text-slate-400 hover:text-slate-600"><i class="ph ph-x text-2xl"></i></button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-y-auto p-6 pt-4 bg-slate-50">
+                <form onsubmit="submitRole(event)" id="roleForm" class="space-y-6">
+                    <input type="hidden" name="role_id" id="role_id" value="">
+                    <div>
+                        <label class="block text-xs font-bold text-brand-900/70 mb-1.5 uppercase tracking-wider">Role Name</label>
+                        <input type="text" name="name" id="role_name" required placeholder="e.g. Night Auditor" class="w-full bg-white rounded-xl border border-brand-200 focus:shadow-minimal transition-all p-3.5 outline-none font-bold text-brand-900">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-bold text-brand-900/70 mb-3 uppercase tracking-wider">Permissions</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <?php foreach (AuthHelper::getAllPermissions() as $key => $label): ?>
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 cursor-pointer transition-all">
+                                <input type="checkbox" name="permissions[]" value="<?= htmlspecialchars($key) ?>" class="w-5 h-5 accent-indigo-600 rounded">
+                                <span class="text-sm font-bold text-slate-700"><?= htmlspecialchars($label) ?></span>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="p-6 border-t border-slate-100 shrink-0 bg-white">
+                <button type="submit" form="roleForm" class="w-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 rounded-xl active:scale-95 transition-all text-lg shadow-sm">Save Role</button>
+            </div>
+        </div>
+
 
     </div>
 
@@ -1496,13 +1653,36 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
     </div>
 
     <script>
+    async function saveDeepCleanFreq() {
+        const val = document.getElementById('deep_clean_frequency').value;
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        try {
+            const res = await fetch('/api/admin/save_settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                body: JSON.stringify({ settings: { DEEP_CLEAN_FREQ_DAYS: val } })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('Deep Clean Frequency saved successfully.');
+            } else {
+                showToast('Error: ' + data.error);
+            }
+        } catch(e) {
+            showToast('Connection error');
+        }
+    }
+
     async function testWhatsApp() {
         const phone = prompt('Enter a WhatsApp phone number with country code (e.g. 919876543210):');
         if (!phone) return;
         
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
         try {
-            const res = await fetch('../api/admin_test_whatsapp.php', {
+            const res = await fetch('/api/admin/test_whatsapp', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1524,7 +1704,7 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
             btn.textContent = 'Syncing...';
             btn.disabled = true;
             
-            const res = await fetch('../api/admin_sync_wa_templates.php');
+            const res = await fetch('/api/admin/sync_wa_templates');
             const data = await res.json();
             
             if (data.success) {
@@ -1551,7 +1731,7 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
         try {
             showToast('Testing Google Sheets connection...');
-            const res = await fetch('../api/admin_sync_google_sheets.php', {
+            const res = await fetch('/api/admin/sync_google_sheets', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1576,7 +1756,7 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
         try {
             showToast(`Starting bulk sync for ${type}...`);
-            const res = await fetch('../api/admin_sync_google_sheets.php', {
+            const res = await fetch('/api/admin/sync_google_sheets', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1652,7 +1832,7 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
         try {
-            const res = await fetch('../api/admin_manage_staff.php', {
+            const res = await fetch('/api/admin/manage_staff', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1681,7 +1861,7 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
         try {
-            const res = await fetch('../api/admin_save_portal_settings.php', {
+            const res = await fetch('/api/admin/save_portal_settings', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1715,7 +1895,7 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
         
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
         try {
-            const res = await fetch('../api/admin_save_gateway_config.php', {
+            const res = await fetch('/api/admin/save_gateway_config', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

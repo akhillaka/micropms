@@ -363,10 +363,21 @@ class NightAudit {
         }
         
         $lines[] = "";
-        $runBy = $result['run_by'] ?? 'system'; // now always set from $result
+        $runBy = $result['run_by'] ?? 'system';
         $lines[] = "<i>Run at: " . date('H:i:s') . " by {$runBy}</i>";
         
-        NotificationRelay::sendTelegram(implode("\n", $lines));
+        $reportText = implode("\n", $lines);
+        
+        if ($notify) {
+            NotificationRelay::sendTelegram($reportText);
+        }
+        
+        $email = $this->getSetting('night_audit_notify_email', '');
+        if (!empty($email) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            require_once __DIR__ . '/../helpers/EmailHelper.php';
+            $htmlReport = nl2br(strip_tags($reportText, '<b><i>'));
+            EmailHelper::send($email, "Night Audit Report - {$hotelName}", $htmlReport, true);
+        }
     }
 
     /**

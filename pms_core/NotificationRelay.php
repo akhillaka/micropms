@@ -35,9 +35,43 @@ class NotificationRelay {
     }
 
     /**
-     * Send Telegram message. Respects event preferences if $eventKey is provided.
+     * Send Telegram message by queueing it to jobs_queue.
      */
     public static function sendTelegram(string $fallbackMessage, ?string $eventKey = null, array $context = []): bool {
+        require_once __DIR__ . '/Database.php';
+        $db = Database::getInstance()->getConnection();
+
+        if (!defined('TELEGRAM_BOT_TOKEN') || empty(TELEGRAM_BOT_TOKEN) || TELEGRAM_BOT_TOKEN === 'your_telegram_bot_token') {
+            return false;
+        }
+        if ($eventKey !== null && !self::isEnabled($eventKey)) {
+            return false;
+        }
+
+        $message = $fallbackMessage;
+        if ($eventKey !== null) {
+            $constName = 'TG_TEMPLATE_' . strtoupper($eventKey);
+            if (defined($constName)) {
+                $message = constant($constName);
+            }
+        }
+
+        $formatted = self::formatTemplate($message, $context);
+        $payload = json_encode(['message' => $formatted]);
+
+        try {
+            $stmt = $db->prepare("INSERT INTO jobs_queue (type, payload) VALUES ('telegram', ?)");
+            return $stmt->execute([$payload]);
+        } catch (\Exception $e) {
+            error_log("Failed to queue telegram job: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Send Telegram message synchronously.
+     */
+    public static function sendTelegramSync(string $fallbackMessage, ?string $eventKey = null, array $context = []): bool {
         // Ensure Database settings are loaded dynamically
         require_once __DIR__ . '/Database.php';
         Database::getInstance();
@@ -156,9 +190,32 @@ class NotificationRelay {
     }
 
     /**
-     * Sends a WhatsApp message (template or free text) and returns a structured array with ok status and message/error.
+     * Sends a WhatsApp message by queueing it to jobs_queue.
      */
     public static function sendWhatsApp(string $phoneNumber, array|string $payloadData, bool $isTemplate = true): array {
+        require_once __DIR__ . '/Database.php';
+        $db = Database::getInstance()->getConnection();
+
+        $payload = json_encode([
+            'phone' => $phoneNumber,
+            'message' => $payloadData,
+            'is_hsm' => $isTemplate
+        ]);
+
+        try {
+            $stmt = $db->prepare("INSERT INTO jobs_queue (type, payload) VALUES ('whatsapp', ?)");
+            $stmt->execute([$payload]);
+            return ['ok' => true, 'queued' => true];
+        } catch (\Exception $e) {
+            error_log("Failed to queue whatsapp job: " . $e->getMessage());
+            return ['ok' => false, 'error_message' => 'Failed to queue message'];
+        }
+    }
+
+    /**
+     * Sends a WhatsApp message synchronously and returns a structured array with ok status and message/error.
+     */
+    public static function sendWhatsAppSync(string $phoneNumber, array|string $payloadData, bool $isTemplate = true): array {
         // Ensure Database settings are loaded dynamically
         require_once __DIR__ . '/Database.php';
         Database::getInstance();
@@ -413,26 +470,55 @@ class NotificationRelay {
             $payload['components'] = [['type' => 'body', 'parameters' => $params]];
         }
         
+        require_once __DIR__ . '/services/QueueService.php';
+        $staffId = $_SESSION['user_id'] ?? null;
+        QueueService::push('whatsapp', [
+            'phoneNumber' => $phoneNumberE164,
+            'payload' => $payload,
+            'eventKey' => $eventKey,
+            'templateName' => $auto['name'],
+            'bookingId' => $bookingId,
+            'staffId' => $staffId
+        ]);
+        
+        return true;
+    }
+
+    /**
+     * Process a WhatsApp job from the queue.
+     */
+    public static function processWhatsAppJob(array $jobData): bool {
+        require_once __DIR__ . '/Database.php';
+        $db = Database::getInstance()->getConnection();
+        
+        $phoneNumberE164 = $jobData['phoneNumber'];
+        $payload = $jobData['payload'];
+        $eventKey = $jobData['eventKey'];
+        $templateName = $jobData['templateName'];
+        $bookingId = $jobData['bookingId'];
+        $staffId = $jobData['staffId'];
+
         $waRes = self::sendWhatsApp($phoneNumberE164, $payload, true);
         
         $status = $waRes['ok'] ? 'success' : 'failed';
         $errorCode = $waRes['ok'] ? null : ($waRes['error_code'] ?? null);
         $errorMessage = $waRes['ok'] ? null : ($waRes['error_message'] ?? null);
-        $templateName = $auto['name'];
         $messageId = $waRes['ok'] ? ($waRes['messageId'] ?? null) : null;
         
         $insLog = $db->prepare("INSERT INTO wa_delivery_logs (event_key, template_name, phone_number, message_id, status, error_code, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $insLog->execute([$eventKey, $templateName, $phoneNumberE164, $messageId, $status, $errorCode, $errorMessage]);
         
-        // Also log to the central system Audit Logs
         require_once __DIR__ . '/AuditLogger.php';
-        $staffId = $_SESSION['user_id'] ?? null;
         \AuditLogger::log($staffId, 'WA_MESSAGE_' . strtoupper($status), 'BOOKING', $bookingId, [
             'event' => $eventKey,
             'template' => $templateName,
             'phone' => $phoneNumberE164
         ]);
         
-        return $waRes['ok'];
+        if (!$waRes['ok']) {
+            throw new \Exception($errorMessage ?? 'WhatsApp delivery failed');
+        }
+        
+        return true;
     }
 }

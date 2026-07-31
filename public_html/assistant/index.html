@@ -935,6 +935,51 @@
         <button class="btn-large btn-danger" id="btn-checkout-execute" onclick="app.checkoutExecute()">
           🚪 CONFIRM CHECKOUT
         </button>
+        <button class="btn-large btn-outline" id="btn-checkout-change-date" onclick="app.checkoutOpenChangeDate()">
+          🕒 CHANGE CHECKOUT DATE / TIME
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change Checkout Date Modal -->
+  <div id="change-checkout-modal" class="modal-overlay" onclick="app.closeChangeCheckoutModal(event)">
+    <div class="modal-content" style="max-height: 90vh; display: flex; flex-direction: column;">
+      <div style="padding: 16px; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <strong style="font-size: 1.2rem;">Change Checkout Time</strong>
+        <span style="font-size: 1.5rem; cursor: pointer;" onclick="app.closeChangeCheckoutModal()">❌</span>
+      </div>
+      <div style="padding: 16px; flex: 1; overflow-y: auto;">
+        <p style="font-size: 0.9rem; color: var(--color-text-secondary); margin-bottom: 16px;">
+          Changing to an earlier checkout time will recalculate the bill. If the new total is lower than what the guest paid, a negative balance (refund) will be generated.
+        </p>
+        <div class="form-group">
+          <label>New Checkout Date & Time</label>
+          <input type="datetime-local" id="new-checkout-datetime" class="form-control" style="font-size: 1.2rem; padding: 12px; border-radius: var(--border-radius-md);">
+        </div>
+      </div>
+      <div style="padding: 16px; border-top: 1px solid var(--color-border); background: var(--color-bg-alt); display: flex; flex-direction: column; gap: 12px;">
+        <button class="btn-large btn-brand" onclick="app.checkoutSubmitChangeDate()">
+          UPDATE & RECALCULATE
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Checkout Type Modal -->
+  <div id="checkout-type-modal" class="modal-overlay" onclick="app.closeCheckoutTypeModal(event)">
+    <div class="modal-content" style="max-height: 90vh;">
+      <div style="padding: 16px; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <strong style="font-size: 1.2rem;">Checkout Options</strong>
+        <span style="font-size: 1.5rem; cursor: pointer;" onclick="app.closeCheckoutTypeModal()">❌</span>
+      </div>
+      <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+        <button class="btn-large btn-brand" onclick="app.proceedWithNormalCheckout()">
+          ✅ Checkout Right Now
+        </button>
+        <button class="btn-large btn-outline" onclick="app.proceedWithEarlyCheckout()">
+          🕒 Early Checkout (Change Date)
+        </button>
       </div>
     </div>
   </div>
