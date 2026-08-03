@@ -24,8 +24,9 @@ ApiHandler::run(function(\PDO $db) {
     }
 
     // We must lock the table for bookings overlapping this room to prevent double booking.
-    $stmt = $db->prepare("SELECT b.*, r.category_id, c.name as category_name FROM bookings b JOIN rooms r ON b.room_id = r.id JOIN room_categories c ON r.category_id = c.id WHERE b.id = :id FOR UPDATE");
-    $stmt->execute(['id' => $data['booking_id']]);
+    $propertyId = AuthHelper::getPropertyId();
+    $stmt = $db->prepare("SELECT b.*, r.category_id, c.name as category_name FROM bookings b JOIN rooms r ON b.room_id = r.id JOIN room_categories c ON r.category_id = c.id WHERE b.id = :id AND b.property_id = :prop_id FOR UPDATE");
+    $stmt->execute(['id' => $data['booking_id'], 'prop_id' => $propertyId]);
     $booking = $stmt->fetch();
     
     if (!$booking) throw new Exception("Booking not found");
@@ -34,19 +35,20 @@ ApiHandler::run(function(\PDO $db) {
     $newRatePlan = isset($data['rate_plan_name']) ? $data['rate_plan_name'] : $booking['rate_plan_name'];
 
     // Get new room's category and lock the room to prevent race conditions
-    $newRoomStmt = $db->prepare("SELECT r.room_number, r.category_id, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.id = :id FOR UPDATE");
-    $newRoomStmt->execute(['id' => $newRoomId]);
+    $newRoomStmt = $db->prepare("SELECT r.room_number, r.category_id, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.id = :id AND r.property_id = :prop_id FOR UPDATE");
+    $newRoomStmt->execute(['id' => $newRoomId, 'prop_id' => $propertyId]);
     $newRoom = $newRoomStmt->fetch();
     if (!$newRoom) throw new Exception("New room not found");
     $newRoomNumber = $newRoom['room_number'];
 
     // Check for concurrency overlap
-    $overlapStmt = $db->prepare("SELECT COUNT(*) FROM bookings WHERE room_id = :room_id AND id != :booking_id AND check_in < :new_out AND check_out > :new_in AND payment_status != 'cancelled'");
+    $overlapStmt = $db->prepare("SELECT COUNT(*) FROM bookings WHERE room_id = :room_id AND id != :booking_id AND check_in < :new_out AND check_out > :new_in AND payment_status != 'cancelled' AND property_id = :prop_id");
     $overlapStmt->execute([
         'room_id' => $newRoomId,
         'booking_id' => $booking['id'],
         'new_in' => $data['check_in'],
-        'new_out' => $data['check_out']
+        'new_out' => $data['check_out'],
+        'prop_id' => $propertyId
     ]);
     
     if ($overlapStmt->fetchColumn() > 0) {
@@ -63,7 +65,7 @@ ApiHandler::run(function(\PDO $db) {
     
     $newTaxPref = isset($data['tax_preference']) ? $data['tax_preference'] : $booking['tax_preference'];
     
-    $updateStmt = $db->prepare("UPDATE bookings SET room_id = :room_id, check_in = :in, check_out = :out, total_amount = :total, rate_plan_name = :rate_plan_name, tax_preference = :tax_preference WHERE id = :id");
+    $updateStmt = $db->prepare("UPDATE bookings SET room_id = :room_id, check_in = :in, check_out = :out, total_amount = :total, rate_plan_name = :rate_plan_name, tax_preference = :tax_preference WHERE id = :id AND property_id = :prop_id");
     $updateStmt->execute([
         'room_id' => $newRoomId,
         'in' => $data['check_in'],
@@ -71,32 +73,34 @@ ApiHandler::run(function(\PDO $db) {
         'total' => $newTotal,
         'rate_plan_name' => $newRatePlan,
         'tax_preference' => $newTaxPref,
-        'id' => $booking['id']
+        'id' => $booking['id'],
+        'prop_id' => $propertyId
     ]);
     
     // Manage physical room states if room changed
     if ($newRoomId != $booking['room_id']) {
-        $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = :id")->execute(['id' => $booking['room_id']]);
+        $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = :id AND property_id = :prop_id")->execute(['id' => $booking['room_id'], 'prop_id' => $propertyId]);
         // The new room becomes occupied dynamically based on the booking check-in status.
     }
     
     if ($booking['check_in'] !== $data['check_in'] || $booking['check_out'] !== $data['check_out'] || $booking['room_id'] != $newRoomId || $booking['rate_plan_name'] !== $newRatePlan) {
-        $delStmt = $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type = 'ROOM_CHARGE'");
-        $delStmt->execute(['id' => $booking['id']]);
+        $delStmt = $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type = 'ROOM_CHARGE' AND property_id = :prop_id");
+        $delStmt->execute(['id' => $booking['id'], 'prop_id' => $propertyId]);
         
         try {
             $breakdown = PricingEngine::getCostBreakdown($newRoom['category_id'], $data['check_in'], $data['check_out'], $newRatePlan);
         } catch (\Exception $e) {
             $breakdown = [];
         }
-        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description) VALUES (:id, 'ROOM_CHARGE', :amount, :desc)");
+        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, :prop_id)");
         
         if (!empty($breakdown)) {
             foreach ($breakdown as $item) {
                 $ledgerStmt->execute([
                     'id' => $booking['id'],
                     'amount' => $item['cost'],
-                    'desc' => "Day {$item['day']} - Room Charges - {$newRoom['category_name']} ({$item['duration']})"
+                    'desc' => "Day {$item['day']} - Room Charges - {$newRoom['category_name']} ({$item['duration']})",
+                    'prop_id' => $propertyId
                 ]);
                 SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
             }
@@ -104,7 +108,8 @@ ApiHandler::run(function(\PDO $db) {
             $ledgerStmt->execute([
                 'id' => $booking['id'],
                 'amount' => $newTotal,
-                'desc' => "Room Charges - {$newRoom['category_name']}"
+                'desc' => "Room Charges - {$newRoom['category_name']}",
+                'prop_id' => $propertyId
             ]);
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
         }
@@ -117,8 +122,8 @@ ApiHandler::run(function(\PDO $db) {
     
     $changes = [];
     if ($booking['room_id'] != $newRoomId) {
-        $oldRoomStmt = $db->prepare("SELECT room_number FROM rooms WHERE id = :id");
-        $oldRoomStmt->execute(['id' => $booking['room_id']]);
+        $oldRoomStmt = $db->prepare("SELECT room_number FROM rooms WHERE id = :id AND property_id = :prop_id");
+        $oldRoomStmt->execute(['id' => $booking['room_id'], 'prop_id' => $propertyId]);
         $oldRoom = $oldRoomStmt->fetch();
         $changes[] = "Room: " . ($oldRoom ? $oldRoom['room_number'] : '?') . " → " . ($newRoomNumber ?? $newRoomId);
     }
@@ -129,8 +134,8 @@ ApiHandler::run(function(\PDO $db) {
         $changes[] = "Total: ₹" . number_format((float)$booking['total_amount'], 2) . " → ₹" . number_format((float)$newTotal, 2);
     }
 
-    $guestStmt = $db->prepare("SELECT name FROM guests WHERE id = :id");
-    $guestStmt->execute(['id' => $booking['guest_id']]);
+    $guestStmt = $db->prepare("SELECT name FROM guests WHERE id = :id AND property_id = :prop_id");
+    $guestStmt->execute(['id' => $booking['guest_id'], 'prop_id' => $propertyId]);
     $guest = $guestStmt->fetch();
     
     // Use new room number for Telegram context (reflects the final state)

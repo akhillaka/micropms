@@ -123,7 +123,7 @@ class QueueService {
     /**
      * Mark a job as failed, with automatic retries.
      */
-    public static function fail(int $jobId, \Throwable $exception = null): void {
+    public static function fail(int $jobId, ?\Throwable $exception = null): void {
         $db = Database::getInstance()->getConnection();
         
         $stmt = $db->prepare("SELECT attempts, max_attempts FROM jobs_queue WHERE id = ?");

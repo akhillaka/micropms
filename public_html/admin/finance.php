@@ -63,11 +63,20 @@ $query = "
     SELECT 
         recorded_at AS date,
         CASE 
-            WHEN category = 'booking' OR booking_id IS NOT NULL OR description LIKE '%Receipt%' OR description LIKE '%Payment%' THEN 'collection'
+            WHEN type = 'income' AND (LOWER(category) = 'booking' OR (booking_id IS NOT NULL AND (category IS NULL OR category = '')) OR description LIKE '%Receipt%' OR description LIKE '%Payment%') THEN 'collection'
+            WHEN type = 'income' AND LOWER(category) IN ('f&b', 'laundry', 'misc', 'pos') THEN 'collection'
             ELSE type 
         END AS type,
         CASE 
-            WHEN category = 'booking' OR booking_id IS NOT NULL OR description LIKE '%Receipt%' OR description LIKE '%Payment%' THEN 'Room Received Payment'
+            WHEN type = 'income' AND (LOWER(category) = 'booking' OR (booking_id IS NOT NULL AND (category IS NULL OR category = '')) OR description LIKE '%Receipt%' OR description LIKE '%Payment%') THEN 'Room Received Payment'
+            WHEN type = 'income' AND LOWER(category) = 'f&b' THEN 'F&B Payments'
+            WHEN type = 'income' AND LOWER(category) = 'laundry' THEN 'Laundry Payments'
+            WHEN type = 'income' AND LOWER(category) = 'misc' THEN 'Misc Payments'
+            WHEN type = 'income' AND LOWER(category) = 'pos' THEN 'POS Payments'
+            WHEN type = 'expense' AND LOWER(category) = 'f&b' THEN 'F&B Expense'
+            WHEN type = 'expense' AND LOWER(category) = 'laundry' THEN 'Laundry Expense'
+            WHEN type = 'expense' AND LOWER(category) = 'misc' THEN 'Misc Expense'
+            WHEN type = 'expense' AND LOWER(category) = 'pos' THEN 'POS Expense'
             ELSE category 
         END AS category,
         description AS actual_desc,
@@ -411,8 +420,8 @@ $totalCatExpenses = array_sum($catSummary);
                                 </td>
                                 <td class="px-6 py-4 text-brand-800 font-medium">
                                     <?php 
-                                    $hasFolioLink = !empty($t['booking_id']) || $t['category'] === 'booking' || $t['type'] === 'due' || $t['type'] === 'collection';
-                                    $bId = $t['booking_id'] ?: $t['ref_id'];
+                                    $hasFolioLink = !empty($t['booking_id']);
+                                    $bId = $t['booking_id'];
                                     ?>
                                     <?php if($hasFolioLink && $bId): ?>
                                         <a href="folio.php?id=<?= $bId ?>" class="text-brand-accent hover:underline flex items-center gap-1 font-bold">

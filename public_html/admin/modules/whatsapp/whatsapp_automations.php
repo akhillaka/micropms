@@ -50,8 +50,12 @@ if (!$waEnabled) {
 
 $pageTitle = "WhatsApp Automations | MicroPMS";
 
+$propId = AuthHelper::getPropertyId();
+
 // --- SETTINGS DATA ---
-$templates = $db->query("SELECT * FROM wa_templates ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+$tStmt = $db->prepare("SELECT * FROM wa_templates WHERE property_id = ? ORDER BY name ASC");
+$tStmt->execute([$propId]);
+$templates = $tStmt->fetchAll(PDO::FETCH_ASSOC);
 $templateJs = [];
 foreach ($templates as &$t) {
     $t['components'] = json_decode($t['components_json'] ?? '[]', true);
@@ -85,7 +89,8 @@ while($row = $eventsStmt->fetch(PDO::FETCH_ASSOC)) {
     $eventsData[$row['event_key']] = $row;
 }
 
-$autoStmt = $db->query("SELECT event_key, template_id, variable_mapping_json, status FROM wa_automations");
+$autoStmt = $db->prepare("SELECT event_key, template_id, variable_mapping_json, status FROM wa_automations WHERE property_id = ?");
+$autoStmt->execute([$propId]);
 $automations = [];
 while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
     $automations[$row['event_key']] = $row;

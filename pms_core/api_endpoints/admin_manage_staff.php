@@ -23,12 +23,12 @@ ApiHandler::run(function(\PDO $db) {
             if (!$customRole) {
                 throw new Exception("Invalid custom role selected");
             }
-            return ['access_level' => 'manager', 'role_id' => $roleId, 'role_name' => $customRole['name']];
+            return ['access_level' => 'manager', 'role_name' => $customRole['name']];
         }
         if (!in_array($roleInput, $validRoles, true)) {
             throw new Exception("Invalid role selection");
         }
-        return ['access_level' => $roleInput, 'role_id' => null, 'role_name' => $roleInput];
+        return ['access_level' => $roleInput, 'role_name' => $roleInput];
     };
 
     if ($action === 'add') {
@@ -60,7 +60,7 @@ ApiHandler::run(function(\PDO $db) {
             throw new Exception("Username already exists");
         }
 
-        $stmt = $db->prepare("INSERT INTO staff_users (property_id, username, password_hash, pin_hash, access_level, role, role_id, is_active) VALUES (:prop, :u, :p, :pin, :a, :r, :rid, 1)");
+        $stmt = $db->prepare("INSERT INTO staff_users (property_id, username, password_hash, pin_hash, access_level, role, is_active) VALUES (:prop, :u, :p, :pin, :a, :r, 1)");
         $hash = password_hash($password, PASSWORD_DEFAULT);
         $pinHash = !empty($pin) ? password_hash($pin, PASSWORD_DEFAULT) : null;
         $stmt->execute([
@@ -69,8 +69,7 @@ ApiHandler::run(function(\PDO $db) {
             'p' => $hash, 
             'pin' => $pinHash,
             'a' => $resolvedRole['access_level'],
-            'r' => $resolvedRole['role_name'],
-            'rid' => $resolvedRole['role_id']
+            'r' => $resolvedRole['role_name']
         ]);
         $newId = $db->lastInsertId();
 
@@ -134,14 +133,12 @@ ApiHandler::run(function(\PDO $db) {
             "username = :u",
             "access_level = :a",
             "role = :r",
-            "role_id = :rid",
             "is_active = :ia"
         ];
         $params = [
             'u' => $username,
             'a' => $resolvedRole['access_level'],
             'r' => $resolvedRole['role_name'],
-            'rid' => $resolvedRole['role_id'],
             'ia' => $isActive,
             'id' => $userId
         ];

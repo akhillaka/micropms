@@ -40,7 +40,9 @@ ApiHandler::run(function(\PDO $db) {
             $stmt->execute(['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]);
             $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $pmJson = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods'")->fetchColumn();
+            $pmJsonStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = ?");
+            $pmJsonStmt->execute([$propertyId]);
+            $pmJson = $pmJsonStmt->fetchColumn();
             $configuredMethods = $pmJson ? json_decode((string)$pmJson, true, 512, JSON_THROW_ON_ERROR) : ["Cash", "UPI", "Razorpay"];
 
             $result = [];
@@ -146,17 +148,20 @@ ApiHandler::run(function(\PDO $db) {
                        SUM(ABS(amount)) as total
                 FROM folio_ledger 
                 WHERE transaction_type = 'payment' 
+                  AND property_id = :pid
                   AND recorded_at >= :start AND recorded_at <= :end
                 GROUP BY DATE(recorded_at), payment_method
                 ORDER BY DATE(recorded_at) DESC
             ";
             
             $rows = [];
-            foreach ($dbObj->yieldQuery($sql, ['start' => $start_date, 'end' => $end_date]) as $row) {
+            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
                 $rows[] = $row;
             }
 
-            $pmJson = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods'")->fetchColumn();
+            $pmJsonStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = ?");
+            $pmJsonStmt->execute([$propertyId]);
+            $pmJson = $pmJsonStmt->fetchColumn();
             $configuredMethods = $pmJson ? json_decode((string)$pmJson, true, 512, JSON_THROW_ON_ERROR) : [];
             if (empty($configuredMethods)) {
                 $configuredMethods = ["Cash", "UPI", "Razorpay"];
@@ -215,11 +220,12 @@ ApiHandler::run(function(\PDO $db) {
                 SELECT recorded_at as date, category, description, amount, payment_method
                 FROM finance_transactions 
                 WHERE type = 'expense' 
+                  AND property_id = :pid
                   AND recorded_at >= :start AND recorded_at <= :end
                 ORDER BY recorded_at DESC
             ";
             $expenses = [];
-            foreach ($dbObj->yieldQuery($sql, ['start' => $start_date, 'end' => $end_date]) as $row) {
+            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
                 $expenses[] = $row;
             }
             ApiResponse::success(['data' => $expenses]);
@@ -233,11 +239,12 @@ ApiHandler::run(function(\PDO $db) {
                 FROM bookings 
                 WHERE check_in >= :start AND check_in <= :end
                   AND booking_status != 'cancelled'
+                  AND property_id = :pid
                 GROUP BY rate_plan_name
                 ORDER BY total_revenue DESC
             ";
             $revenues = [];
-            foreach ($dbObj->yieldQuery($sql, ['start' => $start_date, 'end' => $end_date]) as $row) {
+            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
                 $revenues[] = $row;
             }
             ApiResponse::success(['data' => $revenues]);
@@ -261,6 +268,50 @@ ApiHandler::run(function(\PDO $db) {
                 $revenues[] = $row;
             }
             ApiResponse::success(['data' => $revenues]);
+            break;
+
+        case 'pos_order_tracking':
+            $sql = "
+                SELECT 
+                    po.id as order_id,
+                    po.recorded_at as date,
+                    o.name as outlet,
+                    po.total_amount,
+                    po.status,
+                    po.delivery_status
+                FROM pos_orders po
+                LEFT JOIN pos_outlets o ON po.outlet_id = o.id
+                WHERE po.property_id = :pid
+                  AND po.recorded_at >= :start AND po.recorded_at <= :end
+                ORDER BY po.recorded_at DESC
+            ";
+            $data = [];
+            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
+                $data[] = $row;
+            }
+            ApiResponse::success(['data' => $data]);
+            break;
+
+        case 'pos_restock_history':
+            $sql = "
+                SELECT 
+                    rh.created_at as date,
+                    i.name as item_name,
+                    rh.qty_added,
+                    rh.cost_price,
+                    u.username as restocked_by
+                FROM inventory_restock_history rh
+                JOIN inventory_items i ON rh.item_id = i.id
+                LEFT JOIN staff_users u ON rh.restocked_by = u.id
+                WHERE rh.property_id = :pid
+                  AND rh.created_at >= :start AND rh.created_at <= :end
+                ORDER BY rh.created_at DESC
+            ";
+            $data = [];
+            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
+                $data[] = $row;
+            }
+            ApiResponse::success(['data' => $data]);
             break;
 
         case 'pos_items':
@@ -363,11 +414,11 @@ ApiHandler::run(function(\PDO $db) {
                 FROM bookings b
                 LEFT JOIN guests g ON b.guest_id = g.id
                 LEFT JOIN rooms r ON b.room_id = r.id
-                WHERE b.check_in >= :start AND b.check_in <= :end
+                WHERE b.property_id = :pid AND b.check_in >= :start AND b.check_in <= :end
                 ORDER BY b.check_in DESC
             ";
             $results = [];
-            foreach ($dbObj->yieldQuery($sql, ['start' => $start_date, 'end' => $end_date]) as $row) {
+            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
                 // Add ID Status
                 $row['id_status'] = (!empty($row['id_proof_front']) || !empty($row['id_proof_back'])) ? 'Provided' : 'Pending';
                 unset($row['id_proof_front'], $row['id_proof_back']); // don't send filenames if not needed
@@ -378,7 +429,9 @@ ApiHandler::run(function(\PDO $db) {
             
         case 'revpar':
             // Total Rooms count
-            $totalRooms = (int)$db->query("SELECT COUNT(*) FROM rooms")->fetchColumn();
+            $roomsStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ?");
+            $roomsStmt->execute([$propertyId]);
+            $totalRooms = (int)$roomsStmt->fetchColumn();
             
             $current = strtotime(substr($start_date, 0, 10));
             $last = strtotime(substr($end_date, 0, 10));
@@ -394,15 +447,16 @@ ApiHandler::run(function(\PDO $db) {
                 LEFT JOIN (
                     SELECT booking_id, SUM(amount) as room_charges 
                     FROM folio_ledger 
-                    WHERE transaction_type = 'ROOM_CHARGE' 
+                    WHERE transaction_type = 'ROOM_CHARGE' AND property_id = :pid1
                     GROUP BY booking_id
                 ) fl ON b.id = fl.booking_id
                 WHERE b.booking_status IN ('checked_in', 'checked_out')
+                  AND b.property_id = :pid2
                   AND b.check_in <= :end 
                   AND b.check_out >= :start
             ";
             $bookings = [];
-            foreach ($dbObj->yieldQuery($sql, ['start' => $start_date, 'end' => $end_date]) as $row) {
+            foreach ($dbObj->yieldQuery($sql, ['pid1' => $propertyId, 'pid2' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
                 $bookings[] = $row;
             }
             
@@ -450,7 +504,9 @@ ApiHandler::run(function(\PDO $db) {
             
         case 'occupancy':
             // Total Rooms count
-            $totalRooms = (int)$db->query("SELECT COUNT(*) FROM rooms")->fetchColumn();
+            $roomsStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ?");
+            $roomsStmt->execute([$propertyId]);
+            $totalRooms = (int)$roomsStmt->fetchColumn();
             
             // To do day-wise, we need a list of dates.
             // We'll calculate it in PHP.
@@ -465,11 +521,12 @@ ApiHandler::run(function(\PDO $db) {
                 SELECT room_id, check_in, check_out 
                 FROM bookings 
                 WHERE booking_status IN ('checked_in', 'checked_out')
+                  AND property_id = :pid
                   AND check_in <= :end 
                   AND check_out >= :start
             ";
             $bookings = [];
-            foreach ($dbObj->yieldQuery($sql, ['start' => $start_date, 'end' => $end_date]) as $row) {
+            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
                 $bookings[] = $row;
             }
             
@@ -513,12 +570,13 @@ ApiHandler::run(function(\PDO $db) {
                        COALESCE(AVG(b.total_amount), 0) as adr
                 FROM rooms r
                 LEFT JOIN room_categories rc ON r.category_id = rc.id
-                LEFT JOIN bookings b ON r.id = b.room_id AND b.check_in >= :start AND b.check_in <= :end AND b.booking_status != 'cancelled'
+                LEFT JOIN bookings b ON r.id = b.room_id AND b.check_in >= :start AND b.check_in <= :end AND b.booking_status != 'cancelled' AND b.property_id = :pid1
+                WHERE r.property_id = :pid2
                 GROUP BY r.id, r.room_number, rc.name
                 ORDER BY total_revenue DESC
             ";
             $rooms = [];
-            foreach ($dbObj->yieldQuery($sql, ['start' => $start_date, 'end' => $end_date]) as $row) {
+            foreach ($dbObj->yieldQuery($sql, ['pid1' => $propertyId, 'pid2' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
                 $row['adr'] = round((float)$row['adr'], 2);
                 $row['total_revenue'] = round((float)$row['total_revenue'], 2);
                 $row['adr'] = $row['total_bookings'] > 0 ? round((float)$row['total_revenue'] / (int)$row['total_bookings'], 2) : 0;
@@ -538,17 +596,21 @@ ApiHandler::run(function(\PDO $db) {
                     SELECT b.guest_id,
                            (SELECT COUNT(*) FROM bookings b2
                             WHERE b2.guest_id = b.guest_id 
+                              AND b2.property_id = :pid1
                               AND b2.check_in < :start_date_1
                               AND b2.booking_status != 'cancelled') as prior_bookings
                     FROM bookings b
                     WHERE b.check_in >= :start_date_2 AND b.check_in <= :end_date 
                       AND b.booking_status != 'cancelled'
+                      AND b.property_id = :pid2
                       AND b.guest_id IS NOT NULL
                     GROUP BY b.guest_id
                 ) as sub
             ";
             $retention = $db->prepare($guestSql);
             $retention->execute([
+                'pid1' => $propertyId,
+                'pid2' => $propertyId,
                 'start_date_1' => $start_date,
                 'start_date_2' => $start_date,
                 'end_date' => $end_date
@@ -557,46 +619,46 @@ ApiHandler::run(function(\PDO $db) {
             if (!$retentionData) {
                 $retentionData = ['new_guests' => 0, 'returning_guests' => 0];
             }
-
+ 
             // 2. Busiest Day of Week — order by FIELD so Mon-Sun ordering is consistent
             $dowSql = "
                 SELECT DAYNAME(check_in) as day_of_week, COUNT(id) as total_checkins
                 FROM bookings
-                WHERE check_in >= :start AND check_in <= :end AND booking_status != 'cancelled'
+                WHERE check_in >= :start AND check_in <= :end AND booking_status != 'cancelled' AND property_id = :pid
                 GROUP BY DAYNAME(check_in)
                 ORDER BY FIELD(DAYNAME(check_in),'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')
             ";
             $dowData = [];
-            foreach ($dbObj->yieldQuery($dowSql, ['start' => $start_date, 'end' => $end_date]) as $row) {
+            foreach ($dbObj->yieldQuery($dowSql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
                 $dowData[] = $row;
             }
-
+ 
             // 3. Peak Check-in / Check-out hours
             $hoursSql = "
                 SELECT 
                     HOUR(check_in) as checkin_hour, COUNT(id) as checkin_count
                 FROM bookings
-                WHERE check_in >= :start AND check_in <= :end AND booking_status != 'cancelled'
+                WHERE check_in >= :start AND check_in <= :end AND booking_status != 'cancelled' AND property_id = :pid
                 GROUP BY HOUR(check_in)
                 ORDER BY checkin_count DESC
                 LIMIT 5
             ";
             $peakCheckins = [];
-            foreach ($dbObj->yieldQuery($hoursSql, ['start' => $start_date, 'end' => $end_date]) as $row) {
+            foreach ($dbObj->yieldQuery($hoursSql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
                 $peakCheckins[] = $row;
             }
-
+ 
             $hoursOutSql = "
                 SELECT 
                     HOUR(check_out) as checkout_hour, COUNT(id) as checkout_count
                 FROM bookings
-                WHERE check_out >= :start AND check_out <= :end AND booking_status != 'cancelled'
+                WHERE check_out >= :start AND check_out <= :end AND booking_status != 'cancelled' AND property_id = :pid
                 GROUP BY HOUR(check_out)
                 ORDER BY checkout_count DESC
                 LIMIT 5
             ";
             $peakCheckouts = [];
-            foreach ($dbObj->yieldQuery($hoursOutSql, ['start' => $start_date, 'end' => $end_date]) as $row) {
+            foreach ($dbObj->yieldQuery($hoursOutSql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
                 $peakCheckouts[] = $row;
             }
 
@@ -608,6 +670,227 @@ ApiHandler::run(function(\PDO $db) {
                     'peak_checkouts' => $peakCheckouts
                 ]
             ]);
+            break;
+
+        case 'save_custom_report':
+            $input = json_decode(file_get_contents('php://input'), true);
+            $name = trim($input['name'] ?? '');
+            $dataset = trim($input['dataset'] ?? '');
+            $columns = $input['columns'] ?? [];
+            $filters = $input['filters'] ?? null;
+            if (empty($name) || empty($dataset) || empty($columns)) {
+                ApiResponse::error('Missing required fields for saving custom report.');
+                break;
+            }
+            $stmt = $db->prepare("INSERT INTO saved_reports (property_id, name, dataset, columns, filters) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$propertyId, $name, $dataset, json_encode($columns), $filters]);
+            ApiResponse::success(['message' => 'Custom report format saved successfully!']);
+            break;
+            
+        case 'get_saved_reports':
+            $stmt = $db->prepare("SELECT id, name, dataset, columns, filters FROM saved_reports WHERE property_id = ? ORDER BY name ASC");
+            $stmt->execute([$propertyId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as &$r) {
+                $r['columns'] = json_decode($r['columns'], true);
+            }
+            ApiResponse::success(['data' => $rows]);
+            break;
+            
+        case 'delete_saved_report':
+            $reportId = (int)($_GET['id'] ?? 0);
+            $stmt = $db->prepare("DELETE FROM saved_reports WHERE id = ? AND property_id = ?");
+            $stmt->execute([$reportId, $propertyId]);
+            ApiResponse::success(['message' => 'Report template deleted.']);
+            break;
+            
+        case 'custom_builder':
+            // Ensure display_id exists in pos_orders table
+            try {
+                $check = $db->query("SHOW COLUMNS FROM `pos_orders` LIKE 'display_id'")->fetch();
+                if (!$check) {
+                    $db->exec("ALTER TABLE `pos_orders` ADD COLUMN `display_id` VARCHAR(50) NULL AFTER `id`;");
+                    $db->exec("CREATE INDEX `idx_pos_orders_display` ON `pos_orders`(`display_id`);");
+                }
+            } catch (\Exception $e) {}
+
+            $dataset = (string)($_GET['dataset'] ?? '');
+            $joinDataset = (string)($_GET['join_dataset'] ?? '');
+            $selectedCols = isset($_GET['columns']) ? explode(',', (string)$_GET['columns']) : [];
+            
+            if (empty($dataset) || empty($selectedCols)) {
+                ApiResponse::error('Dataset and columns are required.');
+                break;
+            }
+            
+            $colExprs = [
+                'bookings' => [
+                    'id' => 'b.id', 
+                    'display_id' => 'b.display_id', 
+                    'check_in' => 'b.check_in', 
+                    'check_out' => 'b.check_out', 
+                    'total_amount' => 'b.total_amount', 
+                    'booking_status' => 'b.booking_status', 
+                    'booking_source' => 'b.booking_source', 
+                    'rate_plan_name' => 'b.rate_plan_name', 
+                    'created_at' => 'b.created_at',
+                    'guest_name' => 'g.name', 
+                    'room_number' => 'r.room_number'
+                ],
+                'guests' => [
+                    'id' => 'g.id', 
+                    'name' => 'g.name', 
+                    'email' => 'g.email', 
+                    'phone' => 'g.phone', 
+                    'city' => 'g.city', 
+                    'state' => 'g.state', 
+                    'country' => 'g.country', 
+                    'created_at' => 'g.created_at'
+                ],
+                'folio_ledger' => [
+                    'id' => 'fl.id', 
+                    'display_id' => 'fl.display_id', 
+                    'booking_id' => 'fl.booking_id', 
+                    'transaction_type' => 'fl.transaction_type', 
+                    'amount' => 'fl.amount', 
+                    'payment_method' => 'fl.payment_method', 
+                    'description' => 'fl.description', 
+                    'recorded_at' => 'fl.recorded_at',
+                    'room_number' => 'r.room_number'
+                ],
+                'finance_transactions' => [
+                    'id' => 'ft.id', 
+                    'display_id' => 'ft.display_id', 
+                    'type' => 'ft.type', 
+                    'category' => 'ft.category', 
+                    'amount' => 'ft.amount', 
+                    'payment_method' => 'ft.payment_method', 
+                    'description' => 'ft.description', 
+                    'recorded_at' => 'ft.recorded_at'
+                ],
+                'pos_orders' => [
+                    'id' => 'po.id', 
+                    'display_id' => 'po.display_id', 
+                    'booking_id' => 'po.booking_id', 
+                    'outlet_id' => 'po.outlet_id', 
+                    'total_amount' => 'po.total_amount', 
+                    'payment_method' => 'po.payment_method', 
+                    'status' => 'po.status', 
+                    'delivery_status' => 'po.delivery_status', 
+                    'recorded_at' => 'po.recorded_at',
+                    'room_number' => 'r.room_number', 
+                    'guest_name' => 'g.name', 
+                    'outlet_name' => 'o.name'
+                ]
+            ];
+            
+            if (!isset($colExprs[$dataset])) {
+                ApiResponse::error('Invalid primary dataset.');
+                break;
+            }
+            
+            $selectFields = [];
+            $needsBookingsJoin = false;
+            $needsRoomsJoin = false;
+            $needsGuestsJoin = false;
+            $needsOutletsJoin = false;
+            
+            foreach ($selectedCols as $col) {
+                $tblName = $dataset;
+                $colName = $col;
+                if (strpos($col, '.') !== false) {
+                    list($tblName, $colName) = explode('.', $col);
+                }
+                
+                if (isset($colExprs[$tblName][$colName])) {
+                    $expr = $colExprs[$tblName][$colName];
+                    $selectFields[] = "{$expr} AS `{$tblName}_{$colName}`";
+                    
+                    if (str_starts_with($expr, 'b.')) $needsBookingsJoin = true;
+                    if (str_starts_with($expr, 'r.')) { $needsRoomsJoin = true; $needsBookingsJoin = true; }
+                    if (str_starts_with($expr, 'g.')) $needsGuestsJoin = true;
+                    if (str_starts_with($expr, 'o.')) $needsOutletsJoin = true;
+                }
+            }
+            
+            if (empty($selectFields)) {
+                ApiResponse::error('No valid columns selected.');
+                break;
+            }
+            
+            $primaryAlias = '';
+            if ($dataset === 'bookings') $primaryAlias = 'b';
+            if ($dataset === 'guests') $primaryAlias = 'g';
+            if ($dataset === 'folio_ledger') $primaryAlias = 'fl';
+            if ($dataset === 'finance_transactions') $primaryAlias = 'ft';
+            if ($dataset === 'pos_orders') $primaryAlias = 'po';
+            
+            if (!empty($joinDataset) && $joinDataset !== $dataset) {
+                if ($joinDataset === 'bookings') $needsBookingsJoin = true;
+                if ($joinDataset === 'guests') $needsGuestsJoin = true;
+                if ($joinDataset === 'folio_ledger') $needsBookingsJoin = true;
+                if ($joinDataset === 'pos_orders') $needsBookingsJoin = true;
+            }
+            
+            $fromStr = "`{$dataset}` {$primaryAlias}";
+            
+            if ($primaryAlias === 'b') {
+                if ($needsGuestsJoin) $fromStr .= " LEFT JOIN `guests` g ON b.guest_id = g.id";
+                if ($needsRoomsJoin) $fromStr .= " LEFT JOIN `rooms` r ON b.room_id = r.id";
+                if (!empty($joinDataset) && $joinDataset === 'folio_ledger') {
+                    $fromStr .= " JOIN `folio_ledger` fl ON b.id = fl.booking_id";
+                }
+                if (!empty($joinDataset) && $joinDataset === 'pos_orders') {
+                    $fromStr .= " JOIN `pos_orders` po ON b.id = po.booking_id";
+                }
+            } elseif ($primaryAlias === 'g') {
+                if ($needsBookingsJoin || !empty($joinDataset)) {
+                    $fromStr .= " JOIN `bookings` b ON g.id = b.guest_id";
+                    if ($needsRoomsJoin) $fromStr .= " LEFT JOIN `rooms` r ON b.room_id = r.id";
+                    if (!empty($joinDataset) && $joinDataset === 'folio_ledger') {
+                        $fromStr .= " JOIN `folio_ledger` fl ON b.id = fl.booking_id";
+                    }
+                }
+            } elseif ($primaryAlias === 'fl') {
+                $fromStr .= " LEFT JOIN `bookings` b ON fl.booking_id = b.id";
+                if ($needsRoomsJoin) $fromStr .= " LEFT JOIN `rooms` r ON b.room_id = r.id";
+                if ($needsGuestsJoin) $fromStr .= " LEFT JOIN `guests` g ON b.guest_id = g.id";
+            } elseif ($primaryAlias === 'po') {
+                $fromStr .= " LEFT JOIN `bookings` b ON po.booking_id = b.id";
+                if ($needsRoomsJoin) $fromStr .= " LEFT JOIN `rooms` r ON b.room_id = r.id";
+                if ($needsGuestsJoin) $fromStr .= " LEFT JOIN `guests` g ON b.guest_id = g.id";
+                if ($needsOutletsJoin) $fromStr .= " LEFT JOIN `pos_outlets` o ON po.outlet_id = o.id";
+            }
+            
+            $dateField = "{$primaryAlias}.created_at";
+            if ($dataset === 'bookings') $dateField = "b.check_in";
+            if ($dataset === 'folio_ledger') $dateField = "fl.recorded_at";
+            if ($dataset === 'finance_transactions') $dateField = "ft.recorded_at";
+            if ($dataset === 'pos_orders') $dateField = "po.recorded_at";
+            
+            $whereClause = "{$primaryAlias}.property_id = :pid";
+            if ($dataset === 'guests') {
+                $whereClause = "1=1";
+                if ($needsBookingsJoin) {
+                    $whereClause = "b.property_id = :pid";
+                }
+            }
+            
+            $selectStr = implode(', ', $selectFields);
+            $sql = "SELECT DISTINCT {$selectStr} FROM {$fromStr} WHERE {$whereClause} AND {$dateField} >= :start AND {$dateField} <= :end";
+            
+            try {
+                $stmt = $db->prepare($sql);
+                $bindParams = ['start' => $start_date, 'end' => $end_date];
+                if (strpos($whereClause, ':pid') !== false) {
+                    $bindParams['pid'] = $propertyId;
+                }
+                $stmt->execute($bindParams);
+                $allRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                ApiResponse::success(['data' => $allRows]);
+            } catch (\PDOException $e) {
+                ApiResponse::error('Database Error: ' . $e->getMessage() . ' | SQL: ' . $sql);
+            }
             break;
             
         default:

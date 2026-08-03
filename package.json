@@ -1,0 +1,25 @@
+{
+  "name": "s",
+  "version": "1.0.0",
+  "description": "",
+  "main": "rewrite_pos.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:css": "tailwindcss -i ./public_html/css/src/portal.css -o ./public_html/css/portal.css --minify"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akhillaka/micropms.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/akhillaka/micropms/issues"
+  },
+  "homepage": "https://github.com/akhillaka/micropms#readme"
+}

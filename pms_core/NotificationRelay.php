@@ -521,4 +521,19 @@ class NotificationRelay {
         
         return true;
     }
+    /**
+     * Send In-App Notification to Admin Dashboard
+     */
+    public static function sendInAppNotification(int $propertyId, string $title, string $message, string $type = 'info'): bool {
+        require_once __DIR__ . '/Database.php';
+        $db = Database::getInstance()->getConnection();
+        
+        try {
+            $stmt = $db->prepare("INSERT INTO admin_notifications (property_id, title, message, type) VALUES (?, ?, ?, ?)");
+            return $stmt->execute([$propertyId, $title, $message, $type]);
+        } catch (\Exception $e) {
+            error_log("Failed to insert admin notification: " . $e->getMessage());
+            return false;
+        }
+    }
 }

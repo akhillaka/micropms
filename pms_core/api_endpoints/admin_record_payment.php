@@ -23,12 +23,13 @@ ApiHandler::run(function(\PDO $db) {
     }
 
     // Validate booking exists and is not cancelled
+    $propertyId = AuthHelper::getPropertyId();
     $bStmt = $db->prepare("SELECT b.*, r.room_number, g.name as guest_name 
         FROM bookings b 
         JOIN rooms r ON b.room_id = r.id 
         LEFT JOIN guests g ON b.guest_id = g.id 
-        WHERE b.id = :id AND b.payment_status != 'cancelled'");
-    $bStmt->execute(['id' => $bookingId]);
+        WHERE b.id = :id AND b.payment_status != 'cancelled' AND b.property_id = :pid");
+    $bStmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
     $booking = $bStmt->fetch();
     
     if (!$booking) {
@@ -44,8 +45,16 @@ ApiHandler::run(function(\PDO $db) {
         
         // Link it to the booking if not already linked
         if (!$booking['company_id']) {
-            $db->prepare("UPDATE bookings SET company_id = ? WHERE id = ?")->execute([$companyId, $bookingId]);
+            $db->prepare("UPDATE bookings SET company_id = ? WHERE id = ? AND property_id = ?")->execute([$companyId, $bookingId, $propertyId]);
             $booking['company_id'] = $companyId;
+        }
+    }
+
+    $recordedAt = !empty($data['date']) ? $data['date'] : null;
+    if ($recordedAt) {
+        // Ensure valid date format, append current time if only date is provided
+        if (strlen($recordedAt) === 10) {
+            $recordedAt .= ' ' . date('H:i:s');
         }
     }
 
@@ -80,36 +89,114 @@ ApiHandler::run(function(\PDO $db) {
             }
         }
     }
-    
-    // Use shared FolioService for standardized recording
-    $entryId = FolioService::recordPayment($db, $bookingId, $amount, $method, $ref, 'admin');
 
-    // Record finance transaction (matching assistant behavior)
-    $receiptStmt = $db->prepare("SELECT display_id FROM folio_ledger WHERE id = ?");
-    $receiptStmt->execute([$entryId]);
-    $receiptDisplayId = $receiptStmt->fetchColumn() ?: 'RCPT-' . $entryId;
-    
-    // Record finance transaction or city ledger
-    if (strtoupper($method) === 'CITY_LEDGER') {
-        $cityStmt = $db->prepare("INSERT INTO city_ledger (company_id, booking_id, amount, type, status, recorded_at) VALUES (:cid, :bid, :amount, 'charge', 'pending', NOW())");
-        $cityStmt->execute([
-            'cid' => $booking['company_id'],
-            'bid' => $bookingId,
-            'amount' => $amount
-        ]);
-        
-        // Update company balance
-        $db->prepare("UPDATE companies SET balance = balance + ? WHERE id = ?")->execute([$amount, $booking['company_id']]);
+    $splits = $data['splits'] ?? [];
+    $receiptDisplayId = '';
+
+    if (!empty($splits)) {
+        // Validate total split amount matches payment amount
+        $splitSum = 0;
+        foreach ($splits as $split) {
+            $splitSum += floatval($split['amount']);
+        }
+        if (abs($splitSum - $amount) > 0.01) {
+            ApiResponse::error('Split amounts do not equal total payment amount');
+        }
+
+        $receipts = [];
+        foreach ($splits as $split) {
+            $splitAmt = floatval($split['amount']);
+            $splitCat = $split['category'] ?? 'booking';
+            
+            // Sub-tag reference for online payment gateways / UPI
+            $splitRef = $ref;
+            if (in_array(strtolower($method), ['online', 'upi', 'card', 'bank_transfer']) && !empty($ref)) {
+                $splitRef = $ref . '-split-' . $splitCat;
+            }
+
+            $entryId = FolioService::recordPayment($db, $bookingId, $splitAmt, $method, $splitRef, 'admin', $splitCat, $recordedAt, true);
+            
+            $receiptStmt = $db->prepare("SELECT display_id FROM folio_ledger WHERE id = ?");
+            $receiptStmt->execute([$entryId]);
+            $rId = $receiptStmt->fetchColumn() ?: 'RCPT-' . $entryId;
+            $receipts[] = $rId;
+
+            // Insert into finance
+            $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id, recorded_at) VALUES (:prop_id, 'income', :cat, :bid, :amount, :desc, :method, :staff, :recorded_at)");
+            
+            $catLabel = $splitCat;
+            if ($splitCat === 'booking') {
+                $catLabel = 'Room Rent';
+            } elseif ($splitCat === 'F&B') {
+                $catLabel = 'F&B';
+            }
+            $desc = "Split Payment " . strtoupper($method) . " - " . $catLabel . " (Receipt {$rId})";
+            
+            $financeParams = [
+                'prop_id' => $propertyId,
+                'cat' => $splitCat,
+                'bid' => $bookingId,
+                'amount' => $splitAmt,
+                'desc' => $desc,
+                'method' => strtolower($method),
+                'staff' => $_SESSION['user_id'] ?? null,
+                'recorded_at' => $recordedAt ?: date('Y-m-d H:i:s')
+            ];
+            $financeId = (int)$db->lastInsertId();
+            SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
+
+            // Link generated transaction ID to the split folio entry
+            $txnStmt = $db->prepare("SELECT display_id FROM finance_transactions WHERE id = ?");
+            $txnStmt->execute([$financeId]);
+            $txnDisplayId = $txnStmt->fetchColumn();
+            if ($txnDisplayId) {
+                $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref = 'MANUAL' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $entryId]);
+            }
+        }
+        $receiptDisplayId = implode(', ', $receipts);
     } else {
-        $financeStmt = $db->prepare("INSERT INTO finance_transactions (type, category, booking_id, amount, description, payment_method, staff_id) VALUES ('income', 'booking', :bid, :amount, :desc, :method, :staff)");
-        $financeStmt->execute([
-            'bid' => $bookingId,
-            'amount' => $amount,
-            'desc' => "Payment - " . ucfirst($method) . " (Receipt {$receiptDisplayId})",
-            'method' => strtolower($method),
-            'staff' => $_SESSION['user_id'] ?? null
-        ]);
-        SequenceGenerator::assignDisplayId($db, 'finance_transactions', (int)$db->lastInsertId(), 'SEQ_TRANSACTION_FORMAT');
+        // Standard single payment flow
+        $entryId = FolioService::recordPayment($db, $bookingId, $amount, $method, $ref, 'admin', 'booking', $recordedAt);
+
+        // Record finance transaction
+        $receiptStmt = $db->prepare("SELECT display_id FROM folio_ledger WHERE id = ?");
+        $receiptStmt->execute([$entryId]);
+        $receiptDisplayId = $receiptStmt->fetchColumn() ?: 'RCPT-' . $entryId;
+        
+        if (strtoupper($method) === 'CITY_LEDGER') {
+            $cityStmt = $db->prepare("INSERT INTO city_ledger (property_id, company_id, booking_id, amount, type, status, recorded_at) VALUES (:pid, :cid, :bid, :amount, 'charge', 'pending', :recorded_at)");
+            $cityStmt->execute([
+                'pid' => $propertyId,
+                'cid' => $booking['company_id'],
+                'bid' => $bookingId,
+                'amount' => $amount,
+                'recorded_at' => $recordedAt ?: date('Y-m-d H:i:s')
+            ]);
+            
+            // Update company balance
+            $db->prepare("UPDATE companies SET balance = balance + ? WHERE id = ? AND property_id = ?")->execute([$amount, $booking['company_id'], $propertyId]);
+        } else {
+            $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id, recorded_at) VALUES (:prop_id, 'income', 'booking', :bid, :amount, :desc, :method, :staff, :recorded_at)");
+            $financeStmt->execute([
+                'prop_id' => $propertyId,
+                'bid' => $bookingId,
+                'amount' => $amount,
+                'desc' => "Payment - " . ucfirst($method) . " (Receipt {$receiptDisplayId})",
+                'method' => strtolower($method),
+                'staff' => $_SESSION['user_id'] ?? null,
+                'recorded_at' => $recordedAt ?: date('Y-m-d H:i:s')
+            ]);
+            $financeId = (int)$db->lastInsertId();
+            SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
+
+            // Link generated transaction ID to the folio entry
+            $txnStmt = $db->prepare("SELECT display_id FROM finance_transactions WHERE id = ?");
+            $txnStmt->execute([$financeId]);
+            $txnDisplayId = $txnStmt->fetchColumn();
+            if ($txnDisplayId) {
+                $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref = 'MANUAL' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $entryId]);
+            }
+        }
     }
 
     // Telegram notification

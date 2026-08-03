@@ -6,11 +6,30 @@
  */
 ?>
 <?php $adminBaseUrl = substr($_SERVER['SCRIPT_NAME'], 0, strpos($_SERVER['SCRIPT_NAME'], '/admin/') + 7); ?>
-<div class="relative" id="desktop-menu-wrap">
-    <button onclick="toggleDesktopMenu()" class="w-10 h-10 rounded-xl flex items-center justify-center text-brand-600 hover:bg-brand-100 border border-brand-200 transition-all" aria-label="Menu">
-        <i class="ph ph-list text-xl"></i>
-    </button>
-    <div id="desktop-menu" class="absolute right-0 top-12 w-64 bg-white rounded-2xl border border-slate-100 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] py-2 z-50 animate-fade-up max-h-[80vh] overflow-y-auto hidden">
+<div class="flex items-center gap-3">
+    <!-- Notification Bell -->
+    <div class="relative" id="notifications-wrap">
+        <button onclick="toggleNotifications()" class="relative w-10 h-10 rounded-xl flex items-center justify-center text-brand-600 hover:bg-brand-100 border border-brand-200 transition-all" aria-label="Notifications">
+            <i class="ph ph-bell text-xl"></i>
+            <span id="notif-badge" class="hidden absolute top-1 right-1 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>
+        </button>
+        <div id="notifications-menu" class="absolute right-0 top-12 w-80 bg-white rounded-2xl border border-slate-100 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] py-2 z-50 animate-fade-up max-h-[80vh] overflow-y-auto hidden">
+            <div class="px-4 py-3 border-b border-slate-50 flex justify-between items-center">
+                <h3 class="font-bold text-sm text-slate-800">Notifications</h3>
+                <button onclick="markAllNotificationsRead()" class="text-xs text-brand-600 hover:text-brand-800 font-medium">Mark all read</button>
+            </div>
+            <div id="notif-list" class="divide-y divide-slate-50">
+                <div class="px-4 py-8 text-center text-sm text-slate-400">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Navigation -->
+    <div class="relative" id="desktop-menu-wrap">
+        <button onclick="toggleDesktopMenu()" class="w-10 h-10 rounded-xl flex items-center justify-center text-brand-600 hover:bg-brand-100 border border-brand-200 transition-all" aria-label="Menu">
+            <i class="ph ph-list text-xl"></i>
+        </button>
+        <div id="desktop-menu" class="absolute right-0 top-12 w-64 bg-white rounded-2xl border border-slate-100 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] py-2 z-50 animate-fade-up max-h-[80vh] overflow-y-auto hidden">
         
         <!-- Main Navigation -->
         <?php if(AuthHelper::can('view_dashboard')): ?>
@@ -71,7 +90,7 @@
         <div class="border-t border-slate-100 my-1"></div>
         <?php if (AuthHelper::isSuperAdmin()): ?>
             <p class="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest text-emerald-600">SaaS Controls</p>
-            <a href="<?php echo $adminBaseUrl; ?>modules/saas/saas_properties.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50 transition-colors"><i class="ph ph-shield-check text-lg text-emerald-500"></i> Return to SaaS Panel</a>
+            <a href="/saas-admin/index.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50 transition-colors"><i class="ph ph-shield-check text-lg text-emerald-500"></i> Return to SaaS Panel</a>
             <div class="border-t border-slate-100 my-1"></div>
         <?php endif; ?>
         <a href="<?php echo $adminBaseUrl; ?>logout.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-rose-600 hover:bg-rose-50 transition-colors"><i class="ph ph-sign-out text-lg text-rose-500"></i> Logout</a>
@@ -97,4 +116,73 @@
             menu.classList.add('hidden');
         }
     }
+
+    function toggleNotifications() {
+        const menu = document.getElementById('notifications-menu');
+        const isHidden = menu.classList.contains('hidden');
+        
+        if (isHidden) {
+            menu.classList.remove('hidden');
+            fetchNotifications();
+            // Close on outside click
+            const closeHandler = (e) => {
+                if (!e.target.closest('#notifications-wrap')) {
+                    menu.classList.add('hidden');
+                    document.removeEventListener('click', closeHandler);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', closeHandler), 10);
+        } else {
+            menu.classList.add('hidden');
+        }
+    }
+
+    function fetchNotifications() {
+        fetch('<?php echo $adminBaseUrl; ?>api/notifications.php?action=list')
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    const badge = document.getElementById('notif-badge');
+                    if (data.unread_count > 0) {
+                        badge.classList.remove('hidden');
+                    } else {
+                        badge.classList.add('hidden');
+                    }
+                    
+                    const list = document.getElementById('notif-list');
+                    if (data.notifications.length === 0) {
+                        list.innerHTML = '<div class="px-4 py-8 text-center text-sm text-slate-400">No new notifications</div>';
+                        return;
+                    }
+                    
+                    list.innerHTML = data.notifications.map(n => `
+                        <div class="px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer ${n.is_read == 0 ? 'bg-slate-50 border-l-2 border-brand-500' : ''}" onclick="markNotificationRead(${n.id})">
+                            <h4 class="text-sm font-bold text-slate-800">${n.title}</h4>
+                            <p class="text-xs text-slate-500 mt-1 line-clamp-2">${n.message}</p>
+                            <span class="text-[10px] text-slate-400 mt-2 block">${new Date(n.created_at).toLocaleString()}</span>
+                        </div>
+                    `).join('');
+                }
+            });
+    }
+
+    function markNotificationRead(id) {
+        const fd = new FormData();
+        fd.append('id', id);
+        fetch('<?php echo $adminBaseUrl; ?>api/notifications.php?action=mark_read', {
+            method: 'POST',
+            body: fd
+        }).then(() => fetchNotifications());
+    }
+
+    function markAllNotificationsRead() {
+        fetch('<?php echo $adminBaseUrl; ?>api/notifications.php?action=mark_read', {
+            method: 'POST'
+        }).then(() => fetchNotifications());
+    }
+
+    // Auto-poll notifications every 60 seconds
+    setInterval(fetchNotifications, 60000);
+    // Initial fetch
+    setTimeout(fetchNotifications, 1000);
 </script>

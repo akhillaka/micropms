@@ -38,3 +38,6 @@ CREATE TABLE IF NOT EXISTS `pos_order_items` (
 -- Indexing for quick lookups
 CREATE INDEX `idx_inventory_property` ON `inventory_items`(`property_id`);
 CREATE INDEX `idx_pos_orders_booking` ON `pos_orders`(`booking_id`);
+
+-- Duplicate index guard (idempotent re-runs)
+-- idx_inventory_property and idx_pos_orders_booking already created above

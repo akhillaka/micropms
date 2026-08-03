@@ -157,7 +157,9 @@ class ErrorTracker {
                 $ref = new \ReflectionClass('CsrfToken');
                 if ($ref->hasMethod('getInputBody')) {
                     $method = $ref->getMethod('getInputBody');
-                    $method->setAccessible(true);
+                    if (PHP_VERSION_ID < 80100) {
+                        $method->setAccessible(true);
+                    }
                     $rawBody = (string)$method->invoke(null);
                 }
             }

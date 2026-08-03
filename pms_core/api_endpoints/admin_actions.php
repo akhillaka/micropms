@@ -89,7 +89,7 @@ ApiHandler::run(function(\PDO $db) {
         WHERE b.booking_status IN ('booked', 'checked_in')
           AND b.payment_status != 'cancelled'
           AND b.property_id = :pid
-        GROUP BY b.id
+        GROUP BY b.id, b.total_amount, b.payment_status, b.booking_status, r.room_number, g.name, g.phone
         HAVING balance > 0
     ");
     $stmt->execute(['pid' => $propertyId]);
@@ -197,7 +197,7 @@ ApiHandler::run(function(\PDO $db) {
             'room_id' => $row['id'],
             'room_number' => $row['room_number'],
             'category_name' => $row['category_name'],
-            'action_url' => "rooms_calendar.php",
+            'action_url' => "index.php",
             'action_label' => 'Mark Clean'
         ];
     }
@@ -229,7 +229,7 @@ ApiHandler::run(function(\PDO $db) {
             'action_label' => 'Upload ID'
         ];
     }
-
+ 
     // 8. Incomplete Guest Profile
     $stmt = $db->prepare("
         SELECT g.id, g.name, g.phone, g.age, g.city

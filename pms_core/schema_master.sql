@@ -279,10 +279,11 @@ CREATE INDEX IF NOT EXISTS `idx_guests_name` ON `guests` (`name`);
 
 -- Track and prevent API double submit idempotency
 CREATE TABLE IF NOT EXISTS `idempotency_keys` (
+  `property_id` int(11) NOT NULL DEFAULT 1,
   `idempotency_key` varchar(255) NOT NULL,
   `response_body` text NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`idempotency_key`)
+  PRIMARY KEY (`property_id`, `idempotency_key`)
 ) ENGINE=InnoDB;
 
 -- Migration: Add tax_preference to bookings if upgrading existing database
@@ -424,7 +425,7 @@ ALTER TABLE `audit_logs` ADD COLUMN IF NOT EXISTS `property_id` INT DEFAULT 1;
 
 ALTER TABLE staff_users
   MODIFY COLUMN access_level
-    ENUM('owner','manager','housekeeping','front_desk')
+    ENUM('superadmin','owner','admin','manager','receptionist','housekeeping','front_desk')
     NOT NULL DEFAULT 'manager';
 
 ALTER TABLE staff_users
@@ -1066,7 +1067,7 @@ SELECT `id`, `property_id` FROM `staff_users` WHERE `property_id` IS NOT NULL AN
 -- 2. superadmin access level on staff_users
 -- ═══════════════════════════════════════════════════════════════
 ALTER TABLE `staff_users`
-  MODIFY COLUMN `access_level` ENUM('superadmin','owner','admin','manager','receptionist','housekeeping') NOT NULL DEFAULT 'manager';
+  MODIFY COLUMN `access_level` ENUM('superadmin','owner','admin','manager','receptionist','housekeeping','front_desk') NOT NULL DEFAULT 'manager';
 
 -- ═══════════════════════════════════════════════════════════════
 -- 3. login_attempts — brute force tracking (referenced in login.php)
@@ -1202,3 +1203,61 @@ CREATE TABLE IF NOT EXISTS `pos_inventory` (
   KEY `property_id` (`property_id`),
   KEY `item_id` (`item_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ═══════════════════════════════════════════════════════════════
+-- MicroPMS Migration 016: SaaS Missing Tenant Isolation Fixes
+-- ═══════════════════════════════════════════════════════════════
+ALTER TABLE `guests` ADD COLUMN IF NOT EXISTS `property_id` INT(11) NOT NULL DEFAULT 1;
+
+SET @s = (SELECT IF((SELECT COUNT(1) FROM INFORMATION_SCHEMA.STATISTICS WHERE table_schema = DATABASE() AND table_name = 'guests' AND index_name = 'phone') > 0, 'ALTER TABLE `guests` DROP INDEX `phone`', 'SELECT 1'));
+PREPARE stmt FROM @s; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @s = (SELECT IF((SELECT COUNT(1) FROM INFORMATION_SCHEMA.STATISTICS WHERE table_schema = DATABASE() AND table_name = 'guests' AND index_name = 'uq_guest_prop_phone') = 0, 'ALTER TABLE `guests` ADD UNIQUE KEY `uq_guest_prop_phone` (`property_id`, `phone`)', 'SELECT 1'));
+PREPARE stmt FROM @s; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+ALTER TABLE `sequence_counters` ADD COLUMN IF NOT EXISTS `property_id` INT(11) NOT NULL DEFAULT 1;
+ALTER TABLE `sequence_counters` DROP PRIMARY KEY, ADD PRIMARY KEY (`property_id`, `module`, `period`);
+
+ALTER TABLE `night_audit_log` ADD COLUMN IF NOT EXISTS `property_id` INT(11) NOT NULL DEFAULT 1;
+
+SET @s = (SELECT IF((SELECT COUNT(1) FROM INFORMATION_SCHEMA.STATISTICS WHERE table_schema = DATABASE() AND table_name = 'night_audit_log' AND index_name = 'uk_audit_date') > 0, 'ALTER TABLE `night_audit_log` DROP INDEX `uk_audit_date`', 'SELECT 1'));
+PREPARE stmt FROM @s; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @s = (SELECT IF((SELECT COUNT(1) FROM INFORMATION_SCHEMA.STATISTICS WHERE table_schema = DATABASE() AND table_name = 'night_audit_log' AND index_name = 'idx_audit_date') > 0, 'ALTER TABLE `night_audit_log` DROP INDEX `idx_audit_date`', 'SELECT 1'));
+PREPARE stmt FROM @s; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @s = (SELECT IF((SELECT COUNT(1) FROM INFORMATION_SCHEMA.STATISTICS WHERE table_schema = DATABASE() AND table_name = 'night_audit_log' AND index_name = 'uq_audit_prop_date') = 0, 'ALTER TABLE `night_audit_log` ADD UNIQUE KEY `uq_audit_prop_date` (`property_id`, `audit_date`)', 'SELECT 1'));
+PREPARE stmt FROM @s; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+ALTER TABLE `error_logs` ADD COLUMN IF NOT EXISTS `property_id` INT(11) DEFAULT NULL;
+ALTER TABLE `login_attempts` ADD COLUMN IF NOT EXISTS `property_id` INT(11) DEFAULT NULL;
+ALTER TABLE `housekeeping_checklist_items` ADD COLUMN IF NOT EXISTS `property_id` INT(11) DEFAULT NULL;
+
+ALTER TABLE `wa_templates` ADD COLUMN IF NOT EXISTS `property_id` INT(11) NOT NULL DEFAULT 1;
+ALTER TABLE `wa_delivery_logs` ADD COLUMN IF NOT EXISTS `property_id` INT(11) NOT NULL DEFAULT 1;
+
+SET @s = (SELECT IF((SELECT COUNT(1) FROM INFORMATION_SCHEMA.STATISTICS WHERE table_schema = DATABASE() AND table_name = 'wa_templates' AND index_name = 'name') > 0, 'ALTER TABLE `wa_templates` DROP INDEX `name`', 'SELECT 1'));
+PREPARE stmt FROM @s; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @s = (SELECT IF((SELECT COUNT(1) FROM INFORMATION_SCHEMA.STATISTICS WHERE table_schema = DATABASE() AND table_name = 'wa_templates' AND index_name = 'uq_wa_tpl_prop_name') = 0, 'ALTER TABLE `wa_templates` ADD UNIQUE KEY `uq_wa_tpl_prop_name` (`property_id`, `name`, `language`)', 'SELECT 1'));
+PREPARE stmt FROM @s; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 11. Admin Notifications Table
+CREATE TABLE IF NOT EXISTS `admin_notifications` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `property_id` INT NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `message` TEXT NOT NULL,
+  `type` ENUM('info', 'warning', 'success', 'error') DEFAULT 'info',
+  `is_read` TINYINT(1) DEFAULT 0,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_admin_notif_prop_read` (`property_id`, `is_read`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 12. Email Reports Configuration Table
+CREATE TABLE IF NOT EXISTS `email_report_config` (
+  `property_id` INT PRIMARY KEY,
+  `daily_audit_emails` VARCHAR(500) DEFAULT NULL,
+  `weekly_revenue_emails` VARCHAR(500) DEFAULT NULL,
+  `is_active` TINYINT(1) DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

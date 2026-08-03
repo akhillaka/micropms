@@ -121,17 +121,18 @@ class GuestService {
      * Get guest profile with booking stats.
      */
     public static function getProfile(\PDO $db, int $guestId): ?array {
+        $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
         $stmt = $db->prepare("
             SELECT g.*,
                    COUNT(b.id) as total_bookings,
                    COALESCE(SUM(b.total_amount), 0) as lifetime_spent,
                    MAX(b.check_in) as last_visit
             FROM guests g
-            LEFT JOIN bookings b ON g.id = b.guest_id AND b.payment_status != 'cancelled'
-            WHERE g.id = ?
+            LEFT JOIN bookings b ON g.id = b.guest_id AND b.payment_status != 'cancelled' AND b.property_id = :prop_id
+            WHERE g.id = :id AND g.property_id = :prop_id
             GROUP BY g.id
         ");
-        $stmt->execute([$guestId]);
+        $stmt->execute(['id' => $guestId, 'prop_id' => $propId]);
         return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     }
 
@@ -141,7 +142,8 @@ class GuestService {
     public static function update(\PDO $db, int $guestId, array $fields): bool {
         $allowed = ['name', 'phone', 'email', 'age', 'city', 'state', 'country', 'pincode'];
         $updates = [];
-        $params = ['id' => $guestId];
+        $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
+        $params = ['id' => $guestId, 'prop_id' => $propId];
 
         foreach ($allowed as $field) {
             if (isset($fields[$field])) {
@@ -152,7 +154,7 @@ class GuestService {
 
         if (empty($updates)) return false;
 
-        $sql = "UPDATE guests SET " . implode(', ', $updates) . " WHERE id = :id";
+        $sql = "UPDATE guests SET " . implode(', ', $updates) . " WHERE id = :id AND property_id = :prop_id";
         $stmt = $db->prepare($sql);
         return $stmt->execute($params);
     }
@@ -161,15 +163,16 @@ class GuestService {
      * Get returning guest info (for showing badge in assistant).
      */
     public static function getReturningInfo(\PDO $db, int $guestId): ?array {
+        $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
         $stmt = $db->prepare("
             SELECT COUNT(b.id) as total_stays,
                    MAX(b.check_in) as last_visit,
                    MAX(r.room_number) as last_room
             FROM bookings b
-            LEFT JOIN rooms r ON b.room_id = r.id
-            WHERE b.guest_id = ? AND b.payment_status != 'cancelled'
+            LEFT JOIN rooms r ON b.room_id = r.id AND r.property_id = :prop_id
+            WHERE b.guest_id = :guest_id AND b.property_id = :prop_id AND b.payment_status != 'cancelled'
         ");
-        $stmt->execute([$guestId]);
+        $stmt->execute(['guest_id' => $guestId, 'prop_id' => $propId]);
         $info = $stmt->fetch(\PDO::FETCH_ASSOC);
         
         if ($info && (int)$info['total_stays'] > 0) {

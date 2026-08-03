@@ -26,39 +26,42 @@ echo str_repeat('-', 40) . "\n";
 echo "Time: " . date('Y-m-d H:i:s') . "\n\n";
 
 // ═══════════════════════════════════════════════════════════════
-// 0. NIGHT AUDIT — Configurable end-of-day process
+// 0. NIGHT AUDIT — Configurable end-of-day process (Per Property)
 // ═══════════════════════════════════════════════════════════════
 
-$auditEnabled = getSetting($db, 'night_audit_enabled', 'false');
-$auditTime = getSetting($db, 'night_audit_time', '02:00');
-$currentHour = (int)date('G');
-$currentMinute = (int)date('i');
-$auditHour = (int)explode(':', $auditTime)[0];
-$auditMinute = (int)explode(':', $auditTime)[1];
+$propStmt = $db->query("SELECT id, name FROM properties WHERE is_active = 1");
+$properties = $propStmt->fetchAll();
 
-if ($auditEnabled === 'true' && $currentHour === $auditHour && abs($currentMinute - $auditMinute) < 30) {
-    echo "[NIGHT AUDIT] Running night audit...\n";
-    $audit = new NightAudit($db);
-    $result = $audit->run('cron');
+foreach ($properties as $prop) {
+    $propId = (int)$prop['id'];
+    $propName = $prop['name'];
     
-    if ($result['status'] === 'success') {
-        echo "[NIGHT AUDIT] Completed successfully.\n";
-        echo "  Total rooms: {$result['total_rooms']}\n";
-        echo "  Occupied: {$result['occupied_rooms']}\n";
-        echo "  Arrivals: {$result['arrivals_today']}\n";
-        echo "  Departures: {$result['departures_today']}\n";
-        echo "  Overdue checkouts: {$result['overdue_checkouts']}\n";
-        echo "  Auto checked out: {$result['auto_checkout_count']}\n";
-        echo "  Rooms marked dirty: {$result['rooms_marked_dirty']}\n";
-        echo "  Revenue collected: ₹{$result['revenue_collected']}\n";
-        echo "  Revenue pending: ₹{$result['revenue_pending']}\n";
-    } elseif ($result['status'] === 'skipped') {
-        echo "[NIGHT AUDIT] Skipped: {$result['message']}\n";
+    $auditEnabled = getSetting($db, 'night_audit_enabled', 'false', $propId);
+    $auditTime = getSetting($db, 'night_audit_time', '02:00', $propId);
+    $currentHour = (int)date('G');
+    $currentMinute = (int)date('i');
+    $auditHour = (int)explode(':', $auditTime)[0];
+    $auditMinute = (int)explode(':', $auditTime)[1];
+
+    if ($auditEnabled === 'true' && $currentHour === $auditHour && abs($currentMinute - $auditMinute) < 30) {
+        echo "[NIGHT AUDIT] Running night audit for Property {$propId} ({$propName})...\n";
+        $audit = new NightAudit($db, $propId);
+        $result = $audit->run('cron');
+        
+        if ($result['status'] === 'success') {
+            echo "[NIGHT AUDIT][$propName] Completed successfully.\n";
+            echo "  Total rooms: {$result['total_rooms']}\n";
+            echo "  Occupied: {$result['occupied_rooms']}\n";
+            echo "  Revenue pending: ₹{$result['revenue_pending']}\n";
+        } elseif ($result['status'] === 'skipped') {
+            echo "[NIGHT AUDIT][$propName] Skipped: {$result['message']}\n";
+        } else {
+            echo "[NIGHT AUDIT][$propName] Failed: {$result['error_message']}\n";
+        }
     } else {
-        echo "[NIGHT AUDIT] Failed: {$result['error_message']}\n";
+        // Uncomment to debug
+        // echo "[NIGHT AUDIT][$propName] Not scheduled for this time (configured: {$auditTime}, current: " . date('H:i') . ")\n";
     }
-} else {
-    echo "[NIGHT AUDIT] Not scheduled for this time (configured: {$auditTime}, current: " . date('H:i') . ")\n";
 }
 
 echo "\n";
@@ -170,9 +173,9 @@ if (isset($lockHandle)) {
 // ═══════════════════════════════════════════════════════════════
 // HELPER: Get system setting
 // ═══════════════════════════════════════════════════════════════
-function getSetting(PDO $db, string $key, string $default = ''): string {
-    $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = ?");
-    $stmt->execute([$key]);
+function getSetting(PDO $db, string $key, string $default = '', int $propertyId = 1): string {
+    $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = ?");
+    $stmt->execute([$propertyId, $key]);
     $value = $stmt->fetchColumn();
     return $value !== false ? $value : $default;
 }

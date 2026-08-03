@@ -7,7 +7,10 @@ if (php_sapi_name() !== 'cli') {
 }
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
-load_db_settings(Database::getInstance()->getConnection());
+$propId = (php_sapi_name() === 'cli') 
+          ? (isset($_SERVER['argv'][1]) ? (int)$_SERVER['argv'][1] : 1) 
+          : (class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1);
+load_db_settings(Database::getInstance()->getConnection(), $propId);
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 
 header('Content-Type: application/json');
@@ -74,11 +77,11 @@ if ($httpCode >= 200 && $httpCode < 300) {
         $incomingNames[] = $name;
 
         $stmt = $db->prepare("
-            INSERT INTO wa_templates (name, language, components_json, status) 
-            VALUES (?, ?, ?, ?)
+            INSERT INTO wa_templates (property_id, name, language, components_json, status) 
+            VALUES (?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE components_json = VALUES(components_json), status = VALUES(status), updated_at = NOW()
         ");
-        if ($stmt->execute([$name, $language, $components, $status])) {
+        if ($stmt->execute([$propId, $name, $language, $components, $status])) {
             $successCount++;
         }
     }
@@ -86,11 +89,11 @@ if ($httpCode >= 200 && $httpCode < 300) {
     // Clean up deleted templates
     if (!empty($incomingNames)) {
         $placeholders = implode(',', array_fill(0, count($incomingNames), '?'));
-        $delStmt = $db->prepare("DELETE FROM wa_templates WHERE name NOT IN ($placeholders)");
-        $delStmt->execute($incomingNames);
+        $delStmt = $db->prepare("DELETE FROM wa_templates WHERE property_id = ? AND name NOT IN ($placeholders)");
+        $delStmt->execute(array_merge([$propId], $incomingNames));
     } else if (isset($data['success']) && $data['success'] === true) {
-        // If API succeeded but returned 0 templates, wipe the local table
-        $db->query("DELETE FROM wa_templates");
+        // If API succeeded but returned 0 templates, wipe the local table for this property
+        $db->prepare("DELETE FROM wa_templates WHERE property_id = ?")->execute([$propId]);
     }
     
     AuditLogger::log($_SESSION['user_id'] ?? null, 'SYNC_WA_TEMPLATES', 'SYSTEM', null, ['templates_synced' => $successCount]);

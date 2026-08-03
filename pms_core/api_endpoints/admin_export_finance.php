@@ -11,6 +11,8 @@ $db = Database::getInstance()->getConnection();
 $start = $_GET['start'] ?? date('Y-m-d 00:00:00');
 $end = $_GET['end'] ?? date('Y-m-d 23:59:59');
 
+$propertyId = AuthHelper::getPropertyId();
+
 $query = "
     SELECT 
         recorded_at AS `Date`,
@@ -21,6 +23,7 @@ $query = "
         ABS(amount) AS `Amount (INR)`
     FROM folio_ledger
     WHERE amount > 0
+      AND property_id = :pid1
       AND recorded_at BETWEEN :start1 AND :end1
     
     UNION ALL
@@ -36,14 +39,17 @@ $query = "
         id AS `Reference ID`,
         amount AS `Amount (INR)`
     FROM finance_transactions
-    WHERE recorded_at BETWEEN :start2 AND :end2
+    WHERE property_id = :pid2
+      AND recorded_at BETWEEN :start2 AND :end2
     
     ORDER BY `Date` DESC
 ";
 
 $stmt = $db->prepare($query);
 $stmt->execute([
+    'pid1' => $propertyId,
     'start1' => $start, 'end1' => $end,
+    'pid2' => $propertyId,
     'start2' => $start, 'end2' => $end
 ]);
 $transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);

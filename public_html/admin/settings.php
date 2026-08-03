@@ -13,9 +13,19 @@ require_once __DIR__ . '/../../pms_core/config.php';
 $db = Database::getInstance()->getConnection();
 load_db_settings($db);
 
-$categories = $db->query("SELECT * FROM room_categories")->fetchAll();
-$rooms = $db->query("SELECT r.*, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id")->fetchAll();
-$rates = $db->query("SELECT s.*, c.name as category_name FROM sliding_rates s JOIN room_categories c ON s.category_id = c.id ORDER BY s.category_id, s.hours")->fetchAll();
+$propId = AuthHelper::getPropertyId();
+
+$categories = $db->prepare("SELECT * FROM room_categories WHERE property_id = ?");
+$categories->execute([$propId]);
+$categories = $categories->fetchAll();
+
+$rooms = $db->prepare("SELECT r.*, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.property_id = ?");
+$rooms->execute([$propId]);
+$rooms = $rooms->fetchAll();
+
+$rates = $db->prepare("SELECT s.*, c.name as category_name FROM sliding_rates s JOIN room_categories c ON s.category_id = c.id WHERE s.property_id = ? ORDER BY s.category_id, s.hours");
+$rates->execute([$propId]);
+$rates = $rates->fetchAll();
 
 $pmStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods'");
 $pmJson = $pmStmt->fetchColumn();
@@ -35,7 +45,6 @@ $currentLogoB64 = defined('PROPERTY_LOGO_BASE64') ? PROPERTY_LOGO_BASE64 : '';
 $currentHotelName = defined('PROPERTY_NAME') ? PROPERTY_NAME : 'MicroPMS';
 
 // Fetch SaaS Subscription and Usage details
-$propId = AuthHelper::getPropertyId();
 $propStmt = $db->prepare("SELECT * FROM properties WHERE id = ?");
 $propStmt->execute([$propId]);
 $propertyDetails = $propStmt->fetch();
@@ -75,6 +84,21 @@ $upsellEnabled = (defined('GUEST_PORTAL_UPSELL_ENABLED') && GUEST_PORTAL_UPSELL_
 $selfCheckoutEnabled = (defined('GUEST_PORTAL_SELF_CHECKOUT_ENABLED') && GUEST_PORTAL_SELF_CHECKOUT_ENABLED === 'true') || ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_SELF_CHECKOUT_ENABLED'")->fetchColumn() === 'true');
 $housekeepingEnabled = (defined('GUEST_PORTAL_HOUSEKEEPING_ENABLED') && GUEST_PORTAL_HOUSEKEEPING_ENABLED === 'true') || ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_HOUSEKEEPING_ENABLED'")->fetchColumn() === 'true');
 $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_EARLY_LATE_FEE'")->fetchColumn() ?: '0.00');
+
+// Advanced guest portal settings queries
+$propertyId = AuthHelper::getPropertyId();
+$loyaltyEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_LOYALTY_ENABLED'")->fetchColumn() ?: 'true') === 'true';
+$loyaltyGold = intval($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_LOYALTY_GOLD'")->fetchColumn() ?: '5');
+$loyaltyPlatinum = intval($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_LOYALTY_PLATINUM'")->fetchColumn() ?: '10');
+
+$preArrivalEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_ENABLED'")->fetchColumn() ?: 'true') === 'true';
+$preArrivalSignature = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_SIGNATURE'")->fetchColumn() ?: 'true') === 'true';
+$preArrivalDoc = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_DOC'")->fetchColumn() ?: 'true') === 'true';
+
+$upsellBreakfastPrice = floatval($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_UPSELL_BREAKFAST_PRICE'")->fetchColumn() ?: '350.00');
+$upsellTransferPrice = floatval($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_UPSELL_TRANSFER_PRICE'")->fetchColumn() ?: '1200.00');
+
+$otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_OTP_ENABLED'")->fetchColumn() ?: 'false') === 'true';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -346,7 +370,7 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                                 <p class="text-xs text-brand-900/70">Configure credentials, templates, and quick replies in the WhatsApp settings panel.</p>
                             </div>
                         </div>
-                        <a href="whatsapp_automations.php" class="shrink-0 bg-brand-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-brand-800 transition-colors shadow-minimal flex items-center gap-1">
+                        <a href="modules/whatsapp/whatsapp_automations.php" class="shrink-0 bg-brand-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-brand-800 transition-colors shadow-minimal flex items-center gap-1">
                             <i class="ph ph-gear"></i> WhatsApp Settings
                         </a>
                     </div>
@@ -482,6 +506,50 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                             </div>
                         </div>
                     </div>
+                    <!-- Email Reports Configuration -->
+                    <div class="card-minimal p-6">
+                        <div class="flex items-center gap-3 mb-6 border-b border-brand-100 pb-4">
+                            <div class="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                                <i class="ph ph-envelope-simple text-2xl"></i>
+                            </div>
+                            <div class="flex-1">
+                                <h2 class="font-bold text-brand-900">Email Reports Config</h2>
+                                <p class="text-xs text-brand-900/70">Automated Daily & Weekly Business Summaries</p>
+                            </div>
+                        </div>
+                        <?php
+                            $emailConfig = ['daily_audit_emails' => '', 'weekly_revenue_emails' => '', 'is_active' => 1];
+                            try {
+                                $emailConfigStmt = $db->prepare("SELECT * FROM email_report_config WHERE property_id = ?");
+                                $emailConfigStmt->execute([$propertyId]);
+                                $fetchedConfig = $emailConfigStmt->fetch(PDO::FETCH_ASSOC);
+                                if ($fetchedConfig) {
+                                    $emailConfig = $fetchedConfig;
+                                }
+                            } catch (\PDOException $e) {
+                                // Table might not exist yet if migration hasn't been run
+                            }
+                        ?>
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between bg-brand-50 p-3 rounded-xl border border-brand-200/50">
+                                <div>
+                                    <span class="text-sm font-bold text-brand-800">Enable Email Reports</span>
+                                    <p class="text-xs text-brand-900/70">Allow the system to dispatch automated reports.</p>
+                                </div>
+                                <input type="hidden" name="EMAIL_REPORTS_ACTIVE" id="EMAIL_REPORTS_ACTIVE" value="<?= $emailConfig['is_active'] ? '1' : '0' ?>">
+                                <input type="checkbox" onchange="document.getElementById('EMAIL_REPORTS_ACTIVE').value = this.checked ? '1' : '0'" <?= $emailConfig['is_active'] ? 'checked' : '' ?> class="w-5 h-5 rounded border-brand-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Daily Audit Emails (Comma separated)</label>
+                                <input type="text" name="DAILY_AUDIT_EMAILS" value="<?= htmlspecialchars((string)$emailConfig['daily_audit_emails']) ?>" placeholder="admin@hotel.com, manager@hotel.com" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-brand-900 transition-all font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Weekly Revenue Emails (Comma separated)</label>
+                                <input type="text" name="WEEKLY_REVENUE_EMAILS" value="<?= htmlspecialchars((string)$emailConfig['weekly_revenue_emails']) ?>" placeholder="owner@hotel.com, accountant@hotel.com" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-brand-900 transition-all font-mono">
+                            </div>
+                        </div>
+                    </div>
+
 
                     <!-- Google Vision API -->
                     <div class="card-minimal p-6">
@@ -528,11 +596,53 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                         </div>
 
                         <div class="space-y-5">
-                            <!-- Upselling Toggle -->
+                            <!-- Loyalty Settings -->
+                            <div class="flex items-center justify-between p-4 bg-brand-50 rounded-xl border border-brand-200/50">
+                                <div>
+                                    <span class="text-sm font-bold text-brand-800 block">Enable Guest Loyalty Badges</span>
+                                    <p class="text-[11px] text-slate-500">Classify guests into tiers (Silver, Gold, Platinum) with dynamic badges.</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="portal_loyalty_enabled" <?= $loyaltyEnabled ? 'checked' : '' ?> class="sr-only peer">
+                                    <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                </label>
+                            </div>
+                            <div class="pl-4 border-l-2 border-brand-200 grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider">Gold Tier Min. Stays</label>
+                                    <input type="number" id="portal_loyalty_gold" value="<?= $loyaltyGold ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider">Platinum Tier Min. Stays</label>
+                                    <input type="number" id="portal_loyalty_platinum" value="<?= $loyaltyPlatinum ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
+                                </div>
+                            </div>
+
+                            <!-- Pre-Arrival Settings -->
+                            <div class="flex items-center justify-between p-4 bg-brand-50 rounded-xl border border-brand-200/50">
+                                <div>
+                                    <span class="text-sm font-bold text-brand-800 block">Enable pre-Arrival Check-in Workflow</span>
+                                    <p class="text-[11px] text-slate-500">Allow guests to check-in online prior to their physical arrival.</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="portal_pre_arrival_enabled" <?= $preArrivalEnabled ? 'checked' : '' ?> class="sr-only peer">
+                                    <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                </label>
+                            </div>
+                            <div class="pl-4 border-l-2 border-brand-200 space-y-2">
+                                <label class="flex items-center gap-2 text-xs font-semibold text-brand-800">
+                                    <input type="checkbox" id="portal_pre_arrival_signature" <?= $preArrivalSignature ? 'checked' : '' ?>> Require Digital Signature
+                                </label>
+                                <label class="flex items-center gap-2 text-xs font-semibold text-brand-800">
+                                    <input type="checkbox" id="portal_pre_arrival_doc" <?= $preArrivalDoc ? 'checked' : '' ?>> Require Government ID Upload
+                                </label>
+                            </div>
+
+                            <!-- Upselling Toggle & Prices -->
                             <div class="flex items-center justify-between p-4 bg-brand-50 rounded-xl border border-brand-200/50">
                                 <div>
                                     <span class="text-sm font-bold text-brand-800 block">Enable Guest Upselling Requests</span>
-                                    <p class="text-[11px] text-slate-500">Allow guests to request Early Check-in or Late Check-out offers.</p>
+                                    <p class="text-[11px] text-slate-500">Allow guests to buy upgrades/packages directly in the portal.</p>
                                 </div>
                                 <label class="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" id="portal_upsell_enabled" <?= $upsellEnabled ? 'checked' : '' ?> class="sr-only peer">
@@ -540,11 +650,31 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                                 </label>
                             </div>
 
-                            <!-- Upselling Price Input -->
-                            <div class="pl-4 border-l-2 border-brand-200 space-y-2">
-                                <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider">Early Check-in / Late Check-out Fee (₹)</label>
-                                <input type="number" step="0.01" id="portal_early_late_fee" value="<?= number_format($earlyLateFee, 2, '.', '') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono max-w-xs">
-                                <p class="text-[10px] text-slate-400">Flat fee charged for early check-in or late check-out requests.</p>
+                            <div class="pl-4 border-l-2 border-brand-200 grid grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-brand-900 uppercase tracking-wider">Early/Late Check Fee</label>
+                                    <input type="number" step="0.01" id="portal_early_late_fee" value="<?= number_format($earlyLateFee, 2, '.', '') ?>" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl text-sm outline-none font-mono">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-brand-900 uppercase tracking-wider">Breakfast Buffet Fee</label>
+                                    <input type="number" step="0.01" id="portal_upsell_breakfast_price" value="<?= number_format($upsellBreakfastPrice, 2, '.', '') ?>" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl text-sm outline-none font-mono">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-brand-900 uppercase tracking-wider">Airport Cab Transfer</label>
+                                    <input type="number" step="0.01" id="portal_upsell_transfer_price" value="<?= number_format($upsellTransferPrice, 2, '.', '') ?>" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl text-sm outline-none font-mono">
+                                </div>
+                            </div>
+
+                            <!-- WhatsApp OTP Toggle -->
+                            <div class="flex items-center justify-between p-4 bg-brand-50 rounded-xl border border-brand-200/50">
+                                <div>
+                                    <span class="text-sm font-bold text-brand-800 block">Require WhatsApp OTP Verification</span>
+                                    <p class="text-[11px] text-slate-500">Send verification code to guest phone when searching by mobile.</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="portal_otp_enabled" <?= $otpEnabled ? 'checked' : '' ?> class="sr-only peer">
+                                    <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                </label>
                             </div>
 
                             <!-- Housekeeping Toggle -->
@@ -1141,20 +1271,46 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                             </div>
 
                             <!-- Folio ID -->
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-brand-100">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-brand-100">
                                 <div>
-                                    <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Folio / Ledger Entry ID Format</label>
+                                    <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Folio ID Format</label>
                                     <input type="text" name="SEQ_FOLIO_FORMAT" value="<?= htmlspecialchars(defined('SEQ_FOLIO_FORMAT') ? SEQ_FOLIO_FORMAT : 'FLO-{YY}{MM}-{ID}') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
-                                    <p class="text-[10px] text-brand-900/50 mt-1">Applied to each folio ledger entry (charges &amp; payments)</p>
+                                    <p class="text-[10px] text-brand-900/50 mt-1">Applied to each folio ledger entry</p>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Reset Rule</label>
                                     <div class="relative">
                                         <select name="SEQ_FOLIO_RESET" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-bold text-brand-900 outline-none focus:border-indigo-500 appearance-none">
                                             <option value="never" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'never') ? 'selected' : '' ?>>Never (Continuous ID)</option>
-                                            <option value="monthly" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'monthly') ? 'selected' : '' ?>>Monthly (Resets to 1 each month)</option>
-                                            <option value="yearly" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'yearly') ? 'selected' : '' ?>>Yearly (Resets to 1 each year)</option>
-                                            <option value="daily" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'daily') ? 'selected' : '' ?>>Daily (Resets to 1 each day)</option>
+                                            <option value="monthly" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'monthly') ? 'selected' : '' ?>>Monthly</option>
+                                            <option value="yearly" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'yearly') ? 'selected' : '' ?>>Yearly</option>
+                                            <option value="daily" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'daily') ? 'selected' : '' ?>>Daily</option>
+                                        </select>
+                                        <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Reset Threshold (1 to Max Limit)</label>
+                                    <input type="number" name="SEQ_FOLIO_MAX" min="1" value="<?= htmlspecialchars(defined('SEQ_FOLIO_MAX') ? SEQ_FOLIO_MAX : '150') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
+                                    <p class="text-[10px] text-brand-900/50 mt-1">Resets sequence back to 1 when reached (e.g. 150)</p>
+                                </div>
+                            </div>
+
+                            <!-- POS Order ID -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-brand-100">
+                                <div>
+                                    <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">POS Order ID Format</label>
+                                    <input type="text" name="SEQ_POS_ORDER_FORMAT" value="<?= htmlspecialchars(defined('SEQ_POS_ORDER_FORMAT') ? SEQ_POS_ORDER_FORMAT : 'ORD-{YY}{MM}-{ID}') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
+                                    <p class="text-[10px] text-brand-900/50 mt-1">Applied to each POS store order</p>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Reset Rule</label>
+                                    <div class="relative">
+                                        <select name="SEQ_POS_ORDER_RESET" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-bold text-brand-900 outline-none focus:border-indigo-500 appearance-none">
+                                            <option value="never" <?= (defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'never') ? 'selected' : '' ?>>Never (Continuous ID)</option>
+                                            <option value="monthly" <?= (defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'monthly') ? 'selected' : '' ?>>Monthly</option>
+                                            <option value="yearly" <?= (defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'yearly') ? 'selected' : '' ?>>Yearly</option>
+                                            <option value="daily" <?= (defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'daily') ? 'selected' : '' ?>>Daily</option>
                                         </select>
                                         <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
                                     </div>
@@ -1852,12 +2008,27 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
         }
     }
 
+
     async function submitGuestPortalSettings(e) {
         e.preventDefault();
         const upsell = document.getElementById('portal_upsell_enabled').checked;
         const housekeeping = document.getElementById('portal_housekeeping_enabled').checked;
         const checkout = document.getElementById('portal_self_checkout_enabled').checked;
         const fee = document.getElementById('portal_early_late_fee').value;
+        
+        const loyalty = document.getElementById('portal_loyalty_enabled').checked;
+        const gold = document.getElementById('portal_loyalty_gold').value;
+        const platinum = document.getElementById('portal_loyalty_platinum').value;
+        
+        const preArrival = document.getElementById('portal_pre_arrival_enabled').checked;
+        const signature = document.getElementById('portal_pre_arrival_signature').checked;
+        const doc = document.getElementById('portal_pre_arrival_doc').checked;
+        
+        const breakfast = document.getElementById('portal_upsell_breakfast_price').value;
+        const transfer = document.getElementById('portal_upsell_transfer_price').value;
+        
+        const otp = document.getElementById('portal_otp_enabled').checked;
+        
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
         try {
@@ -1871,7 +2042,16 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
                     upsell_enabled: upsell,
                     housekeeping_enabled: housekeeping,
                     self_checkout_enabled: checkout,
-                    early_late_fee: fee
+                    early_late_fee: fee,
+                    loyalty_enabled: loyalty,
+                    loyalty_gold: gold,
+                    loyalty_platinum: platinum,
+                    pre_arrival_enabled: preArrival,
+                    pre_arrival_signature: signature,
+                    pre_arrival_doc: doc,
+                    upsell_breakfast_price: breakfast,
+                    upsell_transfer_price: transfer,
+                    otp_enabled: otp
                 })
             });
             const data = await res.json();
@@ -1884,6 +2064,7 @@ $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE
             alert('Connection error');
         }
     }
+
     async function submitGatewayConfig(e, gateway) {
         e.preventDefault();
         const form = e.target;

@@ -43,11 +43,18 @@ if (!function_exists('define_setting')) {
 }
 
 if (!function_exists('load_db_settings')) {
-    function load_db_settings($pdo) {
+    function load_db_settings($pdo, $propertyId = null) {
         global $dbConfig;
         $dbConfig = [];
+        if ($propertyId === null && class_exists('AuthHelper')) {
+            $propertyId = AuthHelper::getPropertyId();
+        }
+        if ($propertyId === null) {
+            $propertyId = 1;
+        }
         try {
-            $stmt = $pdo->query("SELECT key_name, key_value FROM system_settings");
+            $stmt = $pdo->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ?");
+            $stmt->execute([$propertyId]);
             while ($row = $stmt->fetch()) {
                 $dbConfig[$row['key_name']] = $row['key_value'];
             }
@@ -119,6 +126,7 @@ if (!function_exists('load_db_settings')) {
         define_setting('SEQ_RECEIPT_FORMAT', 'RCPT-{YY}{MM}-{ID}');
         define_setting('SEQ_TRANSACTION_FORMAT', 'TXN-{YY}{MM}-{ID}');
         define_setting('SEQ_FOLIO_FORMAT', '{ID}');
+        define_setting('SEQ_POS_ORDER_FORMAT', 'ORD-{YY}{MM}-{ID}');
 
         // Sequence Reset Rules
         define_setting('SEQ_BOOKING_RESET', 'never');
@@ -126,6 +134,7 @@ if (!function_exists('load_db_settings')) {
         define_setting('SEQ_RECEIPT_RESET', 'never');
         define_setting('SEQ_TRANSACTION_RESET', 'never');
         define_setting('SEQ_FOLIO_RESET', 'never');
+        define_setting('SEQ_POS_ORDER_RESET', 'never');
         
         // Sequence Max Limits (Loops back to 1 if exceeded)
         define_setting('SEQ_FOLIO_MAX', 150);
@@ -138,6 +147,12 @@ if (!function_exists('load_db_settings')) {
 
         // Google Vision API
         define_setting('GOOGLE_VISION_API_KEY', '');
+
+        // Guest Portal Settings
+        define_setting('GUEST_PORTAL_UPSELL_ENABLED', 'false');
+        define_setting('GUEST_PORTAL_HOUSEKEEPING_ENABLED', 'false');
+        define_setting('GUEST_PORTAL_SELF_CHECKOUT_ENABLED', 'false');
+        define_setting('GUEST_PORTAL_EARLY_LATE_FEE', '0.00');
     }
 }
 

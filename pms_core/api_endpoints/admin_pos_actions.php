@@ -66,8 +66,18 @@ try {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $ins->execute([$propertyId, $outletId, $name, $sku, $stockQty, $threshold, $costPrice, $sellingPrice, $imageUrl]);
+        $newId = (int)$db->lastInsertId();
 
-        AuditLogger::log((int)$_SESSION['user_id'], 'POS_ADD_INVENTORY', 'INVENTORY', $db->lastInsertId(), [
+        if ($stockQty > 0) {
+            $userId = (int)($_SESSION['user_id'] ?? 0);
+            $stmtHist = $db->prepare("
+                INSERT INTO inventory_restock_history (property_id, item_id, qty_added, old_stock, new_stock, cost_price, restocked_by, notes) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmtHist->execute([$propertyId, $newId, $stockQty, 0, $stockQty, $costPrice, $userId, 'Initial Stock']);
+        }
+
+        AuditLogger::log((int)$_SESSION['user_id'], 'POS_ADD_INVENTORY', 'INVENTORY', $newId, [
             'name' => $name,
             'qty' => $stockQty
         ], $propertyId);
@@ -86,12 +96,12 @@ try {
         ];
         
         $stmt = $db->prepare("
-            INSERT INTO system_settings (key_name, key_value) 
-            VALUES (?, ?) 
+            INSERT INTO system_settings (property_id, key_name, key_value) 
+            VALUES (?, ?, ?) 
             ON DUPLICATE KEY UPDATE key_value = VALUES(key_value)
         ");
         foreach($configs as $key => $val) {
-            $stmt->execute([$key, (string)$val]);
+            $stmt->execute([$propertyId, $key, (string)$val]);
         }
         echo json_encode(['success' => true, 'message' => 'POS configurations saved successfully.']);
         exit;
@@ -121,6 +131,11 @@ try {
         $lowStock = (int)($data['low_stock_threshold'] ?? 5);
         $imageUrl = trim($data['image_url'] ?? '');
 
+        // Check previous stock before updating
+        $stmtOld = $db->prepare("SELECT stock_qty FROM inventory_items WHERE id = ? AND property_id = ?");
+        $stmtOld->execute([$itemId, $propertyId]);
+        $oldStock = (int)$stmtOld->fetchColumn();
+
         $up = $db->prepare("
             UPDATE inventory_items 
             SET name = ?, sku = ?, outlet_id = ?, stock_qty = ?, cost_price = ?, selling_price = ?, low_stock_threshold = ?, image_url = ?
@@ -128,6 +143,17 @@ try {
         ");
         $up->execute([$name, $sku, $outletId, $stockQty, $costPrice, $sellingPrice, $lowStock, $imageUrl, $itemId, $propertyId]);
         
+        // Log restock if stock increased
+        if ($stockQty > $oldStock) {
+            $qtyAdded = $stockQty - $oldStock;
+            $userId = (int)($_SESSION['user_id'] ?? 0);
+            $stmtHist = $db->prepare("
+                INSERT INTO inventory_restock_history (property_id, item_id, qty_added, old_stock, new_stock, cost_price, restocked_by, notes) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'Stock Edit')
+            ");
+            $stmtHist->execute([$propertyId, $itemId, $qtyAdded, $oldStock, $stockQty, $costPrice, $userId]);
+        }
+
         echo json_encode(['success' => true, 'message' => 'Product updated successfully.']);
         exit;
 
@@ -209,15 +235,15 @@ try {
         }
 
         if ($oldFolioId) {
-            $db->prepare("DELETE FROM folio_ledger WHERE id = ?")->execute([$oldFolioId]);
+            $db->prepare("DELETE FROM folio_ledger WHERE id = ? AND property_id = ?")->execute([$oldFolioId, $propertyId]);
         }
         if ($oldFinanceId) {
-            $db->prepare("DELETE FROM finance_transactions WHERE id = ?")->execute([$oldFinanceId]);
+            $db->prepare("DELETE FROM finance_transactions WHERE id = ? AND property_id = ?")->execute([$oldFinanceId, $propertyId]);
         }
 
         // 3. Delete order
         $db->prepare("DELETE FROM pos_order_items WHERE order_id = ?")->execute([$orderId]);
-        $db->prepare("DELETE FROM pos_orders WHERE id = ?")->execute([$orderId]);
+        $db->prepare("DELETE FROM pos_orders WHERE id = ? AND property_id = ?")->execute([$orderId, $propertyId]);
 
         AuditLogger::log((int)$_SESSION['user_id'], 'POS_ORDER_DELETE', 'POS_ORDER', $orderId, ['deleted_total' => $oldTotal], $propertyId);
 
@@ -353,25 +379,25 @@ try {
                     if (!$bookingId) throw new Exception("Room charge selected but booking was not chosen.");
                     FolioService::postCharge($db, $bookingId, $totalAmount, $newDescFolio, 'pos_order');
                 } else {
-                    $insFinance = $db->prepare("INSERT INTO finance_transactions (type, category, amount, description, payment_method, staff_id) VALUES ('income', 'pos', ?, ?, ?, ?)");
-                    $insFinance->execute([$totalAmount, $newDescFinance, $method, (int)$_SESSION['user_id']]);
+                    $insFinance = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, amount, description, payment_method, staff_id) VALUES (?, 'income', 'pos', ?, ?, ?, ?)");
+                    $insFinance->execute([$propertyId, $totalAmount, $newDescFinance, $method, (int)$_SESSION['user_id']]);
                 }
             }
         } else {
             // Delete old, insert new
             if ($oldFolioId) {
-                $db->prepare("DELETE FROM folio_ledger WHERE id = ?")->execute([$oldFolioId]);
+                $db->prepare("DELETE FROM folio_ledger WHERE id = ? AND property_id = ?")->execute([$oldFolioId, $propertyId]);
             }
             if ($oldFinanceId) {
-                $db->prepare("DELETE FROM finance_transactions WHERE id = ?")->execute([$oldFinanceId]);
+                $db->prepare("DELETE FROM finance_transactions WHERE id = ? AND property_id = ?")->execute([$oldFinanceId, $propertyId]);
             }
             
             if ($method === 'room_charge') {
                 if (!$bookingId) throw new Exception("Room charge selected but booking was not chosen.");
                 FolioService::postCharge($db, $bookingId, $totalAmount, $newDescFolio, 'pos_order');
             } else {
-                $insFinance = $db->prepare("INSERT INTO finance_transactions (type, category, amount, description, payment_method, staff_id) VALUES ('income', 'pos', ?, ?, ?, ?)");
-                $insFinance->execute([$totalAmount, $newDescFinance, $method, (int)$_SESSION['user_id']]);
+                $insFinance = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, amount, description, payment_method, staff_id) VALUES (?, 'income', 'pos', ?, ?, ?, ?)");
+                $insFinance->execute([$propertyId, $totalAmount, $newDescFinance, $method, (int)$_SESSION['user_id']]);
             }
         }
 
@@ -389,8 +415,24 @@ try {
             throw new Exception("Invalid item or stock quantity.");
         }
 
-        $up = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty + ? WHERE id = ? AND property_id = ?");
-        $up->execute([$qty, $itemId, $propertyId]);
+        $stmtOld = $db->prepare("SELECT stock_qty, cost_price FROM inventory_items WHERE id = ? AND property_id = ?");
+        $stmtOld->execute([$itemId, $propertyId]);
+        $row = $stmtOld->fetch(PDO::FETCH_ASSOC);
+        if (!$row) throw new Exception("Item not found.");
+        
+        $oldStock = (int)$row['stock_qty'];
+        $costPrice = (float)$row['cost_price'];
+        $newStock = $oldStock + $qty;
+
+        $up = $db->prepare("UPDATE inventory_items SET stock_qty = ? WHERE id = ? AND property_id = ?");
+        $up->execute([$newStock, $itemId, $propertyId]);
+
+        $userId = (int)($_SESSION['user_id'] ?? 0);
+        $stmtHist = $db->prepare("
+            INSERT INTO inventory_restock_history (property_id, item_id, qty_added, old_stock, new_stock, cost_price, restocked_by, notes) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'Manual Restock')
+        ");
+        $stmtHist->execute([$propertyId, $itemId, $qty, $oldStock, $newStock, $costPrice, $userId]);
 
         AuditLogger::log((int)$_SESSION['user_id'], 'POS_RESTOCK_INVENTORY', 'INVENTORY', $itemId, [
             'restock_qty' => $qty
@@ -451,6 +493,7 @@ try {
         ");
         $insOrder->execute([$propertyId, $outletId, $bookingId, $totalAmount, $method, $status]);
         $orderId = (int)$db->lastInsertId();
+        SequenceGenerator::assignDisplayId($db, 'pos_orders', $orderId, 'SEQ_POS_ORDER_FORMAT');
 
         // 3. Deduct stock levels and record order line items
         $insLine = $db->prepare("
@@ -493,6 +536,19 @@ try {
 
         $db->commit();
         echo json_encode(['success' => true, 'message' => 'Order placed successfully!']);
+        exit;
+    } elseif ($action === 'check_new_orders') {
+        $lastId = (int)($data['last_id'] ?? 0);
+        $stmt = $db->prepare("SELECT id FROM pos_orders WHERE property_id = ? AND delivery_status = 'pending' AND id > ? ORDER BY id ASC");
+        $stmt->execute([$propertyId, $lastId]);
+        $newOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        $latestId = $lastId;
+        if (count($newOrders) > 0) {
+            $latestId = $newOrders[count($newOrders) - 1]['id'];
+        }
+        
+        echo json_encode(['success' => true, 'new_count' => count($newOrders), 'latest_id' => $latestId]);
         exit;
     }
 

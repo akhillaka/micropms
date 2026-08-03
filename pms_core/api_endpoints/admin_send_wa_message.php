@@ -19,8 +19,9 @@ ApiHandler::run(function (\PDO $db) {
     }
 
     // Fetch conversation (phone_number + current status)
-    $stmt = $db->prepare("SELECT id, phone_number, status FROM wa_conversations WHERE id = ?");
-    $stmt->execute([$conv_id]);
+    $propertyId = AuthHelper::getPropertyId();
+    $stmt = $db->prepare("SELECT id, phone_number, status FROM wa_conversations WHERE id = ? AND property_id = ?");
+    $stmt->execute([$conv_id, $propertyId]);
     $conv = $stmt->fetch();
 
     if (!$conv) {
@@ -49,19 +50,19 @@ ApiHandler::run(function (\PDO $db) {
 
     // ── Persist outbound message ──────────────────────────────────────────────
     $msgStmt = $db->prepare(
-        "INSERT INTO wa_messages (conversation_id, direction, message_text, status, message_id) VALUES (?, 'outbound', ?, 'sent', ?)"
+        "INSERT INTO wa_messages (property_id, conversation_id, direction, message_text, status, message_id) VALUES (?, ?, 'outbound', ?, 'sent', ?)"
     );
-    $msgStmt->execute([$conv_id, $logMessage, $resultMsgId]);
+    $msgStmt->execute([$propertyId, $conv_id, $logMessage, $resultMsgId]);
     $msgId = (int)$db->lastInsertId();
 
     // Reopen resolved conversations when staff actively replies
     $db->prepare(
-        "UPDATE wa_conversations SET last_message_at = NOW(), status = 'open' WHERE id = ?"
-    )->execute([$conv_id]);
+        "UPDATE wa_conversations SET last_message_at = NOW(), status = 'open' WHERE id = ? AND property_id = ?"
+    )->execute([$conv_id, $propertyId]);
 
     // Return the saved message so the UI can append it immediately (no extra reload needed)
-    $msgRow = $db->prepare("SELECT * FROM wa_messages WHERE id = ?");
-    $msgRow->execute([$msgId]);
+    $msgRow = $db->prepare("SELECT * FROM wa_messages WHERE id = ? AND property_id = ?");
+    $msgRow->execute([$msgId, $propertyId]);
 
     ApiResponse::success(['message' => $msgRow->fetch()]);
 

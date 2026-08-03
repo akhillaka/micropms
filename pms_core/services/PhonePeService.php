@@ -165,7 +165,10 @@ class PhonePeService {
      * Verifies X-VERIFY header against the callback payload.
      */
     public function validateWebhook(string $rawBody, string $xVerifyHeader): bool {
-        $base64 = base64_encode($rawBody);
+        $data = json_decode($rawBody, true);
+        $base64 = $data['response'] ?? '';
+        if (empty($base64)) return false;
+        
         [$theirHash] = explode('###', $xVerifyHeader . '###');
         $ourHash = hash('sha256', $base64 . $this->saltKey);
         return hash_equals($ourHash, $theirHash);

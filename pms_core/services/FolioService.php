@@ -112,14 +112,14 @@ class FolioService {
             $pStmt->execute([$bookingId]);
             $propertyId = (int)$pStmt->fetchColumn() ?: 1;
 
-            $stmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description) VALUES (:pid, :bid, 'INCIDENTAL', :amount, 'MANUAL', :desc)");
-            $stmt->execute(['pid' => $propertyId, 'bid' => $bookingId, 'amount' => $amount, 'desc' => $cleanDesc]);
+            $stmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description, category) VALUES (:pid, :bid, 'INCIDENTAL', :amount, 'MANUAL', :desc, :category)");
+            $stmt->execute(['pid' => $propertyId, 'bid' => $bookingId, 'amount' => $amount, 'desc' => $cleanDesc, 'category' => $category]);
             $entryId = (int)$db->lastInsertId();
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', $entryId, 'SEQ_RECEIPT_FORMAT');
 
             // Audit
             $staffId = $_SESSION['user_id'] ?? null;
-            AuditLogger::log($staffId, 'POST_CHARGE', 'FOLIO', $bookingId, ['amount' => $amount, 'desc' => $cleanDesc]);
+            AuditLogger::log($staffId, 'POST_CHARGE', 'FOLIO', $bookingId, ['amount' => $amount, 'desc' => $cleanDesc, 'category' => $category]);
 
             if ($shouldCommit) {
                 $db->commit();
@@ -137,7 +137,7 @@ class FolioService {
      * Record a payment against a booking folio.
      * Standardized description format regardless of source (admin/assistant/API).
      */
-    public static function recordPayment(\PDO $db, int $bookingId, float $amount, string $method, string $ref = 'MANUAL', string $source = 'admin'): int {
+    public static function recordPayment(\PDO $db, int $bookingId, float $amount, string $method, string $ref = 'MANUAL', string $source = 'admin', string $category = 'booking', ?string $recordedAt = null, bool $isSplit = false): int {
         $shouldCommit = false;
         if (!$db->inTransaction()) {
             $db->beginTransaction();
@@ -153,10 +153,22 @@ class FolioService {
                 }
             }
 
-            // Standardized description format: "Payment - METHOD"
+            // Standardized description format: "Payment - METHOD" or "Split Payment METHOD - CATEGORY"
             $isRefund = $amount < 0;
             $absAmount = abs($amount);
-            $description = ($isRefund ? 'Refund - ' : 'Payment - ') . ucfirst(strtolower($method));
+            
+            $catLabel = $category;
+            if ($category === 'booking') {
+                $catLabel = 'Room Rent';
+            } elseif ($category === 'F&B') {
+                $catLabel = 'F&B';
+            }
+
+            if ($isSplit) {
+                $description = ($isRefund ? 'Split Refund ' : 'Split Payment ') . strtoupper($method) . ' - ' . $catLabel;
+            } else {
+                $description = ($isRefund ? 'Refund - ' : 'Payment - ') . ucfirst(strtolower($method));
+            }
             
             // Ledger entry for payment must be negative, refund must be positive
             $ledgerAmount = $isRefund ? $absAmount : -$absAmount;
@@ -165,15 +177,26 @@ class FolioService {
             $pStmt->execute([$bookingId]);
             $propertyId = (int)$pStmt->fetchColumn() ?: 1;
 
-            $stmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description, payment_method) VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method)");
-            $stmt->execute([
+            $sql = "INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description, payment_method, category";
+            $params = [
                 'pid'    => $propertyId,
                 'bid'    => $bookingId, 
                 'amount' => $ledgerAmount, 
                 'ref'    => $ref, 
                 'desc'   => $description,
-                'method' => strtolower($method)
-            ]);
+                'method' => strtolower($method),
+                'category' => $category
+            ];
+            
+            if ($recordedAt !== null) {
+                $sql .= ", recorded_at) VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :category, :recorded_at)";
+                $params['recorded_at'] = $recordedAt;
+            } else {
+                $sql .= ") VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :category)";
+            }
+
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
             $entryId = (int)$db->lastInsertId();
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', $entryId, 'SEQ_RECEIPT_FORMAT');
 

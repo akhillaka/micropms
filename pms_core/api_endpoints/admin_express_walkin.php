@@ -48,15 +48,15 @@ ApiHandler::run(function(\PDO $db) {
     $db->beginTransaction();
 
     try {
-        // Lock room row
+        $propertyId = AuthHelper::getPropertyId();
         $roomStmt = $db->prepare(
             "SELECT r.id, r.room_number, r.state, r.category_id, c.name AS category_name
              FROM rooms r
              JOIN room_categories c ON r.category_id = c.id
-             WHERE r.id = :id
+             WHERE r.id = :id AND r.property_id = :prop_id
              FOR UPDATE"
         );
-        $roomStmt->execute(['id' => $roomId]);
+        $roomStmt->execute(['id' => $roomId, 'prop_id' => $propertyId]);
         $room = $roomStmt->fetch();
 
         if (!$room) {
@@ -91,26 +91,26 @@ ApiHandler::run(function(\PDO $db) {
                 }
                 $rateStmt = $db->prepare(
                     "SELECT price FROM sliding_rates
-                     WHERE category_id = :cid AND rate_plan_name = :rp AND hours >= :h
+                     WHERE category_id = :cid AND rate_plan_name = :rp AND hours >= :h AND property_id = :prop_id
                      ORDER BY hours ASC LIMIT 1"
                 );
-                $rateStmt->execute(['cid' => $room['category_id'], 'rp' => $ratePlanName, 'h' => $durationHours]);
+                $rateStmt->execute(['cid' => $room['category_id'], 'rp' => $ratePlanName, 'h' => $durationHours, 'prop_id' => $propertyId]);
                 $fallbackRate = (float)($rateStmt->fetchColumn() ?: 0);
                 // If no exact match, use highest available rate for that plan
                 if ($fallbackRate <= 0) {
                     $rateStmt2 = $db->prepare(
-                        "SELECT price FROM sliding_rates WHERE category_id = :cid AND rate_plan_name = :rp ORDER BY hours DESC LIMIT 1"
+                        "SELECT price FROM sliding_rates WHERE category_id = :cid AND rate_plan_name = :rp AND property_id = :prop_id ORDER BY hours DESC LIMIT 1"
                     );
-                    $rateStmt2->execute(['cid' => $room['category_id'], 'rp' => $ratePlanName]);
+                    $rateStmt2->execute(['cid' => $room['category_id'], 'rp' => $ratePlanName, 'prop_id' => $propertyId]);
                     $fallbackRate = (float)($rateStmt2->fetchColumn() ?: 0);
                 }
                 
                 // If STILL no match, just take any valid price for that category
                 if ($fallbackRate <= 0) {
                     $rateStmt3 = $db->prepare(
-                        "SELECT price FROM sliding_rates WHERE category_id = :cid ORDER BY hours DESC LIMIT 1"
+                        "SELECT price FROM sliding_rates WHERE category_id = :cid AND property_id = :prop_id ORDER BY hours DESC LIMIT 1"
                     );
-                    $rateStmt3->execute(['cid' => $room['category_id']]);
+                    $rateStmt3->execute(['cid' => $room['category_id'], 'prop_id' => $propertyId]);
                     $fallbackRate = (float)($rateStmt3->fetchColumn() ?: 1000);
                 }
                 
@@ -126,10 +126,10 @@ ApiHandler::run(function(\PDO $db) {
         $insertStmt = $db->prepare("
             INSERT INTO bookings
                 (room_id, guest_id, check_in, check_out, payment_status, booking_status,
-                 total_amount, booking_source, price_override, adults, children, extra_bed, rate_plan_name)
+                 total_amount, booking_source, price_override, adults, children, extra_bed, rate_plan_name, property_id)
             VALUES
                 (:room_id, :guest_id, :check_in, :check_out, 'completed_paid', 'checked_in',
-                 :total_amount, :booking_source, :price_override, 1, 0, 0, :rate_plan_name)
+                 :total_amount, :booking_source, :price_override, 1, 0, 0, :rate_plan_name, :prop_id)
         ");
         $insertStmt->execute([
             'room_id'        => $roomId,
@@ -140,6 +140,7 @@ ApiHandler::run(function(\PDO $db) {
             'booking_source' => $bookingSource,
             'price_override' => $priceOverride,
             'rate_plan_name' => $ratePlanName,
+            'prop_id'        => $propertyId
         ]);
         $bookingId = (int)$db->lastInsertId();
 
@@ -147,39 +148,41 @@ ApiHandler::run(function(\PDO $db) {
         SequenceGenerator::assignDisplayId($db, 'bookings', $bookingId, 'SEQ_BOOKING_FORMAT', 'display_id');
         SequenceGenerator::assignDisplayId($db, 'bookings', $bookingId, 'SEQ_FOLIO_FORMAT', 'offline_folio_id');
 
-        $dispStmt = $db->prepare("SELECT display_id FROM bookings WHERE id = ?");
-        $dispStmt->execute([$bookingId]);
+        $dispStmt = $db->prepare("SELECT display_id FROM bookings WHERE id = ? AND property_id = ?");
+        $dispStmt->execute([$bookingId, $propertyId]);
         $displayId = $dispStmt->fetchColumn() ?: ('BKG-' . $bookingId);
 
         // Post room charge to folio (separate INSERT statements — no multi-value with reused params)
         $chargeStmt = $db->prepare("
-            INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description)
-            VALUES (:bid, 'ROOM_CHARGE', :amt, 'MANUAL', :desc)
+            INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description, property_id)
+            VALUES (:bid, 'ROOM_CHARGE', :amt, 'MANUAL', :desc, :prop_id)
         ");
         $chargeStmt->execute([
             'bid'  => $bookingId,
             'amt'  => $totalAmount,
             'desc' => "Room Tariff - {$room['category_name']} ({$durationHours}H Walk-in)",
+            'prop_id' => $propertyId
         ]);
         SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
 
         // Post payment entry (separate statement — fixes duplicate named param bug)
         $paymentStmt = $db->prepare("
-            INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description, payment_method)
-            VALUES (:bid, 'payment', :amt, 'MANUAL', :desc, :method)
+            INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description, payment_method, property_id)
+            VALUES (:bid, 'payment', :amt, 'MANUAL', :desc, :method, :prop_id)
         ");
         $paymentStmt->execute([
             'bid'    => $bookingId,
             'amt'    => -$totalAmount,
             'desc'   => 'Express Walk-in Payment - ' . ucfirst(strtolower($paymentMethod)),
             'method' => strtolower($paymentMethod),
+            'prop_id' => $propertyId
         ]);
         SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
 
         // Finance transaction record
         $finStmt = $db->prepare("
-            INSERT INTO finance_transactions (type, category, booking_id, amount, description, payment_method, staff_id)
-            VALUES ('income', 'booking', :bid, :amt, :desc, :method, :staff)
+            INSERT INTO finance_transactions (type, category, booking_id, amount, description, payment_method, staff_id, property_id)
+            VALUES ('income', 'booking', :bid, :amt, :desc, :method, :staff, :prop_id)
         ");
         $finStmt->execute([
             'bid'    => $bookingId,
@@ -187,6 +190,7 @@ ApiHandler::run(function(\PDO $db) {
             'desc'   => "Express Walk-in - {$displayId}",
             'method' => strtolower($paymentMethod),
             'staff'  => $_SESSION['user_id'] ?? null,
+            'prop_id' => $propertyId
         ]);
         SequenceGenerator::assignDisplayId($db, 'finance_transactions', (int)$db->lastInsertId(), 'SEQ_TRANSACTION_FORMAT');
 

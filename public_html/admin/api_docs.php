@@ -98,6 +98,30 @@ $baseUrl = $scheme . '://' . $host;
                 <div class="bg-brand-accentLight text-blue-800 p-3 rounded border border-brand-accent text-sm font-medium">
                     <strong>Events to subscribe:</strong> <code>payment.captured</code> and <code>order.paid</code>
                 </div>
+        </div>
+
+        <!-- PhonePe Webhook -->
+        <div class="card-minimal p-6 md:p-8">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-12 h-12 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center border border-brand-200">
+                    <i class="ph ph-lightning text-2xl"></i>
+                </div>
+                <div>
+                    <h2 class="text-xl font-semibold">PhonePe Webhook</h2>
+                    <p class="text-sm text-brand-500 font-medium">For capturing successful payments automatically via PhonePe</p>
+                </div>
+            </div>
+            <div class="bg-brand-50 border border-brand-200 rounded-xl p-4 space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-brand-500 uppercase tracking-wider mb-1">Webhook URL</label>
+                    <div class="flex gap-2">
+                        <input type="text" readonly id="phonepe-url" value="<?= $baseUrl ?>/webhook_phonepe" class="flex-1 bg-white border-2 border-brand-200 p-2.5 rounded-lg text-sm font-mono outline-none">
+                        <button onclick="copyToClipboard('phonepe-url')" class="bg-brand-900 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-brand-700 transition-colors">Copy</button>
+                    </div>
+                </div>
+                <div class="bg-indigo-50 text-indigo-800 p-3 rounded border border-indigo-200 text-sm font-medium">
+                    <strong>Instructions:</strong> Configure this callback URL in your PhonePe dashboard to receive real-time webhook callback notifications.
+                </div>
             </div>
         </div>
         

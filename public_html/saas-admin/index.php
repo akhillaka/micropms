@@ -61,6 +61,35 @@ try {
     $db->exec("ALTER TABLE `room_categories` ADD COLUMN IF NOT EXISTS `property_id` INT DEFAULT 1;");
     $db->exec("ALTER TABLE `sliding_rates` ADD COLUMN IF NOT EXISTS `property_id` INT DEFAULT 1;");
     $db->exec("ALTER TABLE `finance_transactions` ADD COLUMN IF NOT EXISTS `property_id` INT DEFAULT 1;");
+    
+    // Add display_id to pos_orders if missing
+    try {
+        $check = $db->query("SHOW COLUMNS FROM `pos_orders` LIKE 'display_id'")->fetch();
+        if (!$check) {
+            $db->exec("ALTER TABLE `pos_orders` ADD COLUMN `display_id` VARCHAR(50) NULL AFTER `id`;");
+            $db->exec("CREATE INDEX `idx_pos_orders_display` ON `pos_orders`(`display_id`);");
+        }
+    } catch (\Exception $e) {}
+
+    // Add saved_reports table if missing
+    try {
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS `saved_reports` (
+              `id` INT AUTO_INCREMENT PRIMARY KEY,
+              `property_id` INT NOT NULL,
+              `name` VARCHAR(100) NOT NULL,
+              `dataset` VARCHAR(50) NOT NULL,
+              `columns` TEXT NOT NULL,
+              `filters` TEXT NULL,
+              `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (`property_id`) REFERENCES `properties`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+        $checkFilters = $db->query("SHOW COLUMNS FROM `saved_reports` LIKE 'filters'")->fetch();
+        if (!$checkFilters) {
+            $db->exec("ALTER TABLE `saved_reports` ADD COLUMN `filters` TEXT NULL AFTER `columns`;");
+        }
+    } catch (\Exception $e) {}
 
         // Seed default property from system settings if empty
         $pCount = (int)$db->query("SELECT COUNT(*) FROM properties")->fetchColumn();
@@ -109,6 +138,42 @@ try {
                 $_SESSION['property_id'] = $pId;
                 header('Location: ../admin/index.php');
                 exit;
+            }
+        }
+
+        if ($action === 'update_saas_security') {
+            $newPass = trim($_POST['saas_new_password'] ?? '');
+            $newPin = trim($_POST['saas_new_pin'] ?? '');
+            $suId = (int)($_SESSION['saas_admin_id'] ?? 0);
+
+            if ($suId > 0 && (!empty($newPass) || !empty($newPin))) {
+                try {
+                    $sql = "UPDATE staff_users SET ";
+                    $params = [];
+                    $updates = [];
+                    if (!empty($newPass)) {
+                        $updates[] = "password_hash = ?";
+                        $params[] = password_hash($newPass, PASSWORD_BCRYPT);
+                    }
+                    if (!empty($newPin) && preg_match('/^\d{4}$/', $newPin)) {
+                        $updates[] = "pin_hash = ?";
+                        $params[] = password_hash($newPin, PASSWORD_BCRYPT);
+                    }
+                    
+                    if (!empty($updates)) {
+                        $sql .= implode(', ', $updates) . " WHERE id = ?";
+                        $params[] = $suId;
+                        $stmt = $db->prepare($sql);
+                        $stmt->execute($params);
+                        $successMessage = 'SaaS Admin credentials updated successfully.';
+                    } else {
+                        $error = 'Invalid PIN format (must be 4 digits).';
+                    }
+                } catch (\Exception $e) {
+                    $error = 'Failed to update credentials: ' . $e->getMessage();
+                }
+            } else {
+                $error = 'No new credentials provided.';
             }
         }
 
@@ -231,6 +296,8 @@ try {
 
             if (empty($pCode) || empty($name)) {
                 $error = 'Property code and name are required.';
+            } elseif (!preg_match('/^\d{4}$/', $pCode)) {
+                $error = 'Property code must be a 4-digit number (e.g. 1001).';
             } else {
                 try {
                     $db->beginTransaction();
@@ -274,7 +341,9 @@ try {
             $plan = trim($_POST['plan'] ?? 'starter');
             $maxRooms = (int)($_POST['max_rooms'] ?? 25);
 
-            if ($pId > 0 && !empty($pCode) && !empty($name)) {
+            if (!preg_match('/^\d{4}$/', $pCode)) {
+                $error = 'Property code must be a 4-digit number (e.g. 1001).';
+            } elseif ($pId > 0 && !empty($pCode) && !empty($name)) {
                 try {
                     $features = [
                         'ocr_google_vision' => isset($_POST['feat_ocr_google_vision']) && $_POST['feat_ocr_google_vision'] === '1',
@@ -490,7 +559,7 @@ try {
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 pb-6 border-b border-slate-800">
             <div>
                 <h1 class="text-3xl font-extrabold text-white flex items-center gap-3 tracking-tight">
-                    <span class="p-2.5 bg-sky-500/10 border border-sky-500/20 text-sky-400 rounded-2xl">
+                    <span class="p-2.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-2xl">
                         <i class="ph ph-buildings text-2xl"></i>
                     </span>
                     SaaS Super-Admin Console
@@ -517,18 +586,18 @@ try {
         <?php endif; ?>
 
         <?php if (!empty($createdCredentials)): ?>
-            <div class="mb-8 p-6 bg-sky-950/40 border border-sky-500/30 rounded-2xl shadow-xl space-y-4">
-                <div class="flex items-center justify-between border-b border-sky-500/20 pb-3">
-                    <h3 class="text-lg font-extrabold text-sky-400 flex items-center gap-2">
+            <div class="mb-8 p-6 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl shadow-xl space-y-4">
+                <div class="flex items-center justify-between border-b border-indigo-500/20 pb-3">
+                    <h3 class="text-lg font-extrabold text-indigo-400 flex items-center gap-2">
                         <i class="ph ph-key"></i> Created Hotel Admin Credentials
                     </h3>
-                    <span class="text-xs bg-sky-500/20 text-sky-300 font-bold px-3 py-1 rounded-full">Ready to copy</span>
+                    <span class="text-xs bg-indigo-500/20 text-indigo-300 font-bold px-3 py-1 rounded-full">Ready to copy</span>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
                     <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800">
                         <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Property Name</div>
                         <div class="font-extrabold text-white mt-1"><?= htmlspecialchars($createdCredentials['property_name']) ?></div>
-                        <div class="text-xs font-mono text-sky-400 mt-0.5"><?= htmlspecialchars($createdCredentials['property_code']) ?></div>
+                        <div class="text-xs font-mono text-indigo-400 mt-0.5"><?= htmlspecialchars($createdCredentials['property_code']) ?></div>
                     </div>
                     <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800">
                         <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Admin Username</div>
@@ -553,7 +622,7 @@ try {
                     <div class="text-slate-400 text-xs font-bold uppercase tracking-wider">Active Tenants</div>
                     <div class="text-3xl font-extrabold text-white mt-2"><?= $metrics['active_tenants'] ?> <span class="text-xs font-normal text-slate-500">/ <?= count($properties) ?></span></div>
                 </div>
-                <div class="p-3 bg-sky-500/10 text-sky-400 border border-sky-500/20 rounded-xl">
+                <div class="p-3 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl">
                     <i class="ph ph-house-line text-2xl"></i>
                 </div>
             </div>
@@ -582,11 +651,11 @@ try {
             <div class="glass-panel p-6 rounded-2xl flex items-center justify-between">
                 <div>
                     <div class="text-slate-400 text-xs font-bold uppercase tracking-wider">Projected MRR</div>
-                    <div class="text-3xl font-extrabold text-sky-400 mt-2">
+                    <div class="text-3xl font-extrabold text-indigo-400 mt-2">
                         ₹<?= number_format($metrics['estimated_mrr'], 2) ?>
                     </div>
                 </div>
-                <div class="p-3 bg-sky-500/10 text-sky-400 border border-sky-500/20 rounded-xl">
+                <div class="p-3 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl">
                     <i class="ph ph-currency-inr text-2xl"></i>
                 </div>
             </div>
@@ -594,17 +663,20 @@ try {
 
         <!-- Dynamic Dashboard Navigation Tabs -->
         <div class="flex items-center gap-2 border-b border-slate-800 mb-8 overflow-x-auto pb-px">
-            <button onclick="switchTab('properties')" id="tab-properties" class="tab-btn px-5 py-3 border-b-2 font-bold text-sm transition-all flex items-center gap-2 border-sky-500 text-sky-400">
-                <i class="ph ph-list-bullets text-base"></i> Registered Hotels
+            <button onclick="switchTab('properties')" id="tab-properties" class="tab-btn px-5 py-3 border-b-2 font-bold text-sm transition-all flex items-center gap-2 border-indigo-500 text-indigo-400">
+                <i class="ph ph-buildings"></i> Properties
             </button>
             <button onclick="switchTab('onboard')" id="tab-onboard" class="tab-btn px-5 py-3 border-b-2 font-bold text-sm transition-all flex items-center gap-2 border-transparent text-slate-400 hover:text-white">
-                <i class="ph ph-plus-circle text-base"></i> Onboard New Tenant
+                <i class="ph ph-user-plus"></i> Onboarding
             </button>
             <button onclick="switchTab('settings')" id="tab-settings" class="tab-btn px-5 py-3 border-b-2 font-bold text-sm transition-all flex items-center gap-2 border-transparent text-slate-400 hover:text-white">
-                <i class="ph ph-gear text-base"></i> Platform Settings
+                <i class="ph ph-gear"></i> Settings
+            </button>
+            <button onclick="switchTab('security')" id="tab-security" class="tab-btn px-5 py-3 border-b-2 font-bold text-sm transition-all flex items-center gap-2 border-transparent text-slate-400 hover:text-white">
+                <i class="ph ph-shield-check"></i> Security
             </button>
             <button onclick="switchTab('logs'); loadSystemLogs();" id="tab-logs" class="tab-btn px-5 py-3 border-b-2 font-bold text-sm transition-all flex items-center gap-2 border-transparent text-slate-400 hover:text-white">
-                <i class="ph ph-scroll text-base"></i> System Logs
+                <i class="ph ph-scroll"></i> Logs
             </button>
         </div>
 
@@ -628,7 +700,7 @@ try {
                                 <tr class="hover:bg-slate-900/20 transition-all">
                                     <td class="px-6 py-4">
                                         <div class="font-extrabold text-white text-base"><?= htmlspecialchars($p['name']) ?></div>
-                                        <div class="text-xs text-sky-400 font-mono mt-0.5"><?= htmlspecialchars($p['property_code']) ?></div>
+                                        <div class="text-xs text-indigo-400 font-mono mt-0.5"><?= htmlspecialchars($p['property_code']) ?></div>
                                     </td>
                                     <td class="px-6 py-4">
                                         <?php if (!empty($p['custom_domain'])): ?>
@@ -640,7 +712,7 @@ try {
                                                 <form method="POST" class="inline">
                                                     <input type="hidden" name="action" value="verify_dns">
                                                     <input type="hidden" name="custom_domain" value="<?= htmlspecialchars($p['custom_domain']) ?>">
-                                                    <button type="submit" class="text-[10px] text-slate-400 hover:text-sky-400 underline transition-all font-semibold">🔍 Check DNS</button>
+                                                    <button type="submit" class="text-[10px] text-slate-400 hover:text-indigo-400 underline transition-all font-semibold">🔍 Check DNS</button>
                                                 </form>
                                             </div>
                                         <?php else: ?>
@@ -648,7 +720,7 @@ try {
                                         <?php endif; ?>
                                     </td>
                                     <td class="px-6 py-4">
-                                        <span class="px-2.5 py-1 rounded-md text-[10px] font-extrabold uppercase border <?= ($p['plan'] ?? 'starter') === 'enterprise' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : (($p['plan'] ?? 'starter') === 'pro' ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' : 'bg-slate-800/80 text-slate-400 border-slate-700/50') ?>">
+                                        <span class="px-2.5 py-1 rounded-md text-[10px] font-extrabold uppercase border <?= ($p['plan'] ?? 'starter') === 'enterprise' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : (($p['plan'] ?? 'starter') === 'pro' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' : 'bg-slate-800/80 text-slate-400 border-slate-700/50') ?>">
                                             <?= htmlspecialchars(ucfirst($p['plan'] ?? 'starter')) ?>
                                         </span>
                                     </td>
@@ -659,7 +731,7 @@ try {
                                                 $maxVal = (int)($p['max_rooms'] ?? 25);
                                                 $pct = $maxVal > 0 ? min(100, round(($p['room_count'] / $maxVal) * 100)) : 0;
                                             ?>
-                                            <div class="bg-sky-500 h-full rounded-full" style="width: <?= $pct ?>%;"></div>
+                                            <div class="bg-indigo-500 h-full rounded-full" style="width: <?= $pct ?>%;"></div>
                                         </div>
                                     </td>
                                     <td class="px-6 py-4">
@@ -679,7 +751,7 @@ try {
                                                 👁️ Switch Context
                                             </button>
                                         </form>
-                                        <button onclick="openEditModal(<?= htmlspecialchars(json_encode($p)) ?>)" class="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 rounded-xl text-xs font-bold transition">
+                                        <button onclick="openEditModal(<?= htmlspecialchars(json_encode($p)) ?>)" class="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl text-xs font-bold transition">
                                             ✏️ Edit Details
                                         </button>
                                         <button onclick="openStaffModal(<?= $p['id'] ?>, '<?= htmlspecialchars(addslashes($p['name'])) ?>')" class="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-slate-800 rounded-xl text-xs font-bold transition">
@@ -707,7 +779,7 @@ try {
         <div id="content-onboard" class="tab-content hidden">
             <div class="glass-panel p-6 rounded-2xl max-w-2xl mx-auto">
                 <h2 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                    <i class="ph ph-plus-circle text-sky-400"></i>
+                    <i class="ph ph-plus-circle text-indigo-400"></i>
                     Register New Hotel Property
                 </h2>
                 <form method="POST" class="space-y-5">
@@ -715,30 +787,30 @@ try {
                     
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Property Code *</label>
-                            <input type="text" name="property_code" placeholder="PROP-DELHI-01" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Property Code * (4 Digits)</label>
+                            <input type="text" name="property_code" placeholder="1001" pattern="\d{4}" minlength="4" maxlength="4" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Hotel / Property Name *</label>
-                            <input type="text" name="name" placeholder="Grand Transit Hotel" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <input type="text" name="name" placeholder="Grand Transit Hotel" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                     </div>
 
                     <div class="pt-3 border-t border-slate-800">
-                        <div class="text-xs font-bold text-sky-400 uppercase tracking-wider mb-3">👤 Initial Owner Admin Account</div>
+                        <div class="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-3">👤 Initial Owner Admin Account</div>
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Admin Username</label>
-                                <input type="text" name="admin_username" placeholder="Auto-generated if left empty" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                <input type="text" name="admin_username" placeholder="Auto-generated if left empty" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Password</label>
-                                    <input type="text" name="admin_password" placeholder="Auto-generated if empty" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                    <input type="text" name="admin_password" placeholder="Auto-generated if empty" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">PWA Login PIN (4 digits)</label>
-                                    <input type="text" name="admin_pin" maxlength="4" placeholder="1234" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                    <input type="text" name="admin_pin" maxlength="4" placeholder="1234" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                             </div>
                         </div>
@@ -747,18 +819,18 @@ try {
                     <div class="grid grid-cols-2 gap-4 pt-3 border-t border-slate-800">
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">City</label>
-                            <input type="text" name="city" placeholder="New Delhi" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <input type="text" name="city" placeholder="New Delhi" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">State</label>
-                            <input type="text" name="state" placeholder="Delhi" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <input type="text" name="state" placeholder="Delhi" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Subscription Plan</label>
-                            <select name="plan" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <select name="plan" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 <?php foreach ($saasPlans as $planId => $planData): ?>
                                     <option value="<?= htmlspecialchars($planId) ?>"><?= htmlspecialchars($planData['name']) ?> (Max <?= $planData['max_rooms'] >= 999 ? '∞' : $planData['max_rooms'] ?> Rooms)</option>
                                 <?php endforeach; ?>
@@ -766,27 +838,27 @@ try {
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Max Room Override</label>
-                            <input type="number" name="max_rooms" placeholder="Plan defaults applied if empty" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <input type="number" name="max_rooms" placeholder="Plan defaults applied if empty" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Phone</label>
-                            <input type="text" name="phone" placeholder="9876543210" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <input type="text" name="phone" placeholder="9876543210" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">GSTIN</label>
-                            <input type="text" name="gstin" placeholder="07AAAAA0000A1Z5" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <input type="text" name="gstin" placeholder="07AAAAA0000A1Z5" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                     </div>
 
                     <div>
                         <label class="block text-xs font-semibold text-slate-400 uppercase mb-2">Email</label>
-                        <input type="email" name="email" placeholder="owner@hotel.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                        <input type="email" name="email" placeholder="owner@hotel.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                     </div>
 
-                    <button type="submit" class="w-full py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-extrabold rounded-xl text-sm transition shadow-lg shadow-sky-500/10">
+                    <button type="submit" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold rounded-xl text-sm transition shadow-lg shadow-indigo-500/10">
                         ➕ Register Tenant Property
                     </button>
                 </form>
@@ -800,28 +872,28 @@ try {
                 
                 <!-- General Settings -->
                 <div class="glass-panel p-6 rounded-2xl">
-                    <h2 class="text-xl font-bold text-white mb-4 flex items-center gap-2"><i class="ph ph-gear text-sky-400"></i> General Configuration</h2>
+                    <h2 class="text-xl font-bold text-white mb-4 flex items-center gap-2"><i class="ph ph-gear text-indigo-400"></i> General Configuration</h2>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Platform Name</label>
-                            <input type="text" name="SAAS_PLATFORM_NAME" value="<?= htmlspecialchars($settings['SAAS_PLATFORM_NAME'] ?? 'MicroPMS') ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <input type="text" name="SAAS_PLATFORM_NAME" value="<?= htmlspecialchars($settings['SAAS_PLATFORM_NAME'] ?? 'MicroPMS') ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Support Email</label>
-                            <input type="email" name="SAAS_SUPPORT_EMAIL" value="<?= htmlspecialchars($settings['SAAS_SUPPORT_EMAIL'] ?? '') ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <input type="email" name="SAAS_SUPPORT_EMAIL" value="<?= htmlspecialchars($settings['SAAS_SUPPORT_EMAIL'] ?? '') ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Designated SaaS Domain</label>
-                            <input type="text" name="SAAS_PORTAL_SUBDOMAIN" value="<?= htmlspecialchars($settings['SAAS_PORTAL_SUBDOMAIN'] ?? '') ?>" placeholder="saas.yourdomain.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none font-mono">
+                            <input type="text" name="SAAS_PORTAL_SUBDOMAIN" value="<?= htmlspecialchars($settings['SAAS_PORTAL_SUBDOMAIN'] ?? '') ?>" placeholder="saas.yourdomain.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono">
                         </div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Trial Days</label>
-                                <input type="number" name="SAAS_TRIAL_DAYS" value="<?= htmlspecialchars($settings['SAAS_TRIAL_DAYS'] ?? '30') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                <input type="number" name="SAAS_TRIAL_DAYS" value="<?= htmlspecialchars($settings['SAAS_TRIAL_DAYS'] ?? '30') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Currency</label>
-                                <input type="text" name="SAAS_DEFAULT_CURRENCY" value="<?= htmlspecialchars($settings['SAAS_DEFAULT_CURRENCY'] ?? 'INR') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                <input type="text" name="SAAS_DEFAULT_CURRENCY" value="<?= htmlspecialchars($settings['SAAS_DEFAULT_CURRENCY'] ?? 'INR') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                         </div>
                     </div>
@@ -833,18 +905,18 @@ try {
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Logo URL</label>
-                            <input type="url" name="SAAS_LOGO_URL" value="<?= htmlspecialchars($settings['SAAS_LOGO_URL'] ?? '') ?>" placeholder="https://..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none">
+                            <input type="url" name="SAAS_LOGO_URL" value="<?= htmlspecialchars($settings['SAAS_LOGO_URL'] ?? '') ?>" placeholder="https://..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Primary Color (Hex)</label>
                             <div class="flex items-center gap-2">
                                 <input type="color" name="SAAS_PRIMARY_COLOR" value="<?= htmlspecialchars($settings['SAAS_PRIMARY_COLOR'] ?? '#0ea5e9') ?>" class="h-10 w-12 rounded bg-transparent border-0 cursor-pointer">
-                                <input type="text" name="SAAS_PRIMARY_COLOR" value="<?= htmlspecialchars($settings['SAAS_PRIMARY_COLOR'] ?? '#0ea5e9') ?>" placeholder="#0ea5e9" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none font-mono">
+                                <input type="text" name="SAAS_PRIMARY_COLOR" value="<?= htmlspecialchars($settings['SAAS_PRIMARY_COLOR'] ?? '#0ea5e9') ?>" placeholder="#0ea5e9" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono">
                             </div>
                         </div>
                         <div class="col-span-2">
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Custom CSS</label>
-                            <textarea name="SAAS_CUSTOM_CSS" rows="3" placeholder="/* Inject CSS into tenant pages */" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-sky-500 focus:outline-none font-mono"><?= htmlspecialchars($settings['SAAS_CUSTOM_CSS'] ?? '') ?></textarea>
+                            <textarea name="SAAS_CUSTOM_CSS" rows="3" placeholder="/* Inject CSS into tenant pages */" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono"><?= htmlspecialchars($settings['SAAS_CUSTOM_CSS'] ?? '') ?></textarea>
                         </div>
                     </div>
                 </div>
@@ -856,16 +928,16 @@ try {
                         <div class="space-y-3">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">SMTP Host</label>
-                                <input type="text" name="SAAS_SMTP_HOST" value="<?= htmlspecialchars($settings['SAAS_SMTP_HOST'] ?? '') ?>" placeholder="smtp.mailgun.org" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                <input type="text" name="SAAS_SMTP_HOST" value="<?= htmlspecialchars($settings['SAAS_SMTP_HOST'] ?? '') ?>" placeholder="smtp.mailgun.org" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Port</label>
-                                    <input type="text" name="SAAS_SMTP_PORT" value="<?= htmlspecialchars($settings['SAAS_SMTP_PORT'] ?? '') ?>" placeholder="587" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                    <input type="text" name="SAAS_SMTP_PORT" value="<?= htmlspecialchars($settings['SAAS_SMTP_PORT'] ?? '') ?>" placeholder="587" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Security</label>
-                                    <select name="SAAS_SMTP_SECURE" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                    <select name="SAAS_SMTP_SECURE" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                         <option value="tls" <?= ($settings['SAAS_SMTP_SECURE'] ?? '') === 'tls' ? 'selected' : '' ?>>TLS</option>
                                         <option value="ssl" <?= ($settings['SAAS_SMTP_SECURE'] ?? '') === 'ssl' ? 'selected' : '' ?>>SSL</option>
                                     </select>
@@ -873,11 +945,11 @@ try {
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">SMTP User</label>
-                                <input type="text" name="SAAS_SMTP_USER" value="<?= htmlspecialchars($settings['SAAS_SMTP_USER'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                <input type="text" name="SAAS_SMTP_USER" value="<?= htmlspecialchars($settings['SAAS_SMTP_USER'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">SMTP Password</label>
-                                <input type="password" name="SAAS_SMTP_PASS" value="<?= htmlspecialchars($settings['SAAS_SMTP_PASS'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                <input type="password" name="SAAS_SMTP_PASS" value="<?= htmlspecialchars($settings['SAAS_SMTP_PASS'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                         </div>
                     </div>
@@ -889,18 +961,19 @@ try {
                             <div class="space-y-3">
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Gateway</label>
-                                    <select name="SAAS_PAYMENT_GATEWAY" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                    <select name="SAAS_PAYMENT_GATEWAY" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                         <option value="razorpay" <?= ($settings['SAAS_PAYMENT_GATEWAY'] ?? '') === 'razorpay' ? 'selected' : '' ?>>Razorpay</option>
+                                        <option value="phonepe" <?= ($settings['SAAS_PAYMENT_GATEWAY'] ?? '') === 'phonepe' ? 'selected' : '' ?>>PhonePe</option>
                                         <option value="stripe" <?= ($settings['SAAS_PAYMENT_GATEWAY'] ?? '') === 'stripe' ? 'selected' : '' ?>>Stripe</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Key ID</label>
-                                    <input type="text" name="SAAS_PG_KEY_ID" value="<?= htmlspecialchars($settings['SAAS_PG_KEY_ID'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                    <input type="text" name="SAAS_PG_KEY_ID" value="<?= htmlspecialchars($settings['SAAS_PG_KEY_ID'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Key Secret</label>
-                                    <input type="password" name="SAAS_PG_SECRET" value="<?= htmlspecialchars($settings['SAAS_PG_SECRET'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                    <input type="password" name="SAAS_PG_SECRET" value="<?= htmlspecialchars($settings['SAAS_PG_SECRET'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                             </div>
                         </div>
@@ -910,11 +983,11 @@ try {
                             <div class="space-y-3">
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">TOS URL</label>
-                                    <input type="url" name="SAAS_TOS_URL" value="<?= htmlspecialchars($settings['SAAS_TOS_URL'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                    <input type="url" name="SAAS_TOS_URL" value="<?= htmlspecialchars($settings['SAAS_TOS_URL'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Privacy Policy URL</label>
-                                    <input type="url" name="SAAS_PRIVACY_URL" value="<?= htmlspecialchars($settings['SAAS_PRIVACY_URL'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                                    <input type="url" name="SAAS_PRIVACY_URL" value="<?= htmlspecialchars($settings['SAAS_PRIVACY_URL'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                                 <div class="flex items-center justify-between pt-2">
                                     <span class="text-sm text-slate-300 font-semibold">Enable Public Registration</span>
@@ -938,7 +1011,7 @@ try {
                 </div>
 
                 <div class="pt-4">
-                    <button type="submit" class="w-full py-4 bg-sky-600 hover:bg-sky-500 text-white font-extrabold rounded-2xl text-base transition shadow-lg shadow-sky-500/20">
+                    <button type="submit" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold rounded-2xl text-base transition shadow-lg shadow-indigo-500/20">
                         💾 Save All Global Settings
                     </button>
                 </div>
@@ -956,20 +1029,20 @@ try {
                     <?php foreach ($saasPlans as $key => $plan): ?>
                         <div class="border-b border-slate-800/80 pb-5 mb-5 last:border-0 last:pb-0 last:mb-0 space-y-4">
                             <div class="flex justify-between items-center">
-                                <h3 class="text-sm font-extrabold text-sky-400 uppercase tracking-wider"><?= htmlspecialchars($plan['name']) ?> Tier</h3>
+                                <h3 class="text-sm font-extrabold text-indigo-400 uppercase tracking-wider"><?= htmlspecialchars($plan['name']) ?> Tier</h3>
                             </div>
                             <div class="grid grid-cols-3 gap-3">
                                 <div>
                                     <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Pricing (Monthly)</label>
-                                    <input type="number" name="plan_<?= $key ?>_price" value="<?= $plan['price'] ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-sky-500 focus:outline-none font-bold">
+                                    <input type="number" name="plan_<?= $key ?>_price" value="<?= $plan['price'] ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-indigo-500 focus:outline-none font-bold">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Max Rooms Limit</label>
-                                    <input type="number" name="plan_<?= $key ?>_max_rooms" value="<?= $plan['max_rooms'] ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-sky-500 focus:outline-none font-bold">
+                                    <input type="number" name="plan_<?= $key ?>_max_rooms" value="<?= $plan['max_rooms'] ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-indigo-500 focus:outline-none font-bold">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Max Staff Seats</label>
-                                    <input type="number" name="plan_<?= $key ?>_max_staff" value="<?= $plan['max_staff'] ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-sky-500 focus:outline-none font-bold">
+                                    <input type="number" name="plan_<?= $key ?>_max_staff" value="<?= $plan['max_staff'] ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-indigo-500 focus:outline-none font-bold">
                                 </div>
                             </div>
                             <div class="space-y-2">
@@ -978,7 +1051,7 @@ try {
                                     <?php foreach ($plan['features'] as $fKey => $fVal): ?>
                                         <label class="flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white">
                                             <input type="hidden" name="plan_<?= $key ?>_feat_<?= $fKey ?>" value="0">
-                                            <input type="checkbox" name="plan_<?= $key ?>_feat_<?= $fKey ?>" value="1" <?= $fVal ? 'checked' : '' ?> class="accent-sky-500 rounded bg-slate-950 border-slate-800">
+                                            <input type="checkbox" name="plan_<?= $key ?>_feat_<?= $fKey ?>" value="1" <?= $fVal ? 'checked' : '' ?> class="accent-indigo-500 rounded bg-slate-950 border-slate-800">
                                             <?= htmlspecialchars(str_replace('_', ' ', $fKey)) ?>
                                         </label>
                                     <?php endforeach; ?>
@@ -999,17 +1072,17 @@ try {
             <div class="glass-panel p-6 rounded-2xl">
                 <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
                     <h2 class="text-xl font-bold text-white flex items-center gap-2">
-                        <i class="ph ph-scroll text-sky-400"></i>
+                        <i class="ph ph-scroll text-indigo-400"></i>
                         System Audit Logs
                     </h2>
                     <div class="flex items-center gap-3">
-                        <select id="logFilterProperty" onchange="loadSystemLogs()" class="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-xs focus:border-sky-500 focus:outline-none">
+                        <select id="logFilterProperty" onchange="loadSystemLogs()" class="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-xs focus:border-indigo-500 focus:outline-none">
                             <option value="">All Properties (Global)</option>
                             <?php foreach ($properties as $p): ?>
                                 <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['property_code']) ?>)</option>
                             <?php endforeach; ?>
                         </select>
-                        <button onclick="loadSystemLogs()" class="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 rounded-xl text-xs font-bold transition flex items-center gap-1">
+                        <button onclick="loadSystemLogs()" class="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl text-xs font-bold transition flex items-center gap-1">
                             <i class="ph ph-arrow-clockwise"></i> Refresh
                         </button>
                     </div>
@@ -1035,6 +1108,33 @@ try {
             </div>
         </div>
 
+        <!-- TAB CONTENT: Security -->
+        <div id="content-security" class="tab-content hidden space-y-6">
+            <div class="glass-panel p-6 rounded-2xl max-w-lg mx-auto">
+                <div class="border-b border-slate-800 pb-4 mb-6">
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i class="ph ph-shield-check text-rose-500"></i>
+                        Superadmin Security
+                    </h2>
+                    <p class="text-slate-400 text-sm mt-1">Update your SaaS superadmin password and 4-digit PIN.</p>
+                </div>
+                <form method="POST" class="space-y-4">
+                    <input type="hidden" name="action" value="update_saas_security">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-300 uppercase mb-2">New Password (optional)</label>
+                        <input type="password" name="saas_new_password" placeholder="Leave blank to keep current" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:border-indigo-500 focus:outline-none placeholder-slate-600 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-300 uppercase mb-2">New 4-Digit PIN (optional)</label>
+                        <input type="text" name="saas_new_pin" pattern="\d{4}" maxlength="4" placeholder="e.g. 1234" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:border-indigo-500 focus:outline-none placeholder-slate-600 transition">
+                    </div>
+                    <button type="submit" class="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-sm transition shadow-lg shadow-rose-500/20">
+                        Update Credentials
+                    </button>
+                </form>
+            </div>
+        </div>
+
     </div>
 
     <!-- New Plan Modal -->
@@ -1048,11 +1148,11 @@ try {
                 <input type="hidden" name="action" value="create_new_plan">
                 <div>
                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Plan Identifier (No spaces)</label>
-                    <input type="text" name="new_plan_id" placeholder="e.g. lifetime_free" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none font-mono">
+                    <input type="text" name="new_plan_id" placeholder="e.g. lifetime_free" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Display Name</label>
-                    <input type="text" name="new_plan_name" placeholder="e.g. Lifetime Free Tier" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                    <input type="text" name="new_plan_name" placeholder="e.g. Lifetime Free Tier" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                 </div>
                 <div class="text-[10px] text-slate-400 italic">The new plan will be created with all modules enabled and unlimited resources by default. You can adjust limits and pricing in the Plans Configuration panel after creating it.</div>
                 <button type="submit" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition">Create Plan</button>
@@ -1065,7 +1165,7 @@ try {
         <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                    <i class="ph ph-pencil-simple text-sky-400"></i>
+                    <i class="ph ph-pencil-simple text-indigo-400"></i>
                     Edit Property Details
                 </h3>
                 <button onclick="closeEditModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
@@ -1076,19 +1176,19 @@ try {
                 <input type="hidden" name="property_id" id="edit_property_id">
 
                 <div>
-                    <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Property Code *</label>
-                    <input type="text" name="property_code" id="edit_property_code" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                    <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Property Code * (4 Digits)</label>
+                    <input type="text" name="property_code" id="edit_property_code" pattern="\d{4}" minlength="4" maxlength="4" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                 </div>
 
                 <div>
                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Hotel / Property Name *</label>
-                    <input type="text" name="name" id="edit_name" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                    <input type="text" name="name" id="edit_name" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                 </div>
 
                 <div class="grid grid-cols-3 gap-3">
                     <div>
                         <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">SaaS Plan</label>
-                        <select name="plan" id="edit_plan" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                        <select name="plan" id="edit_plan" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             <?php foreach ($saasPlans as $planId => $planData): ?>
                                 <option value="<?= htmlspecialchars($planId) ?>"><?= htmlspecialchars($planData['name']) ?></option>
                             <?php endforeach; ?>
@@ -1096,44 +1196,44 @@ try {
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Max Rooms</label>
-                        <input type="number" name="max_rooms" id="edit_max_rooms" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                        <input type="number" name="max_rooms" id="edit_max_rooms" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Custom Domain</label>
-                        <input type="text" name="custom_domain" id="edit_custom_domain" placeholder="hotel.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none font-mono">
+                        <input type="text" name="custom_domain" id="edit_custom_domain" placeholder="hotel.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono">
                     </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">City</label>
-                        <input type="text" name="city" id="edit_city" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                        <input type="text" name="city" id="edit_city" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">State</label>
-                        <input type="text" name="state" id="edit_state" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                        <input type="text" name="state" id="edit_state" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                     </div>
                 </div>
 
                 <div>
                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Address</label>
-                    <textarea name="address" id="edit_address" rows="2" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none"></textarea>
+                    <textarea name="address" id="edit_address" rows="2" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none"></textarea>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Phone</label>
-                        <input type="text" name="phone" id="edit_phone" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                        <input type="text" name="phone" id="edit_phone" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">GSTIN</label>
-                        <input type="text" name="gstin" id="edit_gstin" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                        <input type="text" name="gstin" id="edit_gstin" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                     </div>
                 </div>
 
                 <div>
                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Email</label>
-                    <input type="email" name="email" id="edit_email" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-sky-500 focus:outline-none">
+                    <input type="email" name="email" id="edit_email" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                 </div>
 
                 <div class="space-y-2 py-2 border-t border-slate-800">
@@ -1141,12 +1241,12 @@ try {
                     <div class="flex flex-wrap gap-4 text-xs text-slate-300">
                         <label class="flex items-center gap-2 cursor-pointer">
                             <input type="hidden" name="feat_ocr_google_vision" value="0">
-                            <input type="checkbox" name="feat_ocr_google_vision" id="edit_feat_ocr_google_vision" value="1" class="accent-sky-500 rounded bg-slate-950 border-slate-800">
+                            <input type="checkbox" name="feat_ocr_google_vision" id="edit_feat_ocr_google_vision" value="1" class="accent-indigo-500 rounded bg-slate-950 border-slate-800">
                             Google Vision OCR Scanner
                         </label>
                         <label class="flex items-center gap-2 cursor-pointer">
                             <input type="hidden" name="feat_whatsapp_automations" value="0">
-                            <input type="checkbox" name="feat_whatsapp_automations" id="edit_feat_whatsapp_automations" value="1" class="accent-sky-500 rounded bg-slate-950 border-slate-800">
+                            <input type="checkbox" name="feat_whatsapp_automations" id="edit_feat_whatsapp_automations" value="1" class="accent-indigo-500 rounded bg-slate-950 border-slate-800">
                             WhatsApp Automations
                         </label>
                     </div>
@@ -1154,7 +1254,7 @@ try {
 
                 <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
                     <button type="button" onclick="closeEditModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-sm transition">Cancel</button>
-                    <button type="submit" class="px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-sm transition">Save Changes</button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition">Save Changes</button>
                 </div>
             </form>
         </div>
@@ -1166,7 +1266,7 @@ try {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             // Remove active classes from all buttons
             document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('border-sky-500', 'text-sky-400');
+                btn.classList.remove('border-indigo-500', 'text-indigo-400');
                 btn.classList.add('border-transparent', 'text-slate-400');
             });
 
@@ -1175,7 +1275,7 @@ try {
             // Add active class to clicked button
             const activeBtn = document.getElementById('tab-' + tabId);
             activeBtn.classList.remove('border-transparent', 'text-slate-400');
-            activeBtn.classList.add('border-sky-500', 'text-sky-400');
+            activeBtn.classList.add('border-indigo-500', 'text-indigo-400');
         }
 
         function openEditModal(p) {
@@ -1250,7 +1350,7 @@ try {
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-right space-x-2">
-                                <button onclick='editStaffUser(${JSON.stringify(su)})' class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-sky-400 rounded transition font-bold">Edit</button>
+                                <button onclick='editStaffUser(${JSON.stringify(su)})' class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-indigo-400 rounded transition font-bold">Edit</button>
                             </td>
                         `;
                         tbody.appendChild(tr);
@@ -1280,7 +1380,7 @@ try {
         function editStaffUser(su) {
             document.getElementById('staff_form_id').value = su.id;
             document.getElementById('staff_form_username').value = su.username;
-            document.getElementById('staff_form_username').disabled = true;
+            document.getElementById('staff_form_username').readOnly = true;
             document.getElementById('staff_form_access_level').value = su.access_level;
             document.getElementById('staff_form_role').value = su.role;
             document.getElementById('staff_form_is_active').value = su.is_active;
@@ -1348,7 +1448,7 @@ try {
                         tr.innerHTML = `
                             <td class="px-4 py-3 text-slate-400 font-mono">${escapeHtml(log.created_at || '')}</td>
                             <td class="px-4 py-3 font-bold text-white">${escapeHtml(log.property_name || 'Global System')}</td>
-                            <td class="px-4 py-3 font-mono text-sky-400">${escapeHtml(log.username || 'System')}</td>
+                            <td class="px-4 py-3 font-mono text-indigo-400">${escapeHtml(log.username || 'System')}</td>
                             <td class="px-4 py-3"><div class="font-semibold text-slate-200">${escapeHtml(log.action)}</div><div class="text-[10px] text-slate-500">${escapeHtml(detailsStr)}</div></td>
                             <td class="px-4 py-3"><span class="px-1.5 py-0.5 rounded bg-slate-800 text-[9px] uppercase font-bold text-slate-400">${escapeHtml(log.entity_type)}</span></td>
                             <td class="px-4 py-3 text-slate-500 font-mono">${escapeHtml(ipAddr)}</td>
@@ -1383,25 +1483,25 @@ try {
             <div class="overflow-y-auto grow space-y-4">
                 <div class="flex justify-between items-center">
                     <div class="text-xs text-slate-400">List of registered staff members for this tenant workspace.</div>
-                    <button onclick="showAddStaffForm()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1">
+                    <button onclick="showAddStaffForm()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1">
                         <i class="ph ph-plus"></i> Add Staff Account
                     </button>
                 </div>
 
                 <!-- Form Panel (Hidden by default, shown on Add/Edit click) -->
                 <div id="staffUserFormPanel" class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 hidden space-y-3">
-                    <div class="text-xs font-bold text-sky-400 uppercase">Account Config Form</div>
+                    <div class="text-xs font-bold text-indigo-400 uppercase">Account Config Form</div>
                     <form id="staffUserForm" onsubmit="saveStaffUser(event)" class="space-y-3">
                         <input type="hidden" name="staff_id" id="staff_form_id">
                         
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Username *</label>
-                                <input type="text" name="username" id="staff_form_username" required class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-sky-500 focus:outline-none">
+                                <input type="text" name="username" id="staff_form_username" required class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div>
                                 <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Status</label>
-                                <select name="is_active" id="staff_form_is_active" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-sky-500 focus:outline-none">
+                                <select name="is_active" id="staff_form_is_active" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-indigo-500 focus:outline-none">
                                     <option value="1">Active</option>
                                     <option value="0">Suspended / Disabled</option>
                                 </select>
@@ -1411,7 +1511,7 @@ try {
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Access Level</label>
-                                <select name="access_level" id="staff_form_access_level" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-sky-500 focus:outline-none">
+                                <select name="access_level" id="staff_form_access_level" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-indigo-500 focus:outline-none">
                                     <option value="owner">Owner / Property Admin</option>
                                     <option value="manager">Manager / Front Desk</option>
                                     <option value="housekeeping">Housekeeping Staff</option>
@@ -1419,18 +1519,18 @@ try {
                             </div>
                             <div>
                                 <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Display Role (Label)</label>
-                                <input type="text" name="role" id="staff_form_role" required class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-sky-500 focus:outline-none">
+                                <input type="text" name="role" id="staff_form_role" required class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-indigo-500 focus:outline-none">
                             </div>
                         </div>
 
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1" id="staff_form_password_hint">Password</label>
-                                <input type="password" name="password" id="staff_form_password" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-sky-500 focus:outline-none">
+                                <input type="password" name="password" id="staff_form_password" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div>
                                 <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1" id="staff_form_pin_hint">PIN (4 digits)</label>
-                                <input type="password" name="pin" id="staff_form_pin" maxlength="4" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-sky-500 focus:outline-none">
+                                <input type="password" name="pin" id="staff_form_pin" maxlength="4" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-white text-xs focus:border-indigo-500 focus:outline-none">
                             </div>
                         </div>
 

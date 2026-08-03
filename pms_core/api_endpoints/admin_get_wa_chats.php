@@ -15,14 +15,9 @@ if ($action === 'list') {
     $filter = $_GET['filter'] ?? 'all';
     $search = trim($_GET['search'] ?? '');
 
-    $where  = [];
-    $params = [];
-
     $propertyId = AuthHelper::getPropertyId();
-    if (!AuthHelper::isSuperAdmin()) {
-        $where[] = "(c.guest_id IS NULL OR EXISTS (SELECT 1 FROM bookings b WHERE b.guest_id = c.guest_id AND b.property_id = ?))";
-        $params[] = $propertyId;
-    }
+    $where  = ["c.property_id = ?"];
+    $params = [$propertyId];
 
     if ($filter === 'open') {
         $where[] = "c.status = 'open'";
@@ -79,15 +74,17 @@ if ($action === 'messages') {
         exit;
     }
 
+    $propertyId = AuthHelper::getPropertyId();
+
     // Mark inbound messages as read
     $db->prepare(
         "UPDATE wa_messages SET status = 'read'
-         WHERE  conversation_id = ? AND direction = 'inbound' AND status = 'received'"
-    )->execute([$conv_id]);
+         WHERE  conversation_id = ? AND property_id = ? AND direction = 'inbound' AND status = 'received'"
+    )->execute([$conv_id, $propertyId]);
 
     // Fetch all messages
-    $stmt = $db->prepare("SELECT * FROM wa_messages WHERE conversation_id = ? ORDER BY created_at ASC");
-    $stmt->execute([$conv_id]);
+    $stmt = $db->prepare("SELECT * FROM wa_messages WHERE conversation_id = ? AND property_id = ? ORDER BY created_at ASC");
+    $stmt->execute([$conv_id, $propertyId]);
     $messages = $stmt->fetchAll();
 
     // Fetch conversation + guest header info
@@ -96,9 +93,9 @@ if ($action === 'messages') {
                g.name AS guest_name, g.city AS guest_city, g.phone AS guest_phone
         FROM   wa_conversations c
         LEFT   JOIN guests g ON c.guest_id = g.id
-        WHERE  c.id = ?
+        WHERE  c.id = ? AND c.property_id = ?
     ");
-    $cStmt->execute([$conv_id]);
+    $cStmt->execute([$conv_id, $propertyId]);
     $conv = $cStmt->fetch();
 
     // Fetch the most relevant booking for this guest
@@ -113,13 +110,13 @@ if ($action === 'messages') {
                        r.room_number
                 FROM   bookings b
                 LEFT   JOIN rooms r ON b.room_id = r.id
-                WHERE  b.guest_id = ?
+                WHERE  b.guest_id = ? AND b.property_id = ?
                   AND  b.booking_status != 'cancelled'
                 ORDER  BY FIELD(b.booking_status,'checked_in','booked','confirmed','checked_out') ASC,
                            b.id DESC
                 LIMIT 1
             ");
-            $bStmt->execute([$conv['guest_id']]);
+            $bStmt->execute([$conv['guest_id'], $propertyId]);
             $bookingInfo = $bStmt->fetch();
         }
 
@@ -131,27 +128,27 @@ if ($action === 'messages') {
                 FROM   bookings b
                 LEFT   JOIN rooms  r ON b.room_id  = r.id
                 LEFT   JOIN guests g ON b.guest_id = g.id
-                WHERE  (g.phone = ? OR g.phone LIKE ?)
+                WHERE  (g.phone = ? OR g.phone LIKE ?) AND b.property_id = ?
                   AND  b.booking_status != 'cancelled'
                 ORDER  BY FIELD(b.booking_status,'checked_in','booked','confirmed','checked_out') ASC,
                            b.id DESC
                 LIMIT 1
             ");
-            $bStmt->execute([$conv['phone_number'], '%' . $localPhone]);
+            $bStmt->execute([$conv['phone_number'], '%' . $localPhone, $propertyId]);
             $bookingInfo = $bStmt->fetch();
         }
 
         if ($bookingInfo) {
             // Paid amount (negative entries = payments)
             $payStmt = $db->prepare(
-                "SELECT IFNULL(SUM(amount), 0) FROM folio_ledger WHERE booking_id = ? AND amount < 0"
+                "SELECT IFNULL(SUM(amount), 0) FROM folio_ledger WHERE booking_id = ? AND property_id = ? AND amount < 0"
             );
-            $payStmt->execute([$bookingInfo['id']]);
+            $payStmt->execute([$bookingInfo['id'], $propertyId]);
             $bookingInfo['paid_amount'] = abs((float)$payStmt->fetchColumn());
 
             // Net balance (positive = guest owes money)
-            $balStmt = $db->prepare("SELECT IFNULL(SUM(amount), 0) FROM folio_ledger WHERE booking_id = ?");
-            $balStmt->execute([$bookingInfo['id']]);
+            $balStmt = $db->prepare("SELECT IFNULL(SUM(amount), 0) FROM folio_ledger WHERE booking_id = ? AND property_id = ?");
+            $balStmt->execute([$bookingInfo['id'], $propertyId]);
             $bookingInfo['balance_due'] = (float)$balStmt->fetchColumn();
         }
 
@@ -165,14 +162,9 @@ if ($action === 'messages') {
 // ── Stats: unread count across all conversations ──────────────────────────────
 if ($action === 'unread_count') {
     $propertyId = AuthHelper::getPropertyId();
-    $sql = "SELECT COUNT(*) FROM wa_messages m JOIN wa_conversations c ON m.conversation_id = c.id WHERE m.direction = 'inbound' AND m.status = 'received'";
-    $params = [];
-    if (!AuthHelper::isSuperAdmin()) {
-        $sql .= " AND (c.guest_id IS NULL OR EXISTS (SELECT 1 FROM bookings b WHERE b.guest_id = c.guest_id AND b.property_id = ?))";
-        $params[] = $propertyId;
-    }
+    $sql = "SELECT COUNT(*) FROM wa_messages m JOIN wa_conversations c ON m.conversation_id = c.id WHERE m.direction = 'inbound' AND m.status = 'received' AND c.property_id = ?";
     $stmt = $db->prepare($sql);
-    $stmt->execute($params);
+    $stmt->execute([$propertyId]);
     echo json_encode(['success' => true, 'unread' => (int)$stmt->fetchColumn()]);
     exit;
 }

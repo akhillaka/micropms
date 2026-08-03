@@ -22,8 +22,10 @@ ApiHandler::run(function(\PDO $db) {
 
     $payment_method = isset($data['payment_method']) ? $data['payment_method'] : 'cash';
 
-    $stmt = $db->prepare("INSERT INTO finance_transactions (type, category, amount, description, payment_method, staff_id) VALUES (:type, :cat, :amt, :desc, :pm, :staff_id)");
+    $propertyId = AuthHelper::getPropertyId();
+    $stmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, amount, description, payment_method, staff_id) VALUES (:pid, :type, :cat, :amt, :desc, :pm, :staff_id)");
     $stmt->execute([
+        'pid' => $propertyId,
         'type' => $data['type'],
         'cat' => $data['category'],
         'amt' => $amount,

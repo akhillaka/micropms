@@ -34,9 +34,10 @@ ApiHandler::run(function(\PDO $db) {
     // Action: Get audit history
     elseif ($action === 'history') {
         AuthHelper::requireLogin();
+        $propertyId = AuthHelper::getPropertyId();
         
         $limit = isset($data['limit']) ? (int)$data['limit'] : 30;
-        $history = NightAudit::getHistory($db, $limit);
+        $history = NightAudit::getHistory($db, $propertyId, $limit);
         ApiResponse::success(['history' => $history]);
     }
 
@@ -47,9 +48,10 @@ ApiHandler::run(function(\PDO $db) {
         
         // Find overdue checkouts
         $stmt = $db->prepare("
-            SELECT b.id, b.room_id, r.room_number, b.guest_name, b.check_in, b.check_out, b.booking_status
+            SELECT b.id, b.room_id, r.room_number, g.name as guest_name, b.check_in, b.check_out, b.booking_status
             FROM bookings b
             JOIN rooms r ON b.room_id = r.id
+            LEFT JOIN guests g ON b.guest_id = g.id
             WHERE b.property_id = ? AND b.booking_status = 'checked_in' AND b.check_out < NOW()
         ");
         $stmt->execute([$propertyId]);
@@ -76,9 +78,9 @@ ApiHandler::run(function(\PDO $db) {
             
             if ($roomId) {
                 // Check out
-                $db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = ?")->execute([$bid]);
+                $db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = ? AND property_id = ?")->execute([$bid, $propertyId]);
                 // Mark room dirty
-                $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?")->execute([$roomId]);
+                $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ? AND property_id = ?")->execute([$roomId, $propertyId]);
                 $count++;
             }
         }
@@ -89,14 +91,16 @@ ApiHandler::run(function(\PDO $db) {
     // Action: Get last audit
     elseif ($action === 'last') {
         AuthHelper::requireLogin();
+        $propertyId = AuthHelper::getPropertyId();
         
-        $last = NightAudit::getLastAudit($db);
+        $last = NightAudit::getLastAudit($db, $propertyId);
         ApiResponse::success(['last_audit' => $last]);
     }
 
     // Action: Get audit settings
     elseif ($action === 'settings') {
         AuthHelper::requireLogin();
+        $propertyId = AuthHelper::getPropertyId();
         
         $settings = [];
         $keys = [
@@ -107,8 +111,8 @@ ApiHandler::run(function(\PDO $db) {
             'night_audit_report_room_status', 'night_audit_report_bookings'
         ];
         
-        $stmt = $db->prepare("SELECT key_name, key_value FROM system_settings WHERE key_name IN (" . implode(',', array_fill(0, count($keys), '?')) . ")");
-        $stmt->execute($keys);
+        $stmt = $db->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ? AND key_name IN (" . implode(',', array_fill(0, count($keys), '?')) . ")");
+        $stmt->execute(array_merge([$propertyId], $keys));
         while ($row = $stmt->fetch()) {
             $settings[$row['key_name']] = $row['key_value'];
         }
@@ -119,6 +123,7 @@ ApiHandler::run(function(\PDO $db) {
     // Action: Save audit settings
     elseif ($action === 'save_settings') {
         AuthHelper::requirePermission('manage_settings');
+        $propertyId = AuthHelper::getPropertyId();
         
         $settings = $data['settings'] ?? [];
         if (empty($settings)) {
@@ -126,14 +131,14 @@ ApiHandler::run(function(\PDO $db) {
         }
         
         $stmt = $db->prepare("
-            INSERT INTO system_settings (key_name, key_value, updated_at)
-            VALUES (?, ?, NOW())
+            INSERT INTO system_settings (property_id, key_name, key_value, updated_at)
+            VALUES (?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE key_value = VALUES(key_value), updated_at = NOW()
         ");
         
         foreach ($settings as $key => $value) {
             if (str_starts_with($key, 'night_audit_')) {
-                $stmt->execute([$key, $value]);
+                $stmt->execute([$propertyId, $key, $value]);
             }
         }
         

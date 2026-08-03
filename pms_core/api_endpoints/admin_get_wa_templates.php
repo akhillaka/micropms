@@ -8,7 +8,9 @@ require_once __DIR__ . '/../../pms_core/Database.php';
 header('Content-Type: application/json');
 
 $db = Database::getInstance()->getConnection();
-$stmt = $db->query("SELECT id, name, language, status, components_json FROM wa_templates WHERE status = 'APPROVED' ORDER BY name ASC");
+$propId = AuthHelper::getPropertyId();
+$stmt = $db->prepare("SELECT id, name, language, status, components_json FROM wa_templates WHERE property_id = ? AND status = 'APPROVED' ORDER BY name ASC");
+$stmt->execute([$propId]);
 $templates = $stmt->fetchAll();
 
 // decode JSON for frontend

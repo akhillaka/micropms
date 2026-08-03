@@ -24,12 +24,13 @@ try {
         $assignedHotels = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } else {
         $stmt = $db->prepare("
-            SELECT sp.property_id, p.name, p.property_code, p.plan, p.address, p.city, p.state, p.is_active 
-            FROM staff_properties sp
-            JOIN properties p ON sp.property_id = p.id
-            WHERE sp.staff_id = ?
+            SELECT DISTINCT p.id as property_id, p.name, p.property_code, p.plan, p.address, p.city, p.state, p.is_active 
+            FROM properties p
+            LEFT JOIN staff_properties sp ON p.id = sp.property_id AND sp.staff_id = ?
+            JOIN staff_users su ON su.id = ?
+            WHERE p.id = su.property_id OR sp.staff_id IS NOT NULL
         ");
-        $stmt->execute([$userId]);
+        $stmt->execute([$userId, $userId]);
         $assignedHotels = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 } catch (Exception $e) {
@@ -132,7 +133,7 @@ if (count($assignedHotels) === 0) {
 
                 <!-- Add Property Button -->
                 <?php if (AuthHelper::isSuperAdmin()): ?>
-                    <a href="/admin/saas_properties.php" class="flex items-center gap-1.5 px-4 py-2 bg-black hover:bg-slate-900 text-white font-bold rounded-lg text-sm transition">
+                    <a href="/saas-admin/index.php" class="flex items-center gap-1.5 px-4 py-2 bg-black hover:bg-slate-900 text-white font-bold rounded-lg text-sm transition">
                         <i class="ph ph-plus font-bold"></i> Add Property
                     </a>
                 <?php endif; ?>

@@ -65,22 +65,36 @@ class SequenceGenerator {
         }
         
         try {
-            // Lock counter row for update
-            $stmt = $db->prepare("SELECT current_value FROM sequence_counters WHERE module = :m AND period = :p FOR UPDATE");
-            $stmt->execute(['m' => $module, 'p' => $period]);
+            // Retrieve property_id directly from target row to guarantee tenant isolation
+            $propId = 1;
+            try {
+                $checkProp = $db->prepare("SELECT property_id FROM `{$table}` WHERE id = ?");
+                $checkProp->execute([$id]);
+                $fetchedPropId = $checkProp->fetchColumn();
+                if ($fetchedPropId !== false) {
+                    $propId = (int)$fetchedPropId;
+                } else {
+                    $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
+                }
+            } catch (\Exception $ex) {
+                $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
+            }
+
+            $stmt = $db->prepare("SELECT current_value FROM sequence_counters WHERE property_id = :pid AND module = :m AND period = :p FOR UPDATE");
+            $stmt->execute(['pid' => $propId, 'm' => $module, 'p' => $period]);
             $val = $stmt->fetchColumn();
             
             if ($val === false) {
                 $current = 1;
-                $ins = $db->prepare("INSERT INTO sequence_counters (module, period, current_value) VALUES (:m, :p, 1)");
-                $ins->execute(['m' => $module, 'p' => $period]);
+                $ins = $db->prepare("INSERT INTO sequence_counters (property_id, module, period, current_value) VALUES (:pid, :m, :p, 1)");
+                $ins->execute(['pid' => $propId, 'm' => $module, 'p' => $period]);
             } else {
                 $current = (int)$val + 1;
                 if ($maxLimit > 0 && $current > $maxLimit) {
                     $current = 1;
                 }
-                $upd = $db->prepare("UPDATE sequence_counters SET current_value = :val WHERE module = :m AND period = :p");
-                $upd->execute(['val' => $current, 'm' => $module, 'p' => $period]);
+                $upd = $db->prepare("UPDATE sequence_counters SET current_value = :val WHERE property_id = :pid AND module = :m AND period = :p");
+                $upd->execute(['val' => $current, 'pid' => $propId, 'm' => $module, 'p' => $period]);
             }
             
             // Only commit if WE started the transaction
@@ -105,6 +119,7 @@ class SequenceGenerator {
             'folio_ledger'         => ['display_id'],
             'finance_transactions' => ['display_id'],
             'guests'               => ['display_id'],
+            'pos_orders'           => ['display_id'],
         ];
         if (!isset($allowedTargets[$table]) || !in_array($targetColumn, $allowedTargets[$table], true)) {
             error_log("SequenceGenerator::assignDisplayId blocked unsafe table/column: {$table}.{$targetColumn}");

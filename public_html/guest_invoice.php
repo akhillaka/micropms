@@ -23,11 +23,14 @@ $stmt = $db->prepare("
            g.city, 
            g.state, 
            g.country, 
-           g.pincode 
+           g.pincode,
+           comp.name as company_name,
+           comp.contact_details as company_contact
     FROM bookings b 
     JOIN rooms r ON b.room_id = r.id 
     JOIN room_categories c ON r.category_id = c.id 
     LEFT JOIN guests g ON b.guest_id = g.id 
+    LEFT JOIN companies comp ON b.company_id = comp.id
     WHERE b.id = :id
 ");
 $stmt->execute(['id' => $id]);
@@ -36,6 +39,9 @@ $booking = $stmt->fetch();
 if (!$booking) {
     render_error_page('Invoice Not Found', 'The requested invoice does not exist.', 404);
 }
+
+// Reload DB settings for this specific property
+load_db_settings($db, (int)$booking['property_id']);
 
 // Validate token (HMAC-SHA256 with 24hr expiry)
 $isValid = InvoiceLink::validate($token, (int)$booking['id']);
@@ -193,7 +199,18 @@ $invoiceNo = "REC-" . date('Y', strtotime($booking['created_at'])) . "-" . str_p
             <!-- Billed To -->
             <div>
                 <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Billed To</p>
-                <p class="text-lg font-medium text-slate-900 mb-1"><?= htmlspecialchars($booking['guest_name']) ?></p>
+                <?php if (!empty($booking['company_name'])): ?>
+                    <div class="mb-3 px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg inline-block text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                        🏢 Corporate Billing (City Ledger)
+                    </div>
+                    <p class="text-lg font-bold text-slate-900 mb-1"><?= htmlspecialchars($booking['company_name']) ?></p>
+                    <?php if (!empty($booking['company_contact'])): ?>
+                        <p class="text-sm text-slate-500 mb-2"><?= htmlspecialchars($booking['company_contact']) ?></p>
+                    <?php endif; ?>
+                    <div class="h-px bg-slate-200 my-2"></div>
+                    <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Guest Representative</p>
+                <?php endif; ?>
+                <p class="text-base font-medium text-slate-900 mb-1"><?= htmlspecialchars($booking['guest_name']) ?></p>
                 <p class="text-sm text-slate-600 mb-1"><?= htmlspecialchars($booking['guest_phone']) ?></p>
                 <?php if($booking['city'] || $booking['state']): ?>
                     <p class="text-sm text-slate-600">

@@ -4,6 +4,12 @@ require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
 CsrfToken::checkTimeout();
 
+if (isset($_GET['hotelId'])) {
+    AuthHelper::setPropertyId((int)$_GET['hotelId']);
+    header('Location: index.php');
+    exit;
+}
+
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
 $db = Database::getInstance()->getConnection();
@@ -80,7 +86,9 @@ $revStmt->execute(['today' => $todayStr, 'pid' => $propertyId]);
 $revenueToday = (float)$revStmt->fetchColumn();
 
 // Fetch Room Categories and availability in optimized bulk queries (No N+1)
-$categories = $db->query("SELECT * FROM room_categories ORDER BY name ASC")->fetchAll();
+$catStmt = $db->prepare("SELECT * FROM room_categories WHERE property_id = :pid ORDER BY name ASC");
+$catStmt->execute(['pid' => $propertyId]);
+$categories = $catStmt->fetchAll();
 
 $roomCounts = [];
 $rcStmt = $db->prepare("SELECT category_id, COUNT(*) as total FROM rooms WHERE property_id = :pid GROUP BY category_id");
@@ -208,10 +216,10 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
     </style>
 </head>
 <body class="flex flex-col min-h-screen bg-slate-50/50">
-    <?php if ($activePropertyId > 1): ?>
+    <?php if ($activePropertyId > 1 && AuthHelper::isSuperAdmin()): ?>
         <div class="bg-indigo-600 text-white px-4 py-2.5 text-center text-xs font-bold flex items-center justify-center gap-2">
             <span>👁️ SaaS VIEW: Currently viewing dashboard for <strong><?= htmlspecialchars($hotelName) ?></strong> (Property ID: <?= $activePropertyId ?>)</span>
-            <form method="POST" action="saas_properties.php" class="inline">
+            <form method="POST" action="/saas-admin/index.php" class="inline">
                 <input type="hidden" name="action" value="switch_context">
                 <input type="hidden" name="property_id" value="1">
                 <button type="submit" class="underline text-yellow-300 ml-2">Switch back to Primary Hotel</button>
@@ -418,7 +426,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                                     <i class="ph ph-sparkle text-xs"></i> Clean All
                                 </button>
                                 <?php endif; ?>
-                                <a href="rooms_calendar.php" class="text-[10px] font-bold text-slate-500 hover:text-slate-600">Grid →</a>
+                                <a href="modules/housekeeping/rooms_calendar.php" class="text-[10px] font-bold text-slate-500 hover:text-slate-600">Grid →</a>
                             </div>
                         </div>
                         <div class="p-4 max-h-[360px] overflow-y-auto space-y-2">
@@ -618,7 +626,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
         async function quickCleanRoom(roomId, silent = false) {
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
             try {
-                const res = await fetch('../api/admin_room_action.php', {
+                const res = await fetch('/api/admin/room_action', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ room_id: roomId, action: 'mark_clean' })
@@ -645,7 +653,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
         async function quickDeepCleanRoom(roomId) {
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
             try {
-                const res = await fetch('../api/admin_room_action.php', {
+                const res = await fetch('/api/admin/room_action', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ room_id: roomId, action: 'mark_deep_clean' })
@@ -685,7 +693,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
             showLoading('Processing check-in...');
             try {
-                const res = await fetch('../api/admin_booking_status.php', {
+                const res = await fetch('/api/admin/booking_status', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ booking_id: bookingId, action: 'check_in', reason: 'Quick check-in from Property Dashboard' })
@@ -713,7 +721,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
             showLoading('Processing checkout...');
             try {
-                const res = await fetch('../api/admin_booking_status.php', {
+                const res = await fetch('/api/admin/booking_status', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ booking_id: bookingId, action: 'check_out', reason: 'Quick checkout from Property Dashboard' })
@@ -738,7 +746,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
 
         async function loadActions() {
             try {
-                const res = await fetch('../api/admin_actions.php');
+                const res = await fetch('/api/admin/actions');
                 const data = await res.json();
                 const container = document.getElementById('actions-container');
                 const badge = document.getElementById('actions-count-badge');

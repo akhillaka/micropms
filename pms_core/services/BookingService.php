@@ -46,8 +46,9 @@ class BookingService {
         $idempotencyKey = $params['idempotency_key'] ?? null;
         if ($idempotencyKey !== null && $idempotencyKey !== '') {
             try {
-                $stmt = $db->prepare("SELECT response_body FROM idempotency_keys WHERE idempotency_key = ?");
-                $stmt->execute([$idempotencyKey]);
+                $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
+                $stmt = $db->prepare("SELECT response_body FROM idempotency_keys WHERE property_id = ? AND idempotency_key = ?");
+                $stmt->execute([$propId, $idempotencyKey]);
                 $cached = $stmt->fetchColumn();
                 if ($cached !== false) {
                     return json_decode($cached, true);
@@ -65,8 +66,9 @@ class BookingService {
 
         try {
             // Lock room and get category
-            $stmt = $db->prepare("SELECT r.category_id, r.property_id, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.id = :room_id FOR UPDATE");
-            $stmt->execute(['room_id' => $roomId]);
+            $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
+            $stmt = $db->prepare("SELECT r.category_id, r.property_id, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.id = :room_id AND r.property_id = :prop_id FOR UPDATE");
+            $stmt->execute(['room_id' => $roomId, 'prop_id' => $propId]);
             $room = $stmt->fetch();
             if (!$room) {
                 throw new \Exception('Invalid room selected');
@@ -100,7 +102,7 @@ class BookingService {
             $offlineFolioId = $params['offline_folio_id'] ?? null;
             if ($offlineFolioId === '') $offlineFolioId = null;
 
-            $propertyId = (int)($room['property_id'] ?? 1);
+            $propertyId = (int)($room['property_id'] ?? $propId);
 
             // Insert booking
             $insertStmt = $db->prepare("
@@ -132,8 +134,8 @@ class BookingService {
             }
 
             // Fetch display ID
-            $dispStmt = $db->prepare("SELECT display_id FROM bookings WHERE id = ?");
-            $dispStmt->execute([$bookingId]);
+            $dispStmt = $db->prepare("SELECT display_id FROM bookings WHERE id = ? AND property_id = ?");
+            $dispStmt->execute([$bookingId, $propertyId]);
             $bookingDisplayId = $dispStmt->fetchColumn() ?: 'BKG-' . $bookingId;
 
             // Post room charges to folio
@@ -169,8 +171,8 @@ class BookingService {
 
             // Trigger WhatsApp automation
             try {
-                $phoneStmt = $db->prepare("SELECT phone FROM guests WHERE id = ?");
-                $phoneStmt->execute([$guestId]);
+                $phoneStmt = $db->prepare("SELECT phone FROM guests WHERE id = ? AND property_id = ?");
+                $phoneStmt->execute([$guestId, $propertyId]);
                 $guestPhone = $phoneStmt->fetchColumn();
                 if ($guestPhone) {
                     NotificationRelay::triggerAutomation('booking_confirmed', PhoneHelper::toE164($guestPhone), $bookingId);
@@ -196,8 +198,8 @@ class BookingService {
 
             if ($idempotencyKey !== null && $idempotencyKey !== '') {
                 try {
-                    $insertIdemp = $db->prepare("INSERT IGNORE INTO idempotency_keys (idempotency_key, response_body) VALUES (?, ?)");
-                    $insertIdemp->execute([$idempotencyKey, json_encode($result)]);
+                    $insertIdemp = $db->prepare("INSERT IGNORE INTO idempotency_keys (property_id, idempotency_key, response_body) VALUES (?, ?, ?)");
+                    $insertIdemp->execute([$propertyId, $idempotencyKey, json_encode($result)]);
                 } catch (\PDOException $e) {
                     // If table doesn't exist yet, proceed
                 }
@@ -291,14 +293,15 @@ class BookingService {
         }
 
         try {
+            $propertyId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
             $stmt = $db->prepare("
                 SELECT b.*, r.category_id, c.name as category_name
                 FROM bookings b
                 JOIN rooms r ON b.room_id = r.id
                 JOIN room_categories c ON r.category_id = c.id
-                WHERE b.id = :id
+                WHERE b.id = :id AND b.property_id = :prop_id
             ");
-            $stmt->execute(['id' => $bookingId]);
+            $stmt->execute(['id' => $bookingId, 'prop_id' => $propertyId]);
             $booking = $stmt->fetch();
             if (!$booking) {
                 throw new \Exception('Booking not found');
@@ -316,7 +319,7 @@ class BookingService {
             }
 
             // Check availability for extended period
-            if (!self::isRoomAvailable($db, (int)$booking['room_id'], $oldCheckOut, $newCheckOut, $bookingId)) {
+            if (!self::isRoomAvailable($db, (int)$booking['room_id'], $oldCheckOut, $newCheckOut, $bookingId, $propertyId)) {
                 throw new \Exception('Room not available for extended timeframe');
             }
 
@@ -349,27 +352,27 @@ class BookingService {
 
             // Replace room charges if not override
             if (!$isOverride) {
-                $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type = 'ROOM_CHARGE'")->execute(['id' => $bookingId]);
+                $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type = 'ROOM_CHARGE' AND property_id = :prop_id")->execute(['id' => $bookingId, 'prop_id' => $propertyId]);
             }
 
             // Post new charges
-            $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description) VALUES (:id, 'ROOM_CHARGE', :amount, 'MANUAL', :desc)");
+            $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, 'MANUAL', :desc, :prop_id)");
             if (!empty($breakdown)) {
                 foreach ($breakdown as $item) {
                     $desc = $isOverride 
                         ? "Stay Extension (Day {$item['day']}) - {$booking['category_name']} ({$item['duration']})"
                         : "Day {$item['day']} - Room Charges - {$booking['category_name']} ({$item['duration']})";
-                    $ledgerStmt->execute(['id' => $bookingId, 'amount' => $item['cost'], 'desc' => $desc]);
+                    $ledgerStmt->execute(['id' => $bookingId, 'amount' => $item['cost'], 'desc' => $desc, 'prop_id' => $propertyId]);
                     SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
                 }
             } else {
-                $ledgerStmt->execute(['id' => $bookingId, 'amount' => $difference, 'desc' => "Extension - {$booking['category_name']}"]);
+                $ledgerStmt->execute(['id' => $bookingId, 'amount' => $difference, 'desc' => "Extension - {$booking['category_name']}", 'prop_id' => $propertyId]);
                 SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
             }
 
             // Update booking
-            $db->prepare("UPDATE bookings SET check_out = :co, total_amount = :total WHERE id = :id")
-               ->execute(['co' => $newCheckOut, 'total' => $newTotal, 'id' => $bookingId]);
+            $db->prepare("UPDATE bookings SET check_out = :co, total_amount = :total WHERE id = :id AND property_id = :prop_id")
+               ->execute(['co' => $newCheckOut, 'total' => $newTotal, 'id' => $bookingId, 'prop_id' => $propertyId]);
 
             // Audit
             $staffId = $_SESSION['user_id'] ?? null;

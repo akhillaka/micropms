@@ -193,7 +193,7 @@ class BookingAssistant {
   async loadHousekeepingData() {
     this.showLoading('Loading rooms...');
     try {
-      const res = await this.apiCall('/api/admin/housekeeping', { action: 'list' });
+      const res = await this.apiCall('api/housekeeping.php', { action: 'list' });
       this.hideLoading();
       if (res && res.success) {
         this.housekeepingData = res;
@@ -343,7 +343,7 @@ class BookingAssistant {
 
     this.showLoading('Saving room status...');
     try {
-      const res = await this.apiCall('/api/admin/housekeeping', {
+      const res = await this.apiCall('api/housekeeping.php', {
         action: 'mark_clean',
         room_id: roomId,
         completed_items: completedItems
@@ -1514,6 +1514,36 @@ class BookingAssistant {
     this.submitCheckIn();
   }
 
+  showCustomCheckIn() {
+    document.getElementById('custom-checkin-div').style.display = 'block';
+    const now = new Date();
+    this.wizardData.check_in = this.formatDateForMySQL(now);
+    const dtLocalIn = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const inEl = document.getElementById('stay-custom-checkin');
+    if (inEl) inEl.value = dtLocalIn;
+
+    // Default checkout: 1 day later
+    const checkOut = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    this.wizardData.check_out = this.formatDateForMySQL(checkOut);
+    const dtLocalOut = new Date(checkOut.getTime() - checkOut.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const outEl = document.getElementById('stay-custom-checkout');
+    if (outEl) outEl.value = dtLocalOut;
+  }
+
+  showCustomCheckOut() {
+    document.getElementById('custom-checkout-div').style.display = 'block';
+    
+    // Auto-fill checkout to 24 hours from check-in if not set
+    if (!this.wizardData.check_out || this.wizardData.check_out <= this.wizardData.check_in) {
+      const checkInDate = this.wizardData.check_in ? new Date(this.wizardData.check_in.replace(' ', 'T')) : new Date();
+      const checkOut = new Date(checkInDate.getTime() + 24 * 60 * 60 * 1000);
+      this.wizardData.check_out = this.formatDateForMySQL(checkOut);
+      const dtLocalOut = new Date(checkOut.getTime() - checkOut.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      const outEl = document.getElementById('stay-custom-checkout');
+      if (outEl) outEl.value = dtLocalOut;
+    }
+  }
+
   setCustomCheckIn() {
     const val = document.getElementById('stay-custom-checkin').value;
     if (val) {
@@ -1569,6 +1599,8 @@ class BookingAssistant {
   }
 
   async recalculatePricing() {
+    if (!this.wizardData.category_id) return;
+    
     if (this.wizardData.price_override === null) {
       try {
         const res = await this.apiCall('api/bookings.php?action=calculate', {
@@ -2227,7 +2259,7 @@ class BookingAssistant {
   }
 
   // --- PAYMENT MODE PICKER ---
-  openPaymentModePickerThenNumpad() {
+  openPaymentModePickerThenNumpad(balance = 0) {
     const icons = { 'Cash': 'lucide-banknote', 'UPI': 'lucide-smartphone', 'Card': 'lucide-credit-card', 'BankTransfer': 'lucide-building-2', 'Online': 'lucide-globe' };
     const modes = (this.paymentMethods || ['Cash', 'UPI']).map(m => {
       const key = m.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -2237,20 +2269,63 @@ class BookingAssistant {
     const existingPicker = document.getElementById('quick-payment-mode-picker');
     if (existingPicker) existingPicker.remove();
 
+    const now = new Date();
+    const localDateTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
     const overlay = document.createElement('div');
     overlay.id = 'quick-payment-mode-picker';
     overlay.className = 'modal-overlay active';
     overlay.style.zIndex = '500';
     overlay.innerHTML = `
-      <div class="modal-content-box" style="margin-top: auto; border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; max-width: 400px; margin-left: auto; margin-right: auto;" onclick="event.stopPropagation()">
+      <div class="modal-content-box" style="margin-top: auto; border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; max-width: 400px; margin-left: auto; margin-right: auto; padding: 20px; box-sizing: border-box; overflow-y: auto; max-height: 90vh;" onclick="event.stopPropagation()">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <strong style="font-size: 1.1rem; font-weight: 800;">Select Payment Mode</strong>
+          <strong style="font-size: 1.1rem; font-weight: 800;">Collect Payment</strong>
           <button onclick="document.getElementById('quick-payment-mode-picker').remove()" style="background:none;border:none;font-size:1.5rem;color:var(--color-text-muted);cursor:pointer;">&times;</button>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">
+        
+        <div style="margin-bottom: 12px;">
+          <label style="display:block;font-size:0.75rem;font-weight:800;color:var(--color-text-secondary);margin-bottom:4px;text-transform:uppercase;">Amount (₹)</label>
+          <input type="number" id="quick-payment-amount" class="form-control" value="${balance}" style="padding:10px;font-size:1.1rem;font-weight:bold;border-radius:8px;border:1px solid var(--color-border);width:100%;box-sizing:border-box;">
+        </div>
+
+        <div style="margin-bottom: 12px;">
+          <label style="display:block;font-size:0.75rem;font-weight:800;color:var(--color-text-secondary);margin-bottom:4px;text-transform:uppercase;">Payment Date</label>
+          <input type="datetime-local" id="quick-payment-date" class="form-control" value="${localDateTime}" style="padding:10px;font-size:0.9rem;border-radius:8px;border:1px solid var(--color-border);width:100%;box-sizing:border-box;">
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <input type="checkbox" id="quick-payment-split-toggle" onchange="app.toggleAssistantSplit(this.checked)" style="width:16px;height:16px;">
+          <label for="quick-payment-split-toggle" style="font-size:0.85rem;font-weight:800;color:var(--color-text-primary);cursor:pointer;">Split Payment Category-wise</label>
+        </div>
+
+        <div id="quick-payment-splits" style="display:none;margin-bottom:12px;border-top:1px solid var(--color-border);padding-top:12px;">
+          <div style="font-size:0.7rem;font-weight:800;color:var(--color-text-muted);margin-bottom:8px;text-transform:uppercase;">Allocate Splits</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:0.8rem;font-weight:700;width:80px;color:var(--color-text-secondary)">Room Rent:</span>
+              <input type="number" class="assistant-split-amount" data-cat="booking" value="0" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--color-border);font-size:0.9rem;font-weight:bold;" oninput="app.validateAssistantSplitSum()">
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:0.8rem;font-weight:700;width:80px;color:var(--color-text-secondary)">F & B:</span>
+              <input type="number" class="assistant-split-amount" data-cat="F&B" value="0" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--color-border);font-size:0.9rem;font-weight:bold;" oninput="app.validateAssistantSplitSum()">
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:0.8rem;font-weight:700;width:80px;color:var(--color-text-secondary)">Laundry:</span>
+              <input type="number" class="assistant-split-amount" data-cat="Laundry" value="0" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--color-border);font-size:0.9rem;font-weight:bold;" oninput="app.validateAssistantSplitSum()">
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:0.8rem;font-weight:700;width:80px;color:var(--color-text-secondary)">Misc:</span>
+              <input type="number" class="assistant-split-amount" data-cat="Misc" value="0" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--color-border);font-size:0.9rem;font-weight:bold;" oninput="app.validateAssistantSplitSum()">
+            </div>
+          </div>
+          <div id="assistant-split-error" style="color:red;font-size:0.75rem;font-weight:800;margin-top:6px;display:none;">Splits total does not match amount!</div>
+        </div>
+
+        <div style="font-size:0.75rem;font-weight:800;color:var(--color-text-secondary);margin-bottom:8px;text-transform:uppercase;">Select Payment Mode</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
           ${modes.map(m => `
-            <button onclick="app.pickModeAndCollect('${m.key}')" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 10px;border:2px solid var(--color-border);border-radius:12px;background:white;font-weight:800;font-size:0.95rem;color:var(--color-text-primary);cursor:pointer;">
-              <i class="${m.icon}" style="font-size:1.8rem; color:var(--color-brand);"></i>
+            <button onclick="app.processAssistantPayment('${m.key}')" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border:2px solid var(--color-border);border-radius:10px;background:white;font-weight:800;font-size:0.85rem;color:var(--color-text-primary);cursor:pointer;">
+              <i class="${m.icon}" style="font-size:1.4rem; color:var(--color-brand);"></i>
               ${m.label}
             </button>
           `).join('')}
@@ -2261,22 +2336,86 @@ class BookingAssistant {
     document.body.appendChild(overlay);
   }
 
-  pickModeAndCollect(mode) {
-    const overlay = document.getElementById('quick-payment-mode-picker');
-    if (overlay) overlay.remove();
-    this.activePaymentMode = mode;
-    this.numpadValue = '';
-    this.openNumpadPopup('payment_settle', `Collect Payment (${mode.toUpperCase()}) \u20b9`, '', (val) => {
-      this.submitPaymentCollection(parseFloat(val) || 0, this.activePaymentMode);
+  toggleAssistantSplit(checked) {
+    const container = document.getElementById('quick-payment-splits');
+    if (checked) {
+      container.style.display = 'block';
+      const total = parseFloat(document.getElementById('quick-payment-amount').value) || 0;
+      document.querySelectorAll('.assistant-split-amount').forEach(el => el.value = 0);
+      document.querySelector('.assistant-split-amount[data-cat="booking"]').value = total;
+    } else {
+      container.style.display = 'none';
+    }
+  }
+
+  validateAssistantSplitSum() {
+    const total = parseFloat(document.getElementById('quick-payment-amount').value) || 0;
+    let sum = 0;
+    document.querySelectorAll('.assistant-split-amount').forEach(el => {
+      sum += parseFloat(el.value) || 0;
     });
+    const err = document.getElementById('assistant-split-error');
+    const isSplit = document.getElementById('quick-payment-split-toggle').checked;
+    if (isSplit && Math.abs(sum - total) > 0.01) {
+      err.style.display = 'block';
+      return false;
+    } else {
+      err.style.display = 'none';
+      return true;
+    }
+  }
+
+  processAssistantPayment(mode) {
+    const total = parseFloat(document.getElementById('quick-payment-amount').value) || 0;
+    if (total <= 0) return this.showToast('Amount must be greater than zero', 'danger');
+
+    const date = document.getElementById('quick-payment-date').value;
+    this.activePaymentDate = date;
+
+    const isSplit = document.getElementById('quick-payment-split-toggle').checked;
+    let splits = [];
+    if (isSplit) {
+      if (!this.validateAssistantSplitSum()) {
+        return this.showToast('Allocated split total must match payment amount.', 'danger');
+      }
+      document.querySelectorAll('.assistant-split-amount').forEach(el => {
+        const val = parseFloat(el.value) || 0;
+        if (val > 0) {
+          splits.push({
+            category: el.getAttribute('data-cat'),
+            amount: val
+          });
+        }
+      });
+    }
+
+    const picker = document.getElementById('quick-payment-mode-picker');
+    if (picker) picker.remove();
+
+    this.submitPaymentCollection(total, mode, splits);
   }
 
   // --- COLLECT PAYMENT SCREEN VIEW ---
-  async showPaymentCollectScreen(targetBookingId = null, isBackground = false) {
+  async showPaymentCollectScreen(targetBookingId = null, isBackground = false, targetBalance = 0) {
     if (targetBookingId) {
-      // Show mode picker first, then numpad
       this.activePaymentBookingId = targetBookingId;
-      this.openPaymentModePickerThenNumpad();
+      
+      let balance = parseFloat(targetBalance) || 0;
+      if (balance === 0) {
+        this.showLoading('Fetching pending balance...');
+        try {
+          const res = await this.apiCall(`api/bookings.php?action=get_balance&booking_id=${targetBookingId}`);
+          this.hideLoading();
+          if (res && res.success) {
+            balance = parseFloat(res.balance) || 0;
+          }
+        } catch (e) {
+          this.hideLoading();
+          console.error('Failed to fetch balance', e);
+        }
+      }
+
+      this.openPaymentModePickerThenNumpad(balance);
       return;
     }
 
@@ -2316,7 +2455,7 @@ class BookingAssistant {
               <div class="selection-card-subtitle">Room ${escapeHtml(b.room_number)} • Total Charges: ₹${b.total_amount}</div>
               <div style="font-size:0.9rem; font-weight:800; color:var(--color-cta); margin-top:2px;">Dues: ₹${b.balance}</div>
             </div>
-            <button class="btn-large btn-success" style="width:100px; min-height:45px; height:45px; font-size:0.8rem; padding:0 8px; margin-left:auto;" onclick="app.showPaymentCollectScreen(${b.id})">COLLECT</button>
+            <button class="btn-large btn-success" style="width:100px; min-height:45px; height:45px; font-size:0.8rem; padding:0 8px; margin-left:auto;" onclick="app.showPaymentCollectScreen(${b.id}, false, ${b.balance})">COLLECT</button>
           `;
           list.appendChild(card);
         });
@@ -2327,7 +2466,7 @@ class BookingAssistant {
     }
   }
 
-  async submitPaymentCollection(amount, method = 'cash') {
+  async submitPaymentCollection(amount, method = 'cash', splits = []) {
     if (amount <= 0) return;
     
     this.showLoading('Processing payment...');
@@ -2336,7 +2475,9 @@ class BookingAssistant {
         booking_id: this.activePaymentBookingId,
         amount: amount,
         method: method,   // matches PMS: cash | upi | card | online
-        ref: ''
+        ref: '',
+        date: this.activePaymentDate,
+        splits: splits
       });
       this.hideLoading();
 
@@ -3284,6 +3425,9 @@ class BookingAssistant {
       if (url.startsWith('../api/')) {
         const pmsApiBase = assistantIndex !== -1 ? loc.substring(0, assistantIndex) + '/api/' : '/api/';
         finalUrl = pmsApiBase + url.substring(7);
+      } else if (url.startsWith('/api/admin/')) {
+        const pmsApiBase = assistantIndex !== -1 ? loc.substring(0, assistantIndex) + '/api/' : '/api/';
+        finalUrl = pmsApiBase + url.substring(5);
       } else {
         let relUrl = cleanUrl;
         if (relUrl.startsWith('assistant/')) {

@@ -38,11 +38,14 @@ if (!$booking) {
     die("Booking not found.");
 }
 
+// Reload DB settings for this specific property
+load_db_settings($db, (int)$booking['property_id']);
+
 // Load configurations
-$upsellEnabled = ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_UPSELL_ENABLED'")->fetchColumn() === 'true');
-$housekeepingEnabled = ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_HOUSEKEEPING_ENABLED'")->fetchColumn() === 'true');
-$selfCheckoutEnabled = ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_SELF_CHECKOUT_ENABLED'")->fetchColumn() === 'true');
-$earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_EARLY_LATE_FEE'")->fetchColumn() ?: '0.00');
+$upsellEnabled = (defined('GUEST_PORTAL_UPSELL_ENABLED') && GUEST_PORTAL_UPSELL_ENABLED === 'true');
+$housekeepingEnabled = (defined('GUEST_PORTAL_HOUSEKEEPING_ENABLED') && GUEST_PORTAL_HOUSEKEEPING_ENABLED === 'true');
+$selfCheckoutEnabled = (defined('GUEST_PORTAL_SELF_CHECKOUT_ENABLED') && GUEST_PORTAL_SELF_CHECKOUT_ENABLED === 'true');
+$earlyLateFee = floatval(defined('GUEST_PORTAL_EARLY_LATE_FEE') ? GUEST_PORTAL_EARLY_LATE_FEE : '0.00');
 
 // Calculate Ledger financial summaries
 $ledgerStmt = $db->prepare("SELECT * FROM folio_ledger WHERE booking_id = ? ORDER BY recorded_at ASC");
@@ -80,6 +83,11 @@ if ($taxEnabled) {
     }
 }
 $balance = $totalCharges - $totalPayments + $refundsIssued;
+
+// Fetch active payment gateway configurations
+$gatewayStmt = $db->prepare("SELECT gateway, is_active FROM payment_gateway_configs WHERE property_id = ? AND is_active = 1");
+$gatewayStmt->execute([$booking['property_id']]);
+$activeGateways = $gatewayStmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
 $message = null;
 $error = null;
@@ -222,58 +230,79 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Guest Portal | <?= htmlspecialchars($booking['property_name']) ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;950&family=Fira+Code:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <style>
         body { 
-            font-family: 'Fira Sans', sans-serif; 
-            background-color: #F8FAFC; 
-            color: #1E293B;
+            font-family: 'Outfit', sans-serif; 
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            color: #0f172a;
         }
         .font-mono {
             font-family: 'Fira Code', monospace;
         }
-        .guest-hero {
-            background: #1E3A8A;
-            border-bottom: 1px solid #E2E8F0;
+        .glass-header {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         }
         .card-premium {
-            background-color: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 1rem;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 1.25rem;
+            box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.04), 0 2px 8px -1px rgba(15, 23, 42, 0.02);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .card-premium:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px -4px rgba(15, 23, 42, 0.06), 0 4px 12px -2px rgba(15, 23, 42, 0.03);
+            border-color: rgba(59, 82, 255, 0.15);
         }
         .signature-canvas {
-            border: 2px dashed #CBD5E1;
-            background: #F8FAFC;
+            border: 2px dashed #cbd5e1;
+            background: #ffffff;
             cursor: crosshair;
         }
-        
-        /* Tab Styles */
         .tab-btn {
-            padding: 0.75rem 1rem;
-            font-weight: 700;
+            padding: 0.65rem 1rem;
+            font-weight: 600;
             font-size: 0.875rem;
-            color: #64748B;
-            border-bottom: 2px solid transparent;
-            transition: all 0.2s;
+            color: #64748b;
+            border-radius: 0.75rem;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             cursor: pointer;
             white-space: nowrap;
         }
+        .tab-btn:hover {
+            color: #0f172a;
+        }
         .tab-btn.active {
-            color: #1E3A8A;
-            border-bottom-color: #1E3A8A;
+            color: #4f46e5;
+            background: #ffffff;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
         }
         .tab-content {
             display: none;
-            animation: fadeIn 0.3s;
+            animation: slideUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         .tab-content.active {
             display: block;
         }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(5px); }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: translateY(0); }
+        }
+        .gradient-brand {
+            background: linear-gradient(135deg, #4f46e5 0%, #312e81 100%);
+        }
+        .gradient-success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+        .gradient-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
         }
     </style>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
@@ -281,17 +310,29 @@ try {
 <body class="text-slate-800 pb-20">
 
     <!-- HERO HEADER -->
-    <header class="guest-hero text-white px-6 py-8 relative overflow-hidden shadow-sm">
-        <div class="max-w-xl mx-auto space-y-3">
+    <header class="glass-header text-white px-6 py-10 relative overflow-hidden shadow-xl">
+        <!-- Abstract gradient glows behind the glass header -->
+        <div class="absolute -top-24 -left-20 w-56 h-56 rounded-full bg-blue-600/30 blur-[100px] pointer-events-none"></div>
+        <div class="absolute -bottom-20 -right-20 w-48 h-48 rounded-full bg-indigo-500/20 blur-[80px] pointer-events-none"></div>
+        
+        <div class="max-w-xl mx-auto space-y-4 relative z-10">
             <div class="flex items-center justify-between">
-                <span class="text-[10px] font-black uppercase tracking-widest text-blue-200"><?= htmlspecialchars($booking['property_name']) ?></span>
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border border-blue-400/50 bg-blue-500/20 text-white shadow-sm">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 bg-blue-600/25 border border-blue-500/30 rounded-lg flex items-center justify-center">
+                        <i class="ph-bold ph-buildings text-blue-400"></i>
+                    </div>
+                    <span class="text-xs font-black uppercase tracking-wider text-slate-300"><?= htmlspecialchars($booking['property_name']) ?></span>
+                </div>
+                <span class="px-3 py-1 rounded-full text-xs font-extrabold border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 shadow-sm flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse"></span>
                     Room <?= htmlspecialchars($booking['room_number']) ?>
                 </span>
             </div>
             
-            <h1 class="text-3xl font-black tracking-tight leading-none">Hello, <?= htmlspecialchars($booking['guest_name']) ?></h1>
-            <p class="text-xs text-blue-200">Welcome to your digital guest dashboard.</p>
+            <div class="space-y-1">
+                <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white leading-none">Hello, <?= htmlspecialchars($booking['guest_name']) ?></h1>
+                <p class="text-xs font-medium text-slate-400 flex items-center gap-1"><i class="ph ph-sparkle text-indigo-400"></i> Welcome to your digital guest dashboard.</p>
+            </div>
         </div>
     </header>
 
@@ -338,6 +379,10 @@ try {
                         </div>
                     </div>
 
+                    <?php 
+                    $preArrivalDoc = ($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_DOC'")->fetchColumn() ?: 'true') === 'true';
+                    if ($preArrivalDoc): 
+                    ?>
                     <div class="space-y-4 pt-4 border-t border-slate-100">
                         <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400">2. Identity Proof</h3>
                         <p class="text-[10px] text-slate-500 font-medium">Please upload a clear photo of your government-issued ID.</p>
@@ -353,9 +398,24 @@ try {
                             </div>
                         </div>
                     </div>
+                    <?php endif; ?>
+
+                    <?php 
+                    $preArrivalSig = ($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_SIGNATURE'")->fetchColumn() ?: 'true') === 'true';
+                    if ($preArrivalSig): 
+                    ?>
+                    <div class="space-y-4 pt-4 border-t border-slate-100">
+                        <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400">Digital Signature</h3>
+                        <p class="text-[10px] text-slate-500 font-medium">Please sign below to authorize your check-in.</p>
+                        <div class="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                            <canvas id="signature-pad" class="w-full h-32 touch-none cursor-crosshair"></canvas>
+                        </div>
+                        <button type="button" onclick="clearSignature()" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-rose-500 transition">Clear Signature</button>
+                    </div>
+                    <?php endif; ?>
 
                     <div class="space-y-4 pt-4 border-t border-slate-100">
-                        <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400">3. Confirmation</h3>
+                        <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400">Confirmation</h3>
                         <label class="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-100 transition">
                             <input type="checkbox" id="checkin_agree" required class="mt-1 w-4 h-4 text-blue-600 rounded focus:ring-blue-500">
                             <span class="text-[11px] font-medium text-slate-600">I confirm that all details provided are true and correct. I agree to the hotel's policies and terms of stay.</span>
@@ -372,6 +432,38 @@ try {
         </main>
         
         <script>
+            let sigPad = document.getElementById('signature-pad');
+            let sigCtx = null;
+            let isDrawing = false;
+            
+            if (sigPad) {
+                sigCtx = sigPad.getContext('2d');
+                // Resize for display vs logical size
+                const rect = sigPad.parentElement.getBoundingClientRect();
+                sigPad.width = rect.width;
+                sigPad.height = rect.height;
+
+                sigPad.addEventListener('pointerdown', (e) => {
+                    isDrawing = true;
+                    sigCtx.beginPath();
+                    const r = sigPad.getBoundingClientRect();
+                    sigCtx.moveTo(e.clientX - r.left, e.clientY - r.top);
+                });
+                sigPad.addEventListener('pointermove', (e) => {
+                    if (isDrawing) {
+                        const r = sigPad.getBoundingClientRect();
+                        sigCtx.lineTo(e.clientX - r.left, e.clientY - r.top);
+                        sigCtx.stroke();
+                    }
+                });
+                sigPad.addEventListener('pointerup', () => isDrawing = false);
+                sigPad.addEventListener('pointerout', () => isDrawing = false);
+            }
+
+            function clearSignature() {
+                if (sigCtx) sigCtx.clearRect(0, 0, sigPad.width, sigPad.height);
+            }
+
             async function submitSelfCheckIn(e) {
                 e.preventDefault();
                 const btn = document.getElementById('btn_complete_checkin');
@@ -395,8 +487,16 @@ try {
                 formData.append('phone', document.getElementById('checkin_phone').value.trim());
                 formData.append('city', document.getElementById('checkin_city').value.trim());
                 formData.append('state', document.getElementById('checkin_state').value.trim());
-                formData.append('id_front', document.getElementById('id_front').files[0]);
-                formData.append('id_back', document.getElementById('id_back').files[0]);
+                
+                const idFront = document.getElementById('id_front');
+                if (idFront && idFront.files[0]) formData.append('id_front', idFront.files[0]);
+                
+                const idBack = document.getElementById('id_back');
+                if (idBack && idBack.files[0]) formData.append('id_back', idBack.files[0]);
+                
+                if (sigPad) {
+                    formData.append('signature_data', sigPad.toDataURL('image/png'));
+                }
 
                 try {
                     const res = await fetch('/api/guest/self_checkin', {
@@ -423,12 +523,20 @@ try {
 
     <?php else: ?>
 
-    <!-- STICKY TAB BAR -->
-    <div class="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm overflow-x-auto no-scrollbar">
-        <div class="max-w-xl mx-auto flex px-2" id="tabs-container">
-            <button class="tab-btn active" onclick="switchTab('overview')"><i class="ph ph-house mr-1"></i> Overview</button>
-            <button class="tab-btn" onclick="switchTab('billing')"><i class="ph ph-receipt mr-1"></i> Billing</button>
-            <button class="tab-btn" onclick="switchTab('services')"><i class="ph ph-bell-ringing mr-1"></i> Services</button>
+    <!-- FLOATING TAB BAR -->
+    <div class="sticky top-0 z-40 bg-slate-50/80 backdrop-blur-md border-b border-slate-200/50 py-3 shadow-sm overflow-x-auto no-scrollbar">
+        <div class="max-w-xl mx-auto px-4">
+            <div class="flex bg-slate-200/60 p-1 rounded-2xl gap-1" id="tabs-container">
+                <button class="tab-btn active flex-1 rounded-xl flex items-center justify-center gap-2 py-2.5 transition" onclick="switchTab('overview')">
+                    <i class="ph-bold ph-house text-base"></i> Overview
+                </button>
+                <button class="tab-btn flex-1 rounded-xl flex items-center justify-center gap-2 py-2.5 transition" onclick="switchTab('billing')">
+                    <i class="ph-bold ph-receipt text-base"></i> Billing
+                </button>
+                <button class="tab-btn flex-1 rounded-xl flex items-center justify-center gap-2 py-2.5 transition" onclick="switchTab('services')">
+                    <i class="ph-bold ph-bell-ringing text-base"></i> Services
+                </button>
+            </div>
         </div>
     </div>
 
@@ -452,6 +560,129 @@ try {
         <!-- ================= TAB: OVERVIEW ================= -->
         <div id="tab-overview" class="tab-content active space-y-6">
             
+            <?php 
+            $loyaltyEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_LOYALTY_ENABLED'")->fetchColumn() ?: 'true') === 'true';
+            if ($loyaltyEnabled):
+                $loyaltyGold = intval($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_LOYALTY_GOLD'")->fetchColumn() ?: '5');
+                $loyaltyPlatinum = intval($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_LOYALTY_PLATINUM'")->fetchColumn() ?: '10');
+                
+                $staysCount = 0;
+                if (!empty($booking['guest_id'])) {
+                    $staysStmt = $db->prepare("SELECT COUNT(*) FROM bookings WHERE guest_id = ? AND booking_status = 'checked_out'");
+                    $staysStmt->execute([$booking['guest_id']]);
+                    $staysCount = (int)$staysStmt->fetchColumn();
+                }
+                
+                if ($staysCount >= $loyaltyPlatinum) {
+                    $tierName = "Platinum VIP";
+                    $tierColor = "from-violet-500 to-purple-600";
+                    $badgeText = "text-purple-600 bg-purple-50 border-purple-200";
+                    $nextTierText = "Max Tier Achieved!";
+                    $progressPct = 100;
+                    $perks = ["Free Airport Pickups", "Complimentary Room Upgrades", "Late Check-out priority", "VIP Welcome Drinks"];
+                } elseif ($staysCount >= $loyaltyGold) {
+                    $tierName = "Gold Elite";
+                    $tierColor = "from-amber-400 to-amber-600";
+                    $badgeText = "text-amber-700 bg-amber-50 border-amber-200";
+                    $nextTierText = ($loyaltyPlatinum - $staysCount) . " stays to Platinum VIP";
+                    $progressPct = round(($staysCount / $loyaltyPlatinum) * 100);
+                    $perks = ["Late Check-out requests", "Complimentary Buffet Breakfast", "Welcome Drinks"];
+                } else {
+                    $tierName = "Silver Explorer";
+                    $tierColor = "from-slate-400 to-slate-500";
+                    $badgeText = "text-slate-600 bg-slate-50 border-slate-200";
+                    $nextTierText = ($loyaltyGold - $staysCount) . " stays to Gold Elite";
+                    $progressPct = round(($staysCount / $loyaltyGold) * 100);
+                    $perks = ["High-speed WiFi", "Priority Room allocation"];
+                }
+            ?>
+            <!-- LOYALTY PROFILE CARD -->
+            <div class="card-premium p-5 space-y-4 overflow-hidden relative border-l-4 border-l-indigo-500">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center gap-2">
+                        <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                            <i class="ph ph-crown text-xl"></i>
+                        </div>
+                        <div>
+                            <span class="text-[10px] font-bold text-slate-400 uppercase block mb-0.5">Loyalty Member</span>
+                            <span class="font-extrabold text-slate-800 text-sm"><?= htmlspecialchars($booking['guest_name']) ?></span>
+                        </div>
+                    </div>
+                    <span class="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg border <?= $badgeText ?>"><?= $tierName ?></span>
+                </div>
+                <div class="space-y-2">
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="text-slate-500"><?= $staysCount ?> Completed Stays</span>
+                        <span class="text-indigo-600"><?= $nextTierText ?></span>
+                    </div>
+                    <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div class="bg-gradient-to-r <?= $tierColor ?> h-full rounded-full" style="width: <?= $progressPct ?>%"></div>
+                    </div>
+                </div>
+                <div class="pt-3 border-t border-dashed border-slate-100">
+                    <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Tier Privileges</span>
+                    <div class="flex flex-wrap gap-1.5">
+                        <?php foreach ($perks as $p): ?>
+                            <span class="text-[10px] font-bold text-indigo-700 bg-indigo-50/70 border border-indigo-100 rounded-md px-2 py-0.5"><i class="ph ph-circle-wavy-check inline-block text-[10px] align-middle mr-0.5"></i> <?= $p ?></span>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php
+            $upsellEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_UPSELL_ENABLED'")->fetchColumn() ?: 'true') === 'true';
+            if ($upsellEnabled):
+                $breakfastFee = floatval($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_UPSELL_BREAKFAST_PRICE'")->fetchColumn() ?: '350.00');
+                $transferFee = floatval($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_UPSELL_TRANSFER_PRICE'")->fetchColumn() ?: '1200.00');
+                $lateCheckoutFee = floatval($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_EARLY_LATE_FEE'")->fetchColumn() ?: '800.00');
+            ?>
+            <!-- CURATED OFFERS & UPSELLS -->
+            <div class="card-premium p-5 space-y-4">
+                <div class="flex items-center gap-2">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                        <i class="ph ph-shopping-bag text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 font-display">Special Upsell Upgrades</h3>
+                        <p class="text-[10px] text-slate-400">Enhance your stay experience with exclusive add-ons</p>
+                    </div>
+                </div>
+
+                <div class="space-y-3 pt-2">
+                    <!-- Breakfast Buffet -->
+                    <div class="flex justify-between items-center p-3 bg-slate-50/70 border border-slate-200/50 rounded-2xl">
+                        <div class="space-y-0.5">
+                            <span class="text-xs font-extrabold text-slate-800">Breakfast Buffet Package</span>
+                            <span class="text-[10px] text-slate-500 block">Unlimited breakfast during your stay.</span>
+                            <span class="text-xs font-bold text-indigo-600">₹<?= number_format($breakfastFee, 2) ?></span>
+                        </div>
+                        <button onclick="purchaseUpsell('Breakfast Buffet Add-on', <?= $breakfastFee ?>)" class="py-1.5 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold rounded-xl text-xs transition">Add</button>
+                    </div>
+
+                    <!-- Cab Transfer -->
+                    <div class="flex justify-between items-center p-3 bg-slate-50/70 border border-slate-200/50 rounded-2xl">
+                        <div class="space-y-0.5">
+                            <span class="text-xs font-extrabold text-slate-800">Airport Cab Pickup/Drop</span>
+                            <span class="text-[10px] text-slate-500 block">Secure airport transfers to/from the property.</span>
+                            <span class="text-xs font-bold text-indigo-600">₹<?= number_format($transferFee, 2) ?></span>
+                        </div>
+                        <button onclick="purchaseUpsell('Airport Cab Transfer', <?= $transferFee ?>)" class="py-1.5 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold rounded-xl text-xs transition">Book</button>
+                    </div>
+
+                    <!-- Late Checkout -->
+                    <div class="flex justify-between items-center p-3 bg-slate-50/70 border border-slate-200/50 rounded-2xl">
+                        <div class="space-y-0.5">
+                            <span class="text-xs font-extrabold text-slate-800">Extended Checkout (3 Hours)</span>
+                            <span class="text-[10px] text-slate-500 block">Need more time? Extend your checkout time.</span>
+                            <span class="text-xs font-bold text-indigo-600">₹<?= number_format($lateCheckoutFee, 2) ?></span>
+                        </div>
+                        <button onclick="purchaseUpsell('Late Checkout Fee', <?= $lateCheckoutFee ?>)" class="py-1.5 px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold rounded-xl text-xs transition">Extend</button>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- WIFI CREDENTIALS CARD -->
             <div class="card-premium p-5 space-y-3 relative overflow-hidden border-l-4 border-l-blue-500">
                 <div class="flex items-center gap-2 text-blue-600">
@@ -586,9 +817,35 @@ try {
                 </div>
 
                 <?php if ($balance > 0.05): ?>
-                    <button onclick="payPendingDues(<?= $balance ?>)" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs uppercase tracking-wider transition shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 mt-2">
-                        <i class="ph ph-credit-card text-lg"></i> Pay ₹<?= number_format($balance, 2) ?> Now
-                    </button>
+                    <?php if (count($activeGateways) > 1): ?>
+                        <div class="space-y-2 mt-3">
+                            <label class="block text-[9px] font-black text-slate-400 uppercase tracking-wider">Select Payment Method</label>
+                            <div class="grid grid-cols-2 gap-3">
+                                <?php if (isset($activeGateways['razorpay'])): ?>
+                                    <button onclick="payWithGateway('razorpay', <?= $balance ?>)" class="py-3 px-4 border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 font-extrabold rounded-xl text-xs flex flex-col items-center justify-center gap-1.5 transition">
+                                        <i class="ph ph-credit-card text-lg text-indigo-600"></i> Razorpay (Cards/UPI)
+                                    </button>
+                                <?php endif; ?>
+                                <?php if (isset($activeGateways['phonepe'])): ?>
+                                    <button onclick="payWithGateway('phonepe', <?= $balance ?>)" class="py-3 px-4 border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 font-extrabold rounded-xl text-xs flex flex-col items-center justify-center gap-1.5 transition">
+                                        <i class="ph ph-lightning text-lg text-violet-600"></i> PhonePe (UPI/QR)
+                                    </button>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php elseif (count($activeGateways) === 1): ?>
+                        <?php 
+                        $singleGateway = key($activeGateways); 
+                        $btnColor = $singleGateway === 'phonepe' ? 'bg-violet-600 hover:bg-violet-500 shadow-violet-500/20' : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20';
+                        ?>
+                        <button onclick="payWithGateway('<?= $singleGateway ?>', <?= $balance ?>)" class="w-full py-3.5 <?= $btnColor ?> text-white font-black rounded-xl text-xs uppercase tracking-wider transition shadow-lg flex items-center justify-center gap-2 mt-2">
+                            <i class="ph ph-credit-card text-lg"></i> Pay ₹<?= number_format($balance, 2) ?> Now
+                        </button>
+                    <?php else: ?>
+                        <div class="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl p-3 text-center font-bold mt-2">
+                            ⚠️ Online payments are currently unavailable. Please contact the front desk.
+                        </div>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
 
@@ -763,6 +1020,33 @@ try {
 
     <!-- SCRIPTS -->
     <script>
+        // --- Upsell Logic ---
+        async function purchaseUpsell(description, amount) {
+            if (!confirm(`Are you sure you want to add ${description} to your bill for ₹${amount}?`)) return;
+            
+            try {
+                const res = await fetch('/api/guest/add_folio_charge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        booking_id: '<?= htmlspecialchars($bookingId) ?>',
+                        token: '<?= htmlspecialchars($token) ?>',
+                        description: description,
+                        amount: amount
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Successfully added to your bill!', 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showToast(data.message || 'Failed to add charge', 'error');
+                }
+            } catch (e) {
+                showToast('Connection error', 'error');
+            }
+        }
+
         // --- Toast Logic ---
         function showToast(message, type = 'info') {
             const toast = document.getElementById('toast');
@@ -893,9 +1177,30 @@ try {
         }
 
         // --- Payment Logic ---
-        async function payPendingDues(amount) {
+        // --- Payment Logic ---
+        async function payWithGateway(gateway, amount) {
             const bookingId = "<?= $bookingId ?>";
             const token = "<?= $token ?>";
+            
+            if (gateway === 'phonepe') {
+                try {
+                    const res = await fetch('/api/guest/create_phonepe_payment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ booking_id: bookingId, token: token, amount: amount })
+                    });
+                    const data = await res.json();
+                    if (data.success && data.redirect_url) {
+                        showToast('Redirecting to PhonePe securely...');
+                        window.location.href = data.redirect_url;
+                    } else {
+                        showToast('PhonePe Error: ' + (data.message || 'Failed to initiate payment.'));
+                    }
+                } catch (e) {
+                    showToast('Connection failure to PhonePe gateway.');
+                }
+                return;
+            }
             
             try {
                 // 1. Create order on the backend

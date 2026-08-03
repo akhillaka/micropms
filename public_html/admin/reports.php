@@ -109,6 +109,10 @@ $monthEnd = date('Y-m-t');
                         <option value="pos_items">Top Selling POS Items</option>
                         <option value="pos_inventory">POS Inventory Report</option>
                         <option value="pos_pl">POS Profit & Loss</option>
+                        <option value="pos_order_tracking">POS Order Tracking</option>
+                        <option value="pos_restock_history">POS Restock History</option>
+                        <option disabled>──────────</option>
+                        <option value="custom_builder">✨ Custom Report Builder</option>
                     </select>
                 </div>
                 <div class="flex gap-2 w-full md:w-auto">
@@ -117,6 +121,80 @@ $monthEnd = date('Y-m-t');
                     </button>
                     <button onclick="window.print()" class="flex-1 md:flex-none btn-minimal bg-brand-900 text-white px-4 py-2 flex items-center justify-center gap-2 text-sm">
                         <i class="ph-bold ph-printer"></i> PDF
+                    </button>
+                </div>
+            </div>
+
+            <!-- Custom Report Builder Panel -->
+            <div id="custom_builder_panel" class="hidden card-minimal p-6 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-6 no-print mb-6">
+                <div class="flex flex-col lg:flex-row gap-6 justify-between border-b border-slate-100 pb-4">
+                    <div class="space-y-1">
+                        <h3 class="text-sm font-black text-brand-900 uppercase tracking-wider">Configure Custom Report</h3>
+                        <p class="text-[11px] text-slate-500 font-semibold">Select a dataset, choose columns, and construct your custom report table.</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div class="relative">
+                            <select id="saved_templates_select" onchange="applySavedTemplate()" class="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-indigo-600 appearance-none cursor-pointer pr-8">
+                                <option value="">-- Load Saved Format --</option>
+                            </select>
+                            <i class="ph ph-caret-down absolute right-3 top-3.5 text-slate-400 pointer-events-none text-xs"></i>
+                        </div>
+                        <button onclick="deleteSavedTemplate()" class="p-2.5 bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 rounded-xl text-xs font-bold transition cursor-pointer" title="Delete Template">
+                            <i class="ph ph-trash"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <!-- Dataset Selection -->
+                    <div class="space-y-4">
+                        <div class="space-y-2">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase">1. Primary Dataset</label>
+                            <div class="relative">
+                                <select id="builder_dataset" onchange="onDatasetChange()" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-indigo-600 appearance-none cursor-pointer pr-8">
+                                    <option value="bookings">Bookings Ledger</option>
+                                    <option value="guests">Guests Database</option>
+                                    <option value="folio_ledger">Folio Transactions</option>
+                                    <option value="finance_transactions">Finance / Accounts Ledger</option>
+                                    <option value="pos_orders">POS Orders Log</option>
+                                </select>
+                                <i class="ph ph-caret-down absolute right-4 top-4 text-slate-400 pointer-events-none text-xs"></i>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase">2. Combine with (Optional)</label>
+                            <div class="relative">
+                                <select id="builder_join_dataset" onchange="onDatasetChange()" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-indigo-600 appearance-none cursor-pointer pr-8">
+                                    <option value="">-- No secondary dataset --</option>
+                                    <option value="bookings">Bookings Ledger</option>
+                                    <option value="guests">Guests Database</option>
+                                    <option value="folio_ledger">Folio Transactions</option>
+                                    <option value="pos_orders">POS Orders Log</option>
+                                </select>
+                                <i class="ph ph-caret-down absolute right-4 top-4 text-slate-400 pointer-events-none text-xs"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Column selection checklist -->
+                    <div class="md:col-span-3 space-y-2">
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase">3. Select Columns to include</label>
+                        <div id="builder_columns_list" class="flex flex-wrap gap-2.5 bg-slate-50/50 p-4 rounded-xl border border-slate-100 min-h-[50px]">
+                            <!-- Dynamic Checkboxes -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-4 items-center justify-between pt-4 border-t border-slate-100">
+                    <div class="flex items-center gap-2 w-full sm:w-auto">
+                        <input type="text" id="template_name_input" placeholder="Save this format as..." class="focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-2.5 rounded-xl text-xs font-semibold border border-slate-200 flex-1 sm:flex-none sm:w-60">
+                        <button onclick="saveTemplateFormat()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer">
+                            <i class="ph ph-floppy-disk mr-1"></i> Save Format
+                        </button>
+                    </div>
+                    <button onclick="runCustomReport()" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase px-6 py-3 rounded-xl transition shadow cursor-pointer">
+                        Generate Table Report
                     </button>
                 </div>
             </div>
@@ -280,6 +358,20 @@ $monthEnd = date('Y-m-t');
             
             const sel = document.getElementById('report_type');
             const title = sel.options[sel.selectedIndex].text;
+
+            const builderPanel = document.getElementById('custom_builder_panel');
+            if (type === 'custom_builder') {
+                builderPanel.classList.remove('hidden');
+                document.getElementById('report_empty_state').classList.remove('hidden');
+                document.getElementById('report_header').classList.add('hidden');
+                document.getElementById('table_container').classList.add('hidden');
+                document.getElementById('chart_container').classList.add('hidden');
+                if(reportChart) { try { reportChart.destroy(); } catch(e){} reportChart = null; }
+                initCustomBuilder();
+                return;
+            } else {
+                builderPanel.classList.add('hidden');
+            }
 
             // Show report area, hide empty state
             document.getElementById('report_empty_state').classList.add('hidden');
@@ -688,6 +780,361 @@ $monthEnd = date('Y-m-t');
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+        }
+
+        const DATASETS = {
+            bookings: {
+                label: 'Bookings Ledger',
+                columns: {
+                    id: 'Booking ID',
+                    display_id: 'Formatted ID',
+                    guest_name: 'Guest Name',
+                    room_number: 'Room Number',
+                    check_in: 'Check-in Date',
+                    check_out: 'Check-out Date',
+                    total_amount: 'Total Amount',
+                    booking_status: 'Status',
+                    booking_source: 'Booking Source',
+                    rate_plan_name: 'Rate Plan Name',
+                    created_at: 'Created Date'
+                }
+            },
+            guests: {
+                label: 'Guests Database',
+                columns: {
+                    id: 'Guest ID',
+                    name: 'Guest Name',
+                    email: 'Email Address',
+                    phone: 'Phone Number',
+                    city: 'City',
+                    state: 'State',
+                    country: 'Country',
+                    created_at: 'Registration Date'
+                }
+            },
+            folio_ledger: {
+                label: 'Folio Transactions',
+                columns: {
+                    id: 'Item ID',
+                    display_id: 'Formatted ID',
+                    booking_id: 'Booking ID',
+                    room_number: 'Room Number',
+                    transaction_type: 'Transaction Type',
+                    amount: 'Amount',
+                    payment_method: 'Payment Method',
+                    description: 'Description',
+                    recorded_at: 'Date Recorded'
+                }
+            },
+            finance_transactions: {
+                label: 'Finance / Accounts Ledger',
+                columns: {
+                    id: 'Transaction ID',
+                    display_id: 'Formatted ID',
+                    type: 'Transaction Type',
+                    category: 'Category',
+                    amount: 'Amount',
+                    payment_method: 'Payment Method',
+                    description: 'Description',
+                    recorded_at: 'Date Recorded'
+                }
+            },
+            pos_orders: {
+                label: 'POS Orders Log',
+                columns: {
+                    id: 'Order ID',
+                    display_id: 'Formatted ID',
+                    room_number: 'Room Number',
+                    guest_name: 'Guest Name',
+                    outlet_name: 'Shop Outlet',
+                    total_amount: 'Total Amount',
+                    payment_method: 'Payment Method',
+                    status: 'Payment Status',
+                    delivery_status: 'Delivery Status',
+                    recorded_at: 'Order Date'
+                }
+            },
+            combined_bookings_folios: {
+                label: 'Bookings & Folio Transactions Combined (Multi-Dataset)',
+                columns: {
+                    booking_id: 'Booking ID',
+                    booking_display_id: 'Booking Formatted ID',
+                    guest_name: 'Guest Name',
+                    room_number: 'Room Number',
+                    check_in: 'Check-in Date',
+                    check_out: 'Check-out Date',
+                    booking_status: 'Booking Status',
+                    booking_total: 'Booking Total Amount',
+                    folio_id: 'Folio Item ID',
+                    folio_display_id: 'Folio Item Formatted ID',
+                    transaction_type: 'Folio Transaction Type',
+                    amount: 'Folio Amount',
+                    payment_method: 'Folio Payment Method',
+                    description: 'Folio Description',
+                    recorded_at: 'Transaction Date'
+                }
+            }
+        };
+
+        let savedTemplates = [];
+        let hasInitializedBuilder = false;
+
+        async function initCustomBuilder() {
+            if (!hasInitializedBuilder) {
+                onDatasetChange();
+                await loadSavedTemplates();
+                hasInitializedBuilder = true;
+            }
+        }
+
+        function onDatasetChange() {
+            const dataset = document.getElementById('builder_dataset').value;
+            const joinDataset = document.getElementById('builder_join_dataset').value;
+            const container = document.getElementById('builder_columns_list');
+            
+            let html = '';
+            
+            if (DATASETS[dataset]) {
+                html += `<div class="w-full text-[10px] font-black uppercase text-indigo-600 mb-1 tracking-wider">${DATASETS[dataset].label} Columns:</div>`;
+                const columns = DATASETS[dataset].columns;
+                Object.keys(columns).forEach(colKey => {
+                    html += `
+                        <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer select-none">
+                            <input type="checkbox" name="builder_cols" value="${dataset}.${colKey}" checked class="rounded border-slate-350 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                            ${columns[colKey]}
+                        </label>
+                    `;
+                });
+            }
+            
+            if (joinDataset && joinDataset !== dataset && DATASETS[joinDataset]) {
+                html += `<div class="w-full text-[10px] font-black uppercase text-indigo-600 mt-4 mb-1 tracking-wider border-t border-slate-100 pt-3">${DATASETS[joinDataset].label} Columns:</div>`;
+                const columns = DATASETS[joinDataset].columns;
+                Object.keys(columns).forEach(colKey => {
+                    html += `
+                        <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer select-none">
+                            <input type="checkbox" name="builder_cols" value="${joinDataset}.${colKey}" checked class="rounded border-slate-350 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5">
+                            ${columns[colKey]}
+                        </label>
+                    `;
+                });
+            }
+            
+            container.innerHTML = html;
+        }
+
+        async function loadSavedTemplates() {
+            try {
+                const res = await fetch('/api/admin/reports?type=get_saved_reports');
+                const json = await res.json();
+                if (json.success && json.data) {
+                    savedTemplates = json.data;
+                    const select = document.getElementById('saved_templates_select');
+                    let html = '<option value="">-- Load Saved Format --</option>';
+                    savedTemplates.forEach(t => {
+                        let filtersObj = {};
+                        try { filtersObj = JSON.parse(t.filters || '{}'); } catch(e){}
+                        const secondary = filtersObj.join_dataset ? ` + ${DATASETS[filtersObj.join_dataset]?.label || filtersObj.join_dataset}` : '';
+                        html += `<option value="${t.id}">${t.name} (${DATASETS[t.dataset]?.label || t.dataset}${secondary})</option>`;
+                    });
+                    select.innerHTML = html;
+                }
+            } catch (e) {
+                console.error("Failed to load saved templates", e);
+            }
+        }
+
+        function applySavedTemplate() {
+            const templateId = document.getElementById('saved_templates_select').value;
+            if (!templateId) return;
+            
+            const template = savedTemplates.find(t => t.id == templateId);
+            if (!template) return;
+            
+            let filtersObj = {};
+            try { filtersObj = JSON.parse(template.filters || '{}'); } catch(e){}
+            
+            document.getElementById('builder_dataset').value = template.dataset;
+            document.getElementById('builder_join_dataset').value = filtersObj.join_dataset || '';
+            
+            onDatasetChange();
+            
+            const checkboxes = document.querySelectorAll('input[name="builder_cols"]');
+            checkboxes.forEach(cb => {
+                cb.checked = template.columns.includes(cb.value);
+            });
+        }
+
+        async function saveTemplateFormat() {
+            const name = document.getElementById('template_name_input').value.trim();
+            const dataset = document.getElementById('builder_dataset').value;
+            const joinDataset = document.getElementById('builder_join_dataset').value;
+            
+            if (!name) {
+                alert("Please enter a format name to save.");
+                return;
+            }
+            
+            const checkedCols = [];
+            document.querySelectorAll('input[name="builder_cols"]:checked').forEach(cb => {
+                checkedCols.push(cb.value);
+            });
+            
+            if (checkedCols.length === 0) {
+                alert("Please select at least one column to save.");
+                return;
+            }
+            
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            try {
+                const res = await fetch('/api/admin/reports?type=save_custom_report', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken
+                    },
+                    body: JSON.stringify({ 
+                        name, 
+                        dataset, 
+                        columns: checkedCols,
+                        filters: JSON.stringify({ join_dataset: joinDataset }) 
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast("Template format saved successfully!");
+                    document.getElementById('template_name_input').value = '';
+                    await loadSavedTemplates();
+                } else {
+                    alert("Error: " + data.message);
+                }
+            } catch (e) {
+                alert("Failed to save template format.");
+            }
+        }
+
+        async function deleteSavedTemplate() {
+            const templateId = document.getElementById('saved_templates_select').value;
+            if (!templateId) {
+                alert("Please select a template format to delete.");
+                return;
+            }
+            if (!confirm("Are you sure you want to delete this saved template format?")) return;
+            
+            try {
+                const res = await fetch(`/api/admin/reports?type=delete_saved_report&id=${templateId}`);
+                const data = await res.json();
+                if (data.success) {
+                    showToast("Template deleted successfully!");
+                    document.getElementById('saved_templates_select').value = '';
+                    await loadSavedTemplates();
+                } else {
+                    alert("Error: " + data.message);
+                }
+            } catch (e) {
+                alert("Failed to delete template.");
+            }
+        }
+
+        async function runCustomReport() {
+            const dataset = document.getElementById('builder_dataset').value;
+            const joinDataset = document.getElementById('builder_join_dataset').value;
+            const start = document.getElementById('global_start').value;
+            const end = document.getElementById('global_end').value;
+            
+            const checkedCols = [];
+            document.querySelectorAll('input[name="builder_cols"]:checked').forEach(cb => {
+                checkedCols.push(cb.value);
+            });
+            
+            if (checkedCols.length === 0) {
+                alert("Please select at least one column to generate a report.");
+                return;
+            }
+            
+            document.getElementById('report_empty_state').classList.add('hidden');
+            document.getElementById('report_error').classList.add('hidden');
+            document.getElementById('report_header').classList.remove('hidden');
+            document.getElementById('report_header').classList.add('flex');
+            
+            const joinLabel = joinDataset ? ` + ${DATASETS[joinDataset].label}` : '';
+            document.getElementById('report_title').innerText = `${DATASETS[dataset].label}${joinLabel} - Custom Table`;
+            document.getElementById('report_subtitle').innerText = `${start} to ${end}`;
+            
+            document.getElementById('table_container').classList.remove('hidden');
+            const skeletonRow = '<tr>' + Array(checkedCols.length).fill('<td class="px-6 py-4"><div class="skeleton h-4 w-full"></div></td>').join('') + '</tr>';
+            document.getElementById('table_head').innerHTML = '<tr>' + Array(checkedCols.length).fill('<th class="px-6 py-4"><div class="skeleton h-3 w-24"></div></th>').join('') + '</tr>';
+            document.getElementById('table_body').innerHTML = Array(5).fill(skeletonRow).join('');
+            
+            try {
+                const res = await fetch(`/api/admin/reports?type=custom_builder&dataset=${dataset}&join_dataset=${joinDataset}&columns=${checkedCols.join(',')}&start_date=${start}&end_date=${end}`);
+                const json = await res.json();
+                if (json.success) {
+                    currentData = json.data;
+                    renderCustomTable(dataset, checkedCols, currentData);
+                } else {
+                    document.getElementById('table_container').classList.add('hidden');
+                    document.getElementById('report_error_msg').innerText = json.message || 'Failed to generate report';
+                    document.getElementById('report_error').classList.remove('hidden');
+                }
+            } catch (e) {
+                document.getElementById('table_container').classList.add('hidden');
+                document.getElementById('report_error_msg').innerText = 'Network error: ' + e.message;
+                document.getElementById('report_error').classList.remove('hidden');
+            }
+        }
+
+        function renderCustomTable(dataset, cols, data) {
+            const thead = document.getElementById('table_head');
+            const tbody = document.getElementById('table_body');
+            
+            if(!data || data.length === 0) {
+                thead.innerHTML = '';
+                tbody.innerHTML = '<tr><td colspan="20" class="p-12 text-center"><div class="flex flex-col items-center justify-center opacity-50"><i class="ph-fill ph-ghost text-5xl mb-3"></i><p class="font-bold">No records found matching criteria</p></div></td></tr>';
+                return;
+            }
+            
+            let htmlHead = '<tr>';
+            cols.forEach(col => {
+                let label = col;
+                if (col.includes('.')) {
+                    const [tbl, key] = col.split('.');
+                    label = DATASETS[tbl]?.columns[key] || col;
+                } else {
+                    label = DATASETS[dataset]?.columns[col] || col;
+                }
+                htmlHead += `<th class="px-6 py-4 font-bold">${label}</th>`;
+            });
+            htmlHead += '</tr>';
+            
+            let htmlBody = '';
+            data.forEach(row => {
+                htmlBody += `<tr class="hover:bg-brand-50 transition-colors">`;
+                cols.forEach(col => {
+                    let queryKey = col;
+                    if (col.includes('.')) {
+                        queryKey = col.replace('.', '_');
+                    } else {
+                        queryKey = `${dataset}_${col}`;
+                    }
+                    
+                    let val = row[queryKey];
+                    if (val === null || val === undefined) {
+                        val = row[col] !== undefined ? row[col] : '-';
+                    }
+                    
+                    const lowerKey = queryKey.toLowerCase();
+                    const isCurrency = lowerKey.includes('amount') || lowerKey.includes('revenue') || lowerKey.includes('cost') || lowerKey.includes('price') || lowerKey.includes('total');
+                    if (isCurrency && !isNaN(val) && val !== '' && val !== '-') {
+                        val = `<span class="font-bold text-slate-900">${formatMoney(parseFloat(val))}</span>`;
+                    }
+                    htmlBody += `<td class="px-6 py-4 whitespace-nowrap">${val}</td>`;
+                });
+                htmlBody += '</tr>';
+            });
+            
+            thead.innerHTML = htmlHead;
+            tbody.innerHTML = htmlBody;
         }
 
         // Initialize on load

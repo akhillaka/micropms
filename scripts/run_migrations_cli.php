@@ -7,9 +7,9 @@
  * Safe to run multiple times (idempotent).
  */
 
-require_once __DIR__ . '/pms_core/Database.php';
-require_once __DIR__ . '/pms_core/config.php';
-require_once __DIR__ . '/pms_core/MigrationRunner.php';
+require_once dirname(__DIR__) . '/pms_core/Database.php';
+require_once dirname(__DIR__) . '/pms_core/config.php';
+require_once dirname(__DIR__) . '/pms_core/MigrationRunner.php';
 
 if (php_sapi_name() !== 'cli') {
     echo "This script must be run from the command line.\n";

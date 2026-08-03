@@ -81,7 +81,15 @@ try {
     $desc = "Payment - Razorpay (Receipt {$receiptDisplayId})";
     $financeStmt->execute([$bookingId, $amount, $desc]);
     
-    SequenceGenerator::assignDisplayId($db, 'finance_transactions', (int)$db->lastInsertId(), 'SEQ_TRANSACTION_FORMAT');
+    $financeId = (int)$db->lastInsertId();
+    SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
+
+    $txnStmt = $db->prepare("SELECT display_id FROM finance_transactions WHERE id = ?");
+    $txnStmt->execute([$financeId]);
+    $txnDisplayId = $txnStmt->fetchColumn();
+    if ($txnDisplayId) {
+        $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref = 'MANUAL' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $entryId]);
+    }
 
     // Audit log
     AuditLogger::log(0, 'PORTAL_PAYMENT_RECORDED', 'FOLIO', $bookingId, [

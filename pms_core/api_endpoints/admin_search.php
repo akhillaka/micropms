@@ -11,6 +11,7 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::success(['results' => []]);
     }
 
+    $propertyId = AuthHelper::getPropertyId();
     // We search by booking id (folio number), guest name, or guest phone.
     // We can also search by room number.
     $sql = "
@@ -18,10 +19,11 @@ ApiHandler::run(function(\PDO $db) {
         FROM bookings b
         JOIN rooms r ON b.room_id = r.id
         LEFT JOIN guests g ON b.guest_id = g.id
-        WHERE b.id = :exact_id 
-           OR LOWER(g.name) LIKE LOWER(:q1) 
-           OR g.phone LIKE :q2
-           OR LOWER(r.room_number) LIKE LOWER(:q3)
+        WHERE b.property_id = :prop_id
+          AND (b.id = :exact_id 
+            OR LOWER(g.name) LIKE LOWER(:q1) 
+            OR g.phone LIKE :q2
+            OR LOWER(r.room_number) LIKE LOWER(:q3))
         ORDER BY b.created_at DESC
         LIMIT 10
     ";
@@ -32,7 +34,8 @@ ApiHandler::run(function(\PDO $db) {
         'exact_id' => $exactId,
         'q1' => "%$q%",
         'q2' => "%$q%",
-        'q3' => "%$q%"
+        'q3' => "%$q%",
+        'prop_id' => $propertyId
     ]);
     
     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);

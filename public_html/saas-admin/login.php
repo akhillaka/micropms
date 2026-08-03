@@ -78,143 +78,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MicroPMS — Superadmin Login</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <title>SaaS Superadmin Login | MicroPMS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1.5rem;
+            background: radial-gradient(circle at 10% 20%, rgb(4, 8, 24) 0%, rgb(15, 23, 42) 90%);
+            font-family: 'Plus Jakarta Sans', sans-serif;
         }
-        .card {
-            background: rgba(255,255,255,0.97);
-            border-radius: 1.5rem;
-            box-shadow: 0 25px 60px rgba(0,0,0,0.4);
-            width: 100%;
-            max-width: 400px;
-            padding: 2.5rem;
+        .login-glass {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         }
-        .logo {
-            text-align: center;
-            margin-bottom: 2rem;
+        .login-glass input {
+            padding-left: 2.75rem !important;
+            background-color: rgba(9, 15, 29, 0.8) !important;
+            color: #ffffff !important;
+            border-color: rgba(51, 65, 85, 0.5) !important;
         }
-        .logo-icon {
-            width: 60px; height: 60px;
-            background: linear-gradient(135deg, #4f46e5, #7c3aed);
-            border-radius: 1rem;
-            display: flex; align-items: center; justify-content: center;
-            margin: 0 auto 1rem;
-            font-size: 1.75rem;
+        .login-glass input:focus {
+            border-color: #4f46e5 !important;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.25) !important;
         }
-        .logo h1 { font-size: 1.25rem; font-weight: 800; color: #0f172a; }
-        .logo p  { font-size: 0.75rem; color: #64748b; margin-top: 0.25rem; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; }
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.375rem;
-            background: #fef3c7;
-            color: #92400e;
-            border: 1px solid #fde68a;
-            border-radius: 9999px;
-            font-size: 0.7rem;
-            font-weight: 700;
-            padding: 0.25rem 0.75rem;
-            margin-bottom: 1.5rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        label {
-            display: block;
-            font-size: 0.75rem;
-            font-weight: 600;
-            color: #334155;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.375rem;
-        }
-        input {
-            width: 100%;
-            padding: 0.75rem 1rem;
-            border: 1.5px solid #e2e8f0;
-            border-radius: 0.75rem;
-            font-size: 0.875rem;
-            font-family: inherit;
-            color: #0f172a;
-            outline: none;
-            transition: border-color 0.2s;
-            background: #f8fafc;
-            margin-bottom: 1rem;
-        }
-        input:focus { border-color: #4f46e5; background: white; }
-        .error-box {
-            background: #fff1f2;
-            color: #9f1239;
-            border: 1px solid #fecdd3;
-            border-radius: 0.75rem;
-            padding: 0.75rem 1rem;
-            font-size: 0.8125rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-        }
-        .btn {
-            width: 100%;
-            padding: 0.875rem;
-            background: linear-gradient(135deg, #4f46e5, #7c3aed);
-            color: white;
-            font-family: inherit;
-            font-size: 0.875rem;
-            font-weight: 700;
-            border: none;
-            border-radius: 0.75rem;
-            cursor: pointer;
-            transition: all 0.2s;
-            letter-spacing: 0.02em;
-        }
-        .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 25px rgba(79,70,229,0.4); }
-        .footer-link {
-            text-align: center;
-            margin-top: 1.25rem;
-            font-size: 0.75rem;
-            color: #94a3b8;
-        }
-        .footer-link a { color: #4f46e5; text-decoration: none; font-weight: 600; }
     </style>
 </head>
-<body>
-<div class="card">
-    <div class="logo">
-        <div class="logo-icon">🛡️</div>
-        <h1>MicroPMS</h1>
-        <p>Control Plane</p>
-    </div>
-    <div style="text-align:center; margin-bottom:1.5rem;">
-        <span class="badge">⚠️ Superadmin Access Only</span>
-    </div>
+<body class="flex items-center justify-center min-h-screen px-4 overflow-hidden relative">
+    <!-- Gradient glow animations in background -->
+    <div class="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+    <div class="absolute bottom-1/4 right-1/4 w-[350px] h-[350px] bg-violet-600/10 rounded-full blur-[100px] pointer-events-none"></div>
 
-    <?php if ($error): ?>
-        <div class="error-box"><?= htmlspecialchars($error) ?></div>
-    <?php endif; ?>
+    <div class="login-glass p-8 rounded-3xl w-full max-w-[420px] z-10 relative">
+        <!-- Logo Icon Header -->
+        <div class="flex flex-col items-center mb-8">
+            <div class="w-14 h-14 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-2xl flex items-center justify-center mb-3 shadow-inner">
+                <i class="ph ph-shield-check text-3xl"></i>
+            </div>
+            <h2 class="text-2xl font-extrabold text-white tracking-tight">Control Plane</h2>
+            <div class="mt-2">
+                <span class="text-[9px] bg-indigo-500/20 text-indigo-300 font-black px-2.5 py-1 rounded-full uppercase tracking-wider">⚠️ Superadmin Access</span>
+            </div>
+        </div>
 
-    <form method="POST">
-        <div>
-            <label>Username</label>
-            <input type="text" name="username" required autocomplete="username" placeholder="superadmin">
+        <?php if ($error): ?>
+            <div class="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold rounded-xl p-3 text-center mb-5">
+                ⚠️ <?= htmlspecialchars($error) ?>
+            </div>
+        <?php endif; ?>
+
+        <form method="POST" class="space-y-5">
+            <div>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Username</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                        <i class="ph ph-user text-lg"></i>
+                    </span>
+                    <input type="text" name="username" class="w-full bg-slate-950/50 border border-slate-800 rounded-xl pl-11 pr-4 py-3 text-white text-sm focus:border-indigo-500 focus:outline-none transition-all placeholder-slate-600 shadow-inner" placeholder="superadmin" required>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                        <i class="ph ph-lock text-lg"></i>
+                    </span>
+                    <input type="password" name="password" class="w-full bg-slate-950/50 border border-slate-800 rounded-xl pl-11 pr-4 py-3 text-white text-sm focus:border-indigo-500 focus:outline-none transition-all placeholder-slate-600 shadow-inner" placeholder="••••••••" required>
+                </div>
+            </div>
+
+            <button type="submit" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold rounded-xl text-sm transition shadow-lg shadow-indigo-500/20 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]">
+                Authenticate
+            </button>
+        </form>
+
+        <div class="mt-8 border-t border-slate-800/80 pt-5 text-center">
+            <a href="/login" class="text-xs text-slate-400 hover:text-indigo-400 transition-colors font-bold flex items-center justify-center gap-1.5">
+                <i class="ph ph-arrow-left"></i> Property Staff Login
+            </a>
         </div>
-        <div>
-            <label>Password</label>
-            <input type="password" name="password" required autocomplete="current-password" placeholder="••••••••••">
-        </div>
-        <button type="submit" class="btn">Sign in to Control Plane</button>
-    </form>
-    <div class="footer-link">
-        <a href="/admin/login.php">← Property Staff Login</a>
     </div>
-</div>
 </body>
 </html>

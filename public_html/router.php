@@ -115,6 +115,10 @@ switch ($request) {
         require __DIR__ . '/saas-admin/logout.php';
         break;
 
+    case '/guest-search':
+        require __DIR__ . '/guest_search.php';
+        break;
+
     case '/guest-portal':
         require __DIR__ . '/guest_portal.php';
         break;
@@ -137,6 +141,13 @@ switch ($request) {
         if (preg_match('#^/folio/([A-Za-z0-9_-]+)$#', $request, $matches)) {
             $_GET['id'] = $matches[1];
             require __DIR__ . '/admin/folio.php';
+            break;
+        }
+
+        // Check if there is a matching file in root public_html (e.g. webhooks)
+        $rootFile = __DIR__ . $request . '.php';
+        if (file_exists($rootFile)) {
+            require $rootFile;
             break;
         }
 

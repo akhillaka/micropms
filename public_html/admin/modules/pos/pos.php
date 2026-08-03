@@ -35,6 +35,7 @@ if (!$posEnabled) {
         <title>POS Upgrade Required | StayFlexi</title>
         <?php include __DIR__ . '/../../components/ui_head.php'; ?>
         
+    
     <style>
         .stayflexi-badge {
             display: inline-flex;
@@ -210,10 +211,16 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                     <?php endif; ?>
                 </button>
                 <button onclick="togglePosTab('history')" id="tabBtn-history" class="flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition">
-                    <i class="ph ph-clock-counter-clockwise"></i> Order Tracking
+                    <i class="ph ph-clock-counter-clockwise"></i> Recent Orders
+                </button>
+                <button onclick="togglePosTab('reports_orders')" id="tabBtn-reports_orders" class="flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition">
+                    <i class="ph ph-chart-line-up"></i> Order Reports
                 </button>
                 <button onclick="togglePosTab('inventory')" id="tabBtn-inventory" class="flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition">
                     <i class="ph ph-warehouse"></i> Central Stock
+                </button>
+                <button onclick="togglePosTab('reports_restock')" id="tabBtn-reports_restock" class="flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition">
+                    <i class="ph ph-clock-user"></i> Restock History
                 </button>
                 <button onclick="togglePosTab('logs')" id="tabBtn-logs" class="flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition">
                     <i class="ph ph-shield-check"></i> Audit Logs
@@ -302,7 +309,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                                         <span class="px-2 py-0.5 rounded font-mono font-bold bg-slate-100 text-indigo-600 text-xs border border-slate-200">Room <?= htmlspecialchars($order['room_number']) ?></span>
                                         <span class="text-xs font-bold text-slate-800"><?= htmlspecialchars($order['guest_name']) ?></span>
                                     </div>
-                                    <p class="text-[10px] text-slate-500">Shop: <strong><?= htmlspecialchars($order['outlet_name'] ?: 'General') ?></strong> · Order ID: #<?= $order['id'] ?> · Ordered on <?= date('d M, H:i', strtotime($order['recorded_at'])) ?></p>
+                                    <p class="text-[10px] text-slate-500">Shop: <strong><?= htmlspecialchars($order['outlet_name'] ?: 'General') ?></strong> · Order ID: #<?= htmlspecialchars($order['display_id'] ?? (string)$order['id']) ?> · Ordered on <?= date('d M, H:i', strtotime($order['recorded_at'])) ?></p>
                                     <div class="text-xs font-bold text-slate-800 mt-2">
                                         Total Amount: <span class="font-mono text-indigo-600">₹<?= number_format((float)$order['total_amount'], 2) ?></span> (Charge Posted to Folio)
                                     </div>
@@ -343,7 +350,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                                 <tbody>
                                     <?php foreach ($orderHistory as $o): ?>
                                         <tr class="hover:bg-slate-50/50">
-                                            <td class="p-3 font-mono font-bold text-slate-900">#<?= $o['id'] ?></td>
+                                            <td class="p-3 font-mono font-bold text-slate-900">#<?= htmlspecialchars($o['display_id'] ?? (string)$o['id']) ?></td>
                                             <td class="p-3 text-slate-500 font-mono"><?= date('d M, H:i', strtotime($o['recorded_at'])) ?></td>
                                             <td class="p-3 font-bold text-indigo-600"><?= htmlspecialchars($o['outlet_name'] ?: 'General') ?></td>
                                             <td class="p-3">
@@ -519,6 +526,110 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
             </div>
 
             <!-- TAB 4: AUDIT LOGS -->
+            <!-- TAB: POS REPORTS (ORDERS) -->
+            <div id="posSec-reports_orders" class="hidden space-y-4">
+                <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <i class="ph ph-chart-line-up text-indigo-600"></i> Order Reports
+                </h2>
+                
+                <div class="flex gap-2 bg-white p-2 rounded-xl border border-slate-100 shadow-sm items-center">
+                    <select id="ordersReportFilter" class="p-2 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 outline-none focus:border-indigo-600" onchange="toggleCustomDate('orders'); fetchOrderReports()">
+                        <option value="monthly">This Month</option>
+                        <option value="quarterly">This Quarter</option>
+                        <option value="yearly">This Year</option>
+                        <option value="custom">Custom Date Range</option>
+                    </select>
+                    
+                    <div id="ordersCustomDate" class="hidden flex gap-2 items-center">
+                        <input type="date" id="ordersStartDate" class="p-2 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 outline-none focus:border-indigo-600" onchange="fetchOrderReports()">
+                        <span class="text-xs font-bold text-slate-400">to</span>
+                        <input type="date" id="ordersEndDate" class="p-2 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 outline-none focus:border-indigo-600" onchange="fetchOrderReports()">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Total Orders</p>
+                        <h3 class="text-2xl font-black text-slate-800" id="ordersTotalCount">0</h3>
+                    </div>
+                    <div class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Total Sales (Completed)</p>
+                        <h3 class="text-2xl font-black text-indigo-600 font-mono" id="ordersTotalSales">₹0.00</h3>
+                    </div>
+                </div>
+
+                <div class="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="table-brutal">
+                            <thead>
+                                <tr>
+                                    <th class="p-3">Order ID</th>
+                                    <th class="p-3">Date</th>
+                                    <th class="p-3">Total Amount</th>
+                                    <th class="p-3">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ordersReportTableBody">
+                                <!-- Populated via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: POS REPORTS (RESTOCK) -->
+            <div id="posSec-reports_restock" class="hidden space-y-4">
+                <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <i class="ph ph-clock-user text-indigo-600"></i> Restock History
+                </h2>
+                
+                <div class="flex gap-2 bg-white p-2 rounded-xl border border-slate-100 shadow-sm items-center">
+                    <select id="restockReportFilter" class="p-2 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 outline-none focus:border-indigo-600" onchange="toggleCustomDate('restock'); fetchRestockReports()">
+                        <option value="monthly">This Month</option>
+                        <option value="quarterly">This Quarter</option>
+                        <option value="yearly">This Year</option>
+                        <option value="custom">Custom Date Range</option>
+                    </select>
+                    
+                    <div id="restockCustomDate" class="hidden flex gap-2 items-center">
+                        <input type="date" id="restockStartDate" class="p-2 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 outline-none focus:border-indigo-600" onchange="fetchRestockReports()">
+                        <span class="text-xs font-bold text-slate-400">to</span>
+                        <input type="date" id="restockEndDate" class="p-2 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 outline-none focus:border-indigo-600" onchange="fetchRestockReports()">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Items Restocked</p>
+                        <h3 class="text-2xl font-black text-slate-800" id="restockTotalItems">0</h3>
+                    </div>
+                    <div class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Total Cost</p>
+                        <h3 class="text-2xl font-black text-indigo-600 font-mono" id="restockTotalCost">₹0.00</h3>
+                    </div>
+                </div>
+
+                <div class="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="table-brutal">
+                            <thead>
+                                <tr>
+                                    <th class="p-3">Date</th>
+                                    <th class="p-3">Item</th>
+                                    <th class="p-3">Qty Added</th>
+                                    <th class="p-3">Cost/Item</th>
+                                    <th class="p-3">By</th>
+                                </tr>
+                            </thead>
+                            <tbody id="restockReportTableBody">
+                                <!-- Populated via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 4: AUDIT LOGS -->
             <div id="posSec-logs" class="hidden space-y-4">
                 <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2"><i class="ph ph-shield-check text-indigo-600"></i> POS Audit Logs</h2>
                 <?php if (empty($posAuditLogs)): ?>
@@ -569,7 +680,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                                                         'POS_CREATE_ORDER' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
                                                         'POS_ORDER_EDIT_FULL' => 'bg-blue-50 text-blue-700 border-blue-200',
                                                         'POS_ORDER_DELETE' => 'bg-rose-50 text-rose-700 border-rose-200',
-                                                        'POS_ORDER_STATUS_UPDATE' => 'bg-amber-50 text-amber-700 border-amber-200',
+                                                        'POS_ORDER_STATUS_UPDATE' => 'bg-indigo-50 text-indigo-700 border-indigo-200',
                                                         'POS_RESTOCK_INVENTORY' => 'bg-indigo-50 text-indigo-700 border-indigo-200',
                                                         'POS_ADD_INVENTORY' => 'bg-purple-50 text-purple-700 border-purple-200',
                                                     ];
@@ -790,24 +901,22 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
         let activeOutletFilter = null;
 
         function togglePosTab(tabId) {
-            // Update URL hash without jumping
-            if (history.pushState) {
-                history.pushState(null, null, '#tab=' + tabId);
-            }
-            document.getElementById('posSec-register').classList.add('hidden');
-            document.getElementById('posSec-inventory').classList.add('hidden');
-            document.getElementById('posSec-orders').classList.add('hidden');
-            document.getElementById('posSec-history').classList.add('hidden');
-            document.getElementById('posSec-logs').classList.add('hidden');
-            
-            document.getElementById('tabBtn-register').className = 'flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition';
-            document.getElementById('tabBtn-inventory').className = 'flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition';
-            document.getElementById('tabBtn-orders').className = 'flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 relative shrink-0 px-3 cursor-pointer transition';
-            document.getElementById('tabBtn-history').className = 'flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition';
-            document.getElementById('tabBtn-logs').className = 'flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition';
-
-            document.getElementById('posSec-' + tabId).classList.remove('hidden');
-            document.getElementById('tabBtn-' + tabId).className = 'flex-1 py-2 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 shrink-0 px-3 cursor-pointer transition';
+            try {
+                if (history.pushState) {
+                    history.pushState(null, null, '#tab=' + tabId);
+                }
+            } catch (e) {}
+            const tabs = ['register', 'orders', 'history', 'inventory', 'reports_orders', 'reports_restock', 'logs'];
+            tabs.forEach(t => {
+                const btn = document.getElementById('tabBtn-' + t);
+                const sec = document.getElementById('posSec-' + t);
+                if (btn) btn.className = 'flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition';
+                if (sec) sec.classList.add('hidden');
+            });
+            const activeBtn = document.getElementById('tabBtn-' + tabId);
+            const activeSec = document.getElementById('posSec-' + tabId);
+            if (activeSec) activeSec.classList.remove('hidden');
+            if (activeBtn) activeBtn.className = 'flex-1 py-2 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 shrink-0 px-3 cursor-pointer transition';
         }
 
         function filterOutlet(outletId) {
@@ -1400,6 +1509,95 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         });
+        function toggleCustomDate(type) {
+            const filter = document.getElementById(type + 'ReportFilter').value;
+            const container = document.getElementById(type + 'CustomDate');
+            if (filter === 'custom') {
+                container.classList.remove('hidden');
+            } else {
+                container.classList.add('hidden');
+            }
+        }
+
+        async function fetchOrderReports() {
+            const filter = document.getElementById('ordersReportFilter').value;
+            const payload = { action: 'get_order_tracking', filter };
+            if (filter === 'custom') {
+                payload.start_date = document.getElementById('ordersStartDate').value;
+                payload.end_date = document.getElementById('ordersEndDate').value;
+                if (!payload.start_date || !payload.end_date) return;
+            }
+            try {
+                const res = await fetch('/api/admin/pos_reports', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<?= CsrfToken::generate() ?>' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('ordersTotalCount').textContent = data.summary.total_orders;
+                    document.getElementById('ordersTotalSales').textContent = '₹' + parseFloat(data.summary.total_sales).toFixed(2);
+                    
+                    const tbody = document.getElementById('ordersReportTableBody');
+                    tbody.innerHTML = '';
+                    data.data.forEach(o => {
+                        tbody.innerHTML += `
+                            <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
+                                <td class="p-3 font-mono font-bold text-slate-800">#${o.id}</td>
+                                <td class="p-3 text-xs text-slate-500">${new Date(o.created_at).toLocaleString()}</td>
+                                <td class="p-3 font-bold text-indigo-600 font-mono">₹${parseFloat(o.total_amount).toFixed(2)}</td>
+                                <td class="p-3 text-xs uppercase font-bold text-slate-500">${o.status}</td>
+                            </tr>
+                        `;
+                    });
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function fetchRestockReports() {
+            const filter = document.getElementById('restockReportFilter').value;
+            const payload = { action: 'get_restock_history', filter };
+            if (filter === 'custom') {
+                payload.start_date = document.getElementById('restockStartDate').value;
+                payload.end_date = document.getElementById('restockEndDate').value;
+                if (!payload.start_date || !payload.end_date) return;
+            }
+            try {
+                const res = await fetch('/api/admin/pos_reports', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<?= CsrfToken::generate() ?>' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('restockTotalItems').textContent = data.summary.total_items;
+                    document.getElementById('restockTotalCost').textContent = '₹' + parseFloat(data.summary.total_cost).toFixed(2);
+                    
+                    const tbody = document.getElementById('restockReportTableBody');
+                    tbody.innerHTML = '';
+                    data.data.forEach(r => {
+                        tbody.innerHTML += `
+                            <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
+                                <td class="p-3 text-xs text-slate-500">${new Date(r.created_at).toLocaleString()}</td>
+                                <td class="p-3 font-bold text-slate-800">
+                                    ${r.item_name} <br>
+                                    <span class="text-[10px] text-slate-400 font-mono">${r.sku || ''}</span>
+                                </td>
+                                <td class="p-3 font-bold text-emerald-600">+${r.qty_added}</td>
+                                <td class="p-3 font-mono font-bold text-slate-700">₹${parseFloat(r.cost_price).toFixed(2)}</td>
+                                <td class="p-3 text-xs text-slate-500">${r.restocked_by_name || 'Unknown'}</td>
+                            </tr>
+                        `;
+                    });
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // Load active tab from URL or fallback to register
         // Load active tab from URL or fallback to register
         window.addEventListener('DOMContentLoaded', () => {
             const urlParams = new URLSearchParams(window.location.search);
@@ -1407,7 +1605,69 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
             const queryTab = urlParams.get('tab');
             const defaultTab = hashTab ? hashTab[1] : (queryTab || 'register');
             togglePosTab(defaultTab);
+            
+            if(defaultTab === 'reports_orders') fetchOrderReports();
+            if(defaultTab === 'reports_restock') fetchRestockReports();
         });
+
+        // Order Notification Polling
+        let lastOrderId = <?= !empty($pendingOrders) ? (int)$pendingOrders[0]['id'] : (!empty($orderHistory) ? (int)$orderHistory[0]['id'] : 0) ?>;
+        
+        function playNotificationBeep() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.15);
+                
+                setTimeout(() => {
+                    const osc2 = audioCtx.createOscillator();
+                    const gain2 = audioCtx.createGain();
+                    osc2.connect(gain2);
+                    gain2.connect(audioCtx.destination);
+                    osc2.type = 'sine';
+                    osc2.frequency.setValueAtTime(659.25, audioCtx.currentTime); // E5
+                    gain2.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                    osc2.start(audioCtx.currentTime);
+                    osc2.stop(audioCtx.currentTime + 0.2);
+                }, 200);
+            } catch(e) { console.error('Beep failed', e); }
+        }
+
+        setInterval(async () => {
+            try {
+                const res = await fetch('/api/admin/pos_actions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<?= CsrfToken::generate() ?>' },
+                    body: JSON.stringify({ action: 'check_new_orders', last_id: lastOrderId })
+                });
+                const data = await res.json();
+                if (data.success && data.new_count > 0) {
+                    lastOrderId = data.latest_id;
+                    playNotificationBeep();
+                    showToast(`You have ${data.new_count} new POS order(s)!`, 'info');
+                    
+                    // Add badge to tab if not active
+                    const ordersTab = document.getElementById('tabBtn-orders');
+                    if (ordersTab && !ordersTab.className.includes('bg-indigo-50')) {
+                        const existingBadge = ordersTab.querySelector('.animate-bounce');
+                        if (existingBadge) {
+                            existingBadge.textContent = parseInt(existingBadge.textContent) + data.new_count;
+                        } else {
+                            ordersTab.innerHTML += `<span class="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[8px] font-black animate-bounce">${data.new_count}</span>`;
+                        }
+                    } else if (ordersTab && ordersTab.className.includes('bg-indigo-50')) {
+                        setTimeout(() => location.reload(), 1500); // Reload if they are already on the orders tab
+                    }
+                }
+            } catch(e) { }
+        }, 15000); // Poll every 15 seconds
     </script>
 </body>
 </html>

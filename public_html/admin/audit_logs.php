@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
-if (!AuthHelper::isSuperAdmin() && ($_SESSION['access_level'] ?? '') !== 'owner') {
+if (!AuthHelper::can('view_audit_logs') && !AuthHelper::can('manage_saas')) {
     header('Location: login.php');
     exit;
 }

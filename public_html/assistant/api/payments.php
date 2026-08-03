@@ -60,6 +60,13 @@ ApiHandler::run(function(\PDO $db) {
         $financeId = (int)$db->lastInsertId();
         SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
 
+        $txnStmt = $db->prepare("SELECT display_id FROM finance_transactions WHERE id = ?");
+        $txnStmt->execute([$financeId]);
+        $txnDisplayId = $txnStmt->fetchColumn();
+        if ($txnDisplayId) {
+            $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref = 'MANUAL' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $receiptId]);
+        }
+
         // Send Telegram notification
         try {
             $tgMsg = "💰 <b>Payment Recorded</b>\n\n<b>Guest:</b> {$booking['guest_name']}\n<b>Room:</b> {$booking['room_number']}\n<b>Amount:</b> ₹" . number_format($amount, 2) . "\n<b>Method:</b> " . ucfirst($paymentMethod);

@@ -268,14 +268,14 @@
             <span>RIGHT NOW</span>
           </button>
 
-          <button class="btn-large btn-outline" style="font-size: 1.2rem; padding: 20px; border-radius: 15px;" onclick="document.getElementById('custom-checkin-div').style.display='block';">
+          <button class="btn-large btn-outline" style="font-size: 1.2rem; padding: 20px; border-radius: 15px;" onclick="app.showCustomCheckIn()">
             📅 Select Custom Date/Time
           </button>
         </div>
 
         <div id="custom-checkin-div" class="glass-panel" style="display: none; padding: 16px; border-radius: var(--border-radius-md); margin-top: 20px;">
           <label style="display: block; font-weight: 700; color: var(--color-brand); margin-bottom: 8px;">Custom Check-in Date & Time</label>
-          <input type="datetime-local" id="stay-custom-checkin" class="form-control" style="font-size: 1.2rem; padding: 12px; border-radius: var(--border-radius-md);" onchange="app.setCustomCheckIn()">
+          <input type="datetime-local" id="stay-custom-checkin" step="600" class="form-control" style="font-size: 1.2rem; padding: 12px; border-radius: var(--border-radius-md);" onchange="app.setCustomCheckIn()">
         </div>
 
         <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">
@@ -308,13 +308,13 @@
           </button>
         </div>
 
-        <button class="btn-large btn-outline" style="width: 100%; font-size: 1.1rem; margin-bottom: 15px;" onclick="document.getElementById('custom-checkout-div').style.display='block';">
+        <button class="btn-large btn-outline" style="width: 100%; font-size: 1.1rem; margin-bottom: 15px;" onclick="app.showCustomCheckOut()">
           📅 Custom Check-out Time
         </button>
 
         <div id="custom-checkout-div" class="glass-panel" style="display: none; padding: 16px; border-radius: var(--border-radius-md); margin-bottom: 14px;">
           <label style="display: block; font-weight: 700; color: var(--color-brand); margin-bottom: 8px;">📅 End Date & Time</label>
-          <input type="datetime-local" id="stay-custom-checkout" class="form-control" style="font-size: 1.2rem; padding: 12px; border-radius: var(--border-radius-md);" onchange="app.setCustomCheckOut()">
+          <input type="datetime-local" id="stay-custom-checkout" step="600" class="form-control" style="font-size: 1.2rem; padding: 12px; border-radius: var(--border-radius-md);" onchange="app.setCustomCheckOut()">
         </div>
 
         <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">
@@ -1041,8 +1041,10 @@
 
 
   <!-- Load App Code -->
-  <script src="js/voice.js"></script>
-  <script src="js/ocr.js"></script>
+  <script src="js/voice_commands.js?v=2"></script>
+  <script src="js/ocr.js?v=2"></script>
+  <script src="js/voice.js?v=2"></script>
+  <script src="js/app.js?v=2"></script>
   <!-- Booking Actions Bottom Sheet -->
   <div class="modal-overlay" id="booking-actions-popup" onclick="app.closeBookingActionsSheet(event)">
     <div class="numpad-container" style="width: 100%; max-height: 88vh; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(30px + env(safe-area-inset-bottom));" onclick="event.stopPropagation()">
@@ -1227,7 +1229,7 @@
     </div>
   </div>
 
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=4"></script>
 
   <!-- FIRST-LAUNCH TUTORIAL OVERLAY -->
   <div id="tutorial-overlay" style="display:none; position:fixed; inset:0; z-index:999; background:rgba(0,0,0,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);">

@@ -19,11 +19,13 @@ require_once __DIR__ . '/../AuditLogger.php';
  */
 class NightAudit {
     private \PDO $db;
+    private int $propertyId;
     private array $actions = [];
     private array $errors = [];
 
-    public function __construct(\PDO $db) {
+    public function __construct(\PDO $db, int $propertyId = 1) {
         $this->db = $db;
+        $this->propertyId = $propertyId;
     }
 
     /**
@@ -98,8 +100,8 @@ class NightAudit {
      * Check if audit already ran today.
      */
     private function alreadyRunToday(string $date): bool {
-        $stmt = $this->db->prepare("SELECT COUNT(*) FROM night_audit_log WHERE audit_date = ?");
-        $stmt->execute([$date]);
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM night_audit_log WHERE audit_date = ? AND property_id = ?");
+        $stmt->execute([$date, $this->propertyId]);
         return (int)$stmt->fetchColumn() > 0;
     }
 
@@ -107,7 +109,9 @@ class NightAudit {
      * Get total rooms count.
      */
     private function getTotalRooms(): int {
-        return (int)$this->db->query("SELECT COUNT(*) FROM rooms")->fetchColumn();
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ?");
+        $stmt->execute([$this->propertyId]);
+        return (int)$stmt->fetchColumn();
     }
 
     /**
@@ -116,10 +120,11 @@ class NightAudit {
     private function getOccupiedRooms(string $today): int {
         $stmt = $this->db->prepare("
             SELECT COUNT(DISTINCT room_id) FROM bookings 
-            WHERE booking_status = 'checked_in'
-               OR (booking_status = 'booked' AND DATE(check_in) <= :today AND DATE(check_out) > :today)
+            WHERE property_id = :propId 
+              AND (booking_status = 'checked_in'
+               OR (booking_status = 'booked' AND DATE(check_in) <= :today AND DATE(check_out) > :today))
         ");
-        $stmt->execute(['today' => $today]);
+        $stmt->execute(['today' => $today, 'propId' => $this->propertyId]);
         return (int)$stmt->fetchColumn();
     }
 
@@ -129,9 +134,9 @@ class NightAudit {
     private function getArrivalsToday(string $today): int {
         $stmt = $this->db->prepare("
             SELECT COUNT(*) FROM bookings 
-            WHERE booking_status = 'booked' AND DATE(check_in) = :today AND payment_status != 'cancelled'
+            WHERE property_id = :propId AND booking_status = 'booked' AND DATE(check_in) = :today AND payment_status != 'cancelled'
         ");
-        $stmt->execute(['today' => $today]);
+        $stmt->execute(['today' => $today, 'propId' => $this->propertyId]);
         return (int)$stmt->fetchColumn();
     }
 
@@ -141,9 +146,9 @@ class NightAudit {
     private function getDeparturesToday(string $today): int {
         $stmt = $this->db->prepare("
             SELECT COUNT(*) FROM bookings 
-            WHERE booking_status = 'checked_in' AND DATE(check_out) = :today AND payment_status != 'cancelled'
+            WHERE property_id = :propId AND booking_status = 'checked_in' AND DATE(check_out) = :today AND payment_status != 'cancelled'
         ");
-        $stmt->execute(['today' => $today]);
+        $stmt->execute(['today' => $today, 'propId' => $this->propertyId]);
         return (int)$stmt->fetchColumn();
     }
 
@@ -168,11 +173,12 @@ class NightAudit {
             FROM bookings b
             JOIN rooms r ON b.room_id = r.id
             LEFT JOIN guests g ON b.guest_id = g.id
-            WHERE b.booking_status = 'checked_in'
+            WHERE b.property_id = :propId 
+              AND b.booking_status = 'checked_in'
               AND b.check_out < NOW()
               AND b.payment_status != 'cancelled'
         ");
-        $stmt->execute();
+        $stmt->execute(['propId' => $this->propertyId]);
         $overdueBookings = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         
         $result['overdue_count'] = count($overdueBookings);
@@ -192,8 +198,8 @@ class NightAudit {
                 
                 // Mark room dirty
                 if ($markDirty) {
-                    $this->db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?")
-                        ->execute([$booking['room_id']]);
+                    $this->db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ? AND property_id = ?")
+                        ->execute([$booking['room_id'], $this->propertyId]);
                     $result['dirty_count']++;
                 }
                 
@@ -251,9 +257,9 @@ class NightAudit {
         // Collected: negative amounts (payments) today
         $stmt = $this->db->prepare("
             SELECT COALESCE(SUM(ABS(amount)), 0) FROM folio_ledger 
-            WHERE amount < 0 AND DATE(recorded_at) = :today
+            WHERE property_id = :propId AND amount < 0 AND DATE(recorded_at) = :today
         ");
-        $stmt->execute(['today' => $today]);
+        $stmt->execute(['today' => $today, 'propId' => $this->propertyId]);
         $collected = (float)$stmt->fetchColumn();
         
         // Pending: Sum positive net balances across active bookings
@@ -262,13 +268,14 @@ class NightAudit {
                 SELECT SUM(fl.amount) as booking_balance
                 FROM folio_ledger fl
                 JOIN bookings b ON fl.booking_id = b.id
-                WHERE b.booking_status IN ('booked', 'checked_in')
+                WHERE b.property_id = :propId 
+                  AND b.booking_status IN ('booked', 'checked_in')
                   AND b.payment_status != 'cancelled'
                 GROUP BY fl.booking_id
                 HAVING booking_balance > 0
             ) active_dues
         ");
-        $stmt->execute();
+        $stmt->execute(['propId' => $this->propertyId]);
         $pending = (float)$stmt->fetchColumn();
         
         return ['collected' => $collected, 'pending' => $pending];
@@ -280,15 +287,16 @@ class NightAudit {
     private function logAudit(array $result, string $runBy): void {
         $stmt = $this->db->prepare("
             INSERT INTO night_audit_log 
-            (audit_date, run_by, total_rooms, occupied_rooms, arrivals_today, departures_today, 
+            (property_id, audit_date, run_by, total_rooms, occupied_rooms, arrivals_today, departures_today, 
              overdue_checkouts, auto_checkout_count, rooms_marked_dirty, revenue_collected, revenue_pending, 
              actions_json, status, error_message)
             VALUES 
-            (:audit_date, :run_by, :total_rooms, :occupied_rooms, :arrivals_today, :departures_today,
+            (:propId, :audit_date, :run_by, :total_rooms, :occupied_rooms, :arrivals_today, :departures_today,
              :overdue_checkouts, :auto_checkout_count, :rooms_marked_dirty, :revenue_collected, :revenue_pending,
              :actions_json, :status, :error_message)
         ");
         $stmt->execute([
+            'propId' => $this->propertyId,
             'audit_date' => $result['audit_date'],
             'run_by' => $runBy,
             'total_rooms' => $result['total_rooms'],
@@ -337,8 +345,8 @@ class NightAudit {
         }
         
         if ($reportRoomStatus) {
-            $dirtyStmt = $this->db->prepare("SELECT COUNT(*) FROM rooms WHERE state = 'dirty'");
-            $dirtyStmt->execute();
+            $dirtyStmt = $this->db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ? AND state = 'dirty'");
+            $dirtyStmt->execute([$this->propertyId]);
             $dirtyCount = (int)$dirtyStmt->fetchColumn();
             $lines[] = "🧹 <b>Dirty Rooms:</b> {$dirtyCount}";
         }
@@ -384,8 +392,8 @@ class NightAudit {
      * Get a system setting value.
      */
     private function getSetting(string $key, string $default = ''): string {
-        $stmt = $this->db->prepare("SELECT key_value FROM system_settings WHERE key_name = ?");
-        $stmt->execute([$key]);
+        $stmt = $this->db->prepare("SELECT key_value FROM system_settings WHERE key_name = ? AND property_id = ?");
+        $stmt->execute([$key, $this->propertyId]);
         $value = $stmt->fetchColumn();
         return $value !== false ? $value : $default;
     }
@@ -393,17 +401,18 @@ class NightAudit {
     /**
      * Get audit history for display.
      */
-    public static function getHistory(\PDO $db, int $limit = 30): array {
-        $stmt = $db->prepare("SELECT * FROM night_audit_log ORDER BY audit_date DESC LIMIT ?");
-        $stmt->execute([$limit]);
+    public static function getHistory(\PDO $db, int $propertyId, int $limit = 30): array {
+        $stmt = $db->prepare("SELECT * FROM night_audit_log WHERE property_id = ? ORDER BY audit_date DESC LIMIT ?");
+        $stmt->execute([$propertyId, $limit]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
     /**
      * Get the last audit run.
      */
-    public static function getLastAudit(\PDO $db): ?array {
-        $stmt = $db->query("SELECT * FROM night_audit_log ORDER BY audit_date DESC LIMIT 1");
+    public static function getLastAudit(\PDO $db, int $propertyId): ?array {
+        $stmt = $db->prepare("SELECT * FROM night_audit_log WHERE property_id = ? ORDER BY audit_date DESC LIMIT 1");
+        $stmt->execute([$propertyId]);
         $result = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $result ?: null;
     }

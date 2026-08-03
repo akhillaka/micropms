@@ -8,6 +8,30 @@ CsrfToken::checkTimeout();
 require_once __DIR__ . '/../../pms_core/Database.php';
 $db = Database::getInstance()->getConnection();
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    if (($data['action'] ?? '') === 'update_folio_id') {
+        header('Content-Type: application/json');
+        try {
+            $newFolioId = trim($data['offline_folio_id'] ?? '');
+            $bookingId = (int)($data['booking_id'] ?? 0);
+            if ($bookingId <= 0) {
+                echo json_encode(['success' => false, 'message' => 'Invalid booking ID']);
+                exit;
+            }
+            
+            $propId = AuthHelper::getPropertyId();
+            $stmt = $db->prepare("UPDATE bookings SET offline_folio_id = ? WHERE id = ? AND property_id = ?");
+            $stmt->execute([$newFolioId, $bookingId, $propId]);
+            
+            echo json_encode(['success' => true, 'message' => 'Folio ID updated successfully']);
+        } catch (\Exception $e) {
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+        exit;
+    }
+}
+
 $id = $_GET['id'] ?? null;
 if (!$id) render_error_page('Missing Booking ID', 'A booking ID is required to view the folio.', 400);
 
@@ -17,6 +41,7 @@ $booking = $stmt->fetch();
 
 if (!$booking) render_error_page('Booking Not Found', 'The requested booking does not exist or has been deleted.', 404);
 
+$propertyId = (int)$booking['property_id'];
 $pmStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods'");
 $pmJson = $pmStmt->fetchColumn();
 $paymentMethods = $pmJson ? json_decode($pmJson, true) : [];
@@ -68,11 +93,13 @@ if ($taxEnabled) {
 $balance = $totalCharges - $totalPayments + $refundsIssued;
 
 // Fetch all rooms for dropdown
-$roomsStmt = $db->query("SELECT r.*, c.name as cat_name FROM rooms r JOIN room_categories c ON r.category_id = c.id ORDER BY r.room_number");
+$roomsStmt = $db->prepare("SELECT r.*, c.name as cat_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.property_id = :pid ORDER BY r.room_number");
+$roomsStmt->execute(['pid' => $propertyId]);
 $allRooms = $roomsStmt->fetchAll();
 
 // Fetch all distinct rate plans
-$ratePlansStmt = $db->query("SELECT DISTINCT category_id, rate_plan_name FROM sliding_rates");
+$ratePlansStmt = $db->prepare("SELECT DISTINCT category_id, rate_plan_name FROM sliding_rates WHERE property_id = :pid");
+$ratePlansStmt->execute(['pid' => $propertyId]);
 $ratePlansRaw = $ratePlansStmt->fetchAll();
 $catRatePlans = [];
 foreach($ratePlansRaw as $rp) {
@@ -206,7 +233,12 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <div class="flex flex-wrap items-center gap-3">
                         <h2 class="text-2xl font-extrabold text-slate-900 tracking-tight font-display"><?= htmlspecialchars($booking['guest_name']) ?></h2>
                         <span class="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-0.5 rounded-md">Booking ID: <?= htmlspecialchars($booking['display_id'] ?? $id) ?></span>
-                        <span class="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-0.5 rounded-md">Folio ID: <?= htmlspecialchars($booking['offline_folio_id'] ?? 'N/A') ?></span>
+                        <span class="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                            Folio ID: <span id="offline_folio_id_display"><?= htmlspecialchars($booking['offline_folio_id'] ?? 'N/A') ?></span>
+                            <button onclick="editOfflineFolioId(<?= $id ?>, '<?= htmlspecialchars($booking['offline_folio_id'] ?? '') ?>')" class="text-indigo-600 hover:text-indigo-900 ml-1" title="Edit Folio ID">
+                                <i class="ph ph-pencil-simple text-xs"></i>
+                            </button>
+                        </span>
                         <span class="stayflexi-badge <?= $statusColor ?>"><?= $status ?></span>
                         <?php 
                         $bSource = $booking['booking_source'] ?? 'Walk-in';
@@ -395,6 +427,14 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <div class="flex-1">
                             <input type="text" id="incidental_name" placeholder="Incidental description (e.g. Breakfast, Laundry)" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none focus:ring-0 focus:shadow-minimal transition-all">
                         </div>
+                        <div class="w-full sm:w-48">
+                            <select id="incidental_category" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none focus:ring-0 focus:shadow-minimal transition-all">
+                                <option value="Misc">Miscellaneous (Other)</option>
+                                <option value="booking">Room Rent / Booking</option>
+                                <option value="F&B">Food & Beverage</option>
+                                <option value="Laundry">Laundry</option>
+                            </select>
+                        </div>
                         <div class="w-full sm:w-40">
                             <input type="number" id="incidental_amount" placeholder="Amount (₹)" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none focus:ring-0 focus:shadow-minimal transition-all">
                         </div>
@@ -414,11 +454,14 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <table class="table-brutal w-full">
                             <thead>
                                 <tr>
+                                    <th class="px-5 py-3 text-left">#</th>
                                     <th class="px-5 py-3 text-left">Date</th>
                                     <th class="px-5 py-3 text-left">Room</th>
                                     <th class="px-5 py-3 text-left">Description</th>
+                                    <th class="px-5 py-3 text-left">Category</th>
                                     <th class="px-5 py-3 text-left">Type</th>
                                     <th class="px-5 py-3 text-left">Method</th>
+                                    <th class="px-5 py-3 text-left">Transaction ID</th>
                                     <th class="px-5 py-3 text-right">Net</th>
                                     <th class="px-5 py-3 text-right">Tax</th>
                                     <th class="px-5 py-3 text-right">Gross</th>
@@ -429,22 +472,51 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                             <tbody>
                                 <?php 
                                 $runningBalance = 0;
+                                $srNo = 1;
                                 foreach($ledger as $l): 
                                     $isDebit = (float)$l['amount'] > 0;
                                     $typeLabel = $isDebit ? 'DEBIT' : 'CREDIT';
                                     $typeColor = $isDebit ? 'text-rose-600 bg-rose-50' : 'text-emerald-600 bg-emerald-50';
                                     $runningBalance += (float)$l['amount'];
                                     $runBalColor = $runningBalance > 0 ? 'text-rose-600' : 'text-emerald-600';
+                                    
+                                    // Formatting the Category
+                                    $rawCat = strtolower(trim($l['category'] ?? ''));
+                                    if (empty($rawCat) && $l['transaction_type'] === 'ROOM_CHARGE') {
+                                        $rawCat = 'booking';
+                                    }
+                                    if (empty($rawCat) && stripos($l['description'], 'Room') !== false) {
+                                        $rawCat = 'booking';
+                                    }
+                                    
+                                    if ($rawCat === 'booking' || $rawCat === 'room') {
+                                        $displayCat = $isDebit ? 'Room Booking Due' : 'Room Received Payment';
+                                    } elseif ($rawCat === 'f&b') {
+                                        $displayCat = $isDebit ? 'F&B Due' : 'F&B Payments';
+                                    } elseif ($rawCat === 'laundry') {
+                                        $displayCat = $isDebit ? 'Laundry Due' : 'Laundry Payments';
+                                    } elseif ($rawCat === 'misc') {
+                                        $displayCat = $isDebit ? 'Misc Due' : 'Misc Payments';
+                                    } elseif ($rawCat === 'pos') {
+                                        $displayCat = $isDebit ? 'POS Due' : 'POS Payments';
+                                    } else {
+                                        $displayCat = $rawCat ? (ucfirst($rawCat) . ($isDebit ? ' Due' : ' Payments')) : '-';
+                                    }
                                 ?>
-                                <tr class="hover:bg-slate-50/50 transition-colors">
+                                <tr class="hover:bg-slate-50/50 transition-colors" data-display-id="<?= htmlspecialchars($l['display_id'] ?? '') ?>" data-category="<?= htmlspecialchars($l['category'] ?? '') ?>" data-amount="<?= abs($l['amount']) ?>">
+                                    <td class="px-5 py-3 whitespace-nowrap text-xs text-slate-500 font-bold"><?= $srNo++ ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-xs text-slate-500 font-semibold"><?= date('d M Y g:i A', strtotime($l['recorded_at'])) ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-xs font-bold text-slate-700">Room <?= htmlspecialchars($booking['room_number']) ?></td>
                                     <td class="px-5 py-3 text-xs font-bold text-slate-800"><?= htmlspecialchars($l['description']) ?></td>
+                                    <td class="px-5 py-3 text-xs font-bold text-slate-500 uppercase"><?= htmlspecialchars($displayCat) ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap">
                                         <span class="inline-flex px-2 py-0.5 rounded text-[9px] font-bold <?= $typeColor ?>"><?= $typeLabel ?></span>
                                     </td>
                                     <td class="px-5 py-3 whitespace-nowrap text-xs font-semibold text-slate-500">
                                         <?= htmlspecialchars($l['payment_method'] ?? '-') ?>
+                                    </td>
+                                    <td class="px-5 py-3 whitespace-nowrap text-xs font-semibold text-slate-500">
+                                        <?= htmlspecialchars($l['transaction_ref'] ?? '—') ?>
                                     </td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-semibold text-slate-700">₹<?= number_format(abs($l['amount']), 2) ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-semibold text-slate-400">—</td>
@@ -456,7 +528,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                         <?php elseif (preg_match('/Order #(\d+)/', $l['description'], $matches) && strpos($l['description'], 'Reverse') === false): ?>
                                             <a href="modules/pos/pos.php?edit_order=<?= $matches[1] ?>" class="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 transition-colors text-[10px] uppercase tracking-wider inline-flex items-center gap-1" title="Edit POS Order"><i class="ph-bold ph-pencil-simple text-[10px]"></i> POS Order</a>
                                         <?php else: ?>
-                                            <button onclick="openEditLedger(<?= $l['id'] ?>, '<?= htmlspecialchars(addslashes($l['description'] ?? '')) ?>', <?= abs($l['amount']) ?>, '<?= htmlspecialchars(addslashes($l['payment_method'] ?? '')) ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
+                                            <button onclick="openEditLedger(<?= $l['id'] ?>, '<?= htmlspecialchars(addslashes($l['description'] ?? '')) ?>', <?= abs($l['amount']) ?>, '<?= htmlspecialchars(addslashes($l['payment_method'] ?? '')) ?>', '<?= htmlspecialchars(addslashes($l['display_id'] ?? '')) ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
                                             <button onclick="deleteLedger(<?= $l['id'] ?>)" class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-trash text-sm"></i></button>
                                         <?php endif; ?>
                                     </td>
@@ -752,10 +824,39 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <select id="edit_l_method" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                             <option value="">N/A (Charge)</option>
                             <?php foreach($paymentMethods as $pm): ?>
-                                <option value="<?= htmlspecialchars($pm) ?>"><?= htmlspecialchars($pm) ?></option>
+                                <option value="<?= htmlspecialchars(strtolower($pm)) ?>"><?= htmlspecialchars($pm) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
+
+                    <div class="flex items-center gap-2 my-2" id="edit_l_split_toggle_container">
+                        <input type="checkbox" id="edit_l_split_toggle" onchange="toggleEditSplitPayment(this.checked)" class="rounded text-indigo-600 focus:ring-indigo-500">
+                        <label for="edit_l_split_toggle" class="text-xs font-bold text-slate-600 uppercase tracking-wider cursor-pointer">Split Payment Category-wise</label>
+                    </div>
+
+                    <div id="edit_l_splits_container" class="hidden space-y-3 mt-3 border-t border-slate-100 pt-3">
+                        <div class="text-[10px] font-bold text-slate-400 uppercase mb-2">Allocate amounts (Sum must equal Total Amount)</div>
+                        <div class="space-y-2" id="edit_l_split_rows">
+                            <div class="flex gap-2 items-center">
+                                <span class="text-xs font-bold text-slate-500 w-24">Room Rent:</span>
+                                <input type="number" data-category="booking" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold edit-l-split-amount" placeholder="0.00" value="0" oninput="validateEditSplitSum()">
+                            </div>
+                            <div class="flex gap-2 items-center">
+                                <span class="text-xs font-bold text-slate-500 w-24">F & B:</span>
+                                <input type="number" data-category="F&B" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold edit-l-split-amount" placeholder="0.00" value="0" oninput="validateEditSplitSum()">
+                            </div>
+                            <div class="flex gap-2 items-center">
+                                <span class="text-xs font-bold text-slate-500 w-24">Laundry:</span>
+                                <input type="number" data-category="Laundry" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold edit-l-split-amount" placeholder="0.00" value="0" oninput="validateEditSplitSum()">
+                            </div>
+                            <div class="flex gap-2 items-center">
+                                <span class="text-xs font-bold text-slate-500 w-24">Misc:</span>
+                                <input type="number" data-category="Misc" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold edit-l-split-amount" placeholder="0.00" value="0" oninput="validateEditSplitSum()">
+                            </div>
+                        </div>
+                        <div id="edit_l_split_validation_msg" class="text-[10px] font-bold text-rose-500 hidden">Allocated sum does not match total amount.</div>
+                    </div>
+
                     <button onclick="saveLedgerEdit(this)" class="w-full btn-glass mt-4 text-xs font-bold uppercase tracking-wider active:scale-[0.98]">Save Changes</button>
                 </div>
             </div>
@@ -770,10 +871,45 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                 <p class="text-slate-400 font-semibold text-xs mb-6">Balance Due: ₹<span id="cp_amount_display"><?= number_format($balance, 2) ?></span></p>
                 
                 <div class="space-y-4">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Amount to Collect (₹)</label>
-                        <input type="number" id="cp_amount" min="0" value="<?= $balance ?>" class="w-full input-glass rounded-xl p-3 text-lg font-bold text-slate-800">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Amount to Collect (₹)</label>
+                            <input type="number" id="cp_amount" min="0" value="<?= $balance ?>" class="w-full input-glass rounded-xl p-3 text-lg font-bold text-slate-800">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Payment Date & Time</label>
+                            <input type="datetime-local" id="cp_date" class="w-full input-glass rounded-xl p-3 text-sm text-slate-800" value="<?= date('Y-m-d\TH:i') ?>">
+                        </div>
                     </div>
+                    
+                    <div class="flex items-center gap-2 my-2">
+                        <input type="checkbox" id="cp_split_toggle" onchange="toggleSplitPayment(this.checked)" class="rounded text-indigo-600 focus:ring-indigo-500">
+                        <label for="cp_split_toggle" class="text-xs font-bold text-slate-600 uppercase tracking-wider cursor-pointer">Split Payment Category-wise</label>
+                    </div>
+
+                    <div id="cp_splits_container" class="hidden space-y-3 mt-3 border-t border-slate-100 pt-3">
+                        <div class="text-[10px] font-bold text-slate-400 uppercase mb-2">Allocate amounts (Sum must equal Total Amount)</div>
+                        <div class="space-y-2" id="cp_split_rows">
+                            <div class="flex gap-2 items-center">
+                                <span class="text-xs font-bold text-slate-500 w-24">Room Rent:</span>
+                                <input type="number" data-category="booking" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold cp-split-amount" placeholder="0.00" value="0" oninput="validateSplitSum()">
+                            </div>
+                            <div class="flex gap-2 items-center">
+                                <span class="text-xs font-bold text-slate-500 w-24">F & B:</span>
+                                <input type="number" data-category="F&B" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold cp-split-amount" placeholder="0.00" value="0" oninput="validateSplitSum()">
+                            </div>
+                            <div class="flex gap-2 items-center">
+                                <span class="text-xs font-bold text-slate-500 w-24">Laundry:</span>
+                                <input type="number" data-category="Laundry" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold cp-split-amount" placeholder="0.00" value="0" oninput="validateSplitSum()">
+                            </div>
+                            <div class="flex gap-2 items-center">
+                                <span class="text-xs font-bold text-slate-500 w-24">Misc:</span>
+                                <input type="number" data-category="Misc" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold cp-split-amount" placeholder="0.00" value="0" oninput="validateSplitSum()">
+                            </div>
+                        </div>
+                        <div id="split_validation_msg" class="text-[10px] font-bold text-rose-500 hidden">Allocated sum does not match total amount.</div>
+                    </div>
+
                     <div class="grid grid-cols-2 gap-3 mt-4">
                         <?php foreach($paymentMethods as $pm): 
                             $pmLower = strtolower($pm);
@@ -904,6 +1040,31 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     btn.classList.remove('active');
                 }
             });
+        }
+
+        async function editOfflineFolioId(bookingId, currentVal) {
+            const newVal = prompt("Enter new Folio ID:", currentVal);
+            if (newVal === null) return;
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            try {
+                const res = await fetch('folio.php?id=' + bookingId, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken
+                    },
+                    body: JSON.stringify({ action: 'update_folio_id', booking_id: bookingId, offline_folio_id: newVal })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('offline_folio_id_display').textContent = newVal || 'N/A';
+                    showToast('Folio ID updated successfully!');
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch(e) {
+                alert('Connection error');
+            }
         }
     </script>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>

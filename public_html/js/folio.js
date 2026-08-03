@@ -180,6 +180,7 @@ function prefillCharge(name, amount) {
 async function postCharge(btn) {
     const itemName = document.getElementById('incidental_name').value;
     const amount = parseFloat(document.getElementById('incidental_amount').value);
+    const category = document.getElementById('incidental_category')?.value || 'Misc';
 
     if(!itemName || !amount || amount <= 0) {
         showToast('Enter valid item and amount');
@@ -194,7 +195,7 @@ async function postCharge(btn) {
         const res = await fetch('/api/admin/post_charge', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ booking_id: bookingId, item_name: itemName, amount: amount })
+            body: JSON.stringify({ booking_id: bookingId, item_name: itemName, amount: amount, category: category })
         });
         const data = await res.json();
         if(data.success) {
@@ -275,12 +276,82 @@ async function saveGuestEdit(btn) {
     if(data.success) location.reload(); else { showToast(data.message); UI.setLoading(btn, false); }
 }
 
-function openEditLedger(id, desc, amt, method = '') {
+function openEditLedger(id, desc, amt, method = '', displayId = '') {
     document.getElementById('edit_l_id').value = id;
     document.getElementById('edit_l_desc').value = desc;
     document.getElementById('edit_l_amount').value = amt;
     document.getElementById('edit_l_method').value = method;
+
+    const toggleContainer = document.getElementById('edit_l_split_toggle_container');
+    const splitToggle = document.getElementById('edit_l_split_toggle');
+    const splitsContainer = document.getElementById('edit_l_splits_container');
+    
+    if (splitToggle) splitToggle.checked = false;
+    if (splitsContainer) splitsContainer.classList.add('hidden');
+    
+    // Reset all split inputs first
+    document.querySelectorAll('.edit-l-split-amount').forEach(el => el.value = 0);
+    
+    if (method && method !== '') {
+        if (toggleContainer) toggleContainer.classList.remove('hidden');
+        
+        // If it was already split, let's auto-fill the bifurcation
+        if (displayId && displayId !== '') {
+            const siblingRows = document.querySelectorAll(`tr[data-display-id="${displayId}"]`);
+            if (siblingRows.length > 1) {
+                if (splitToggle) splitToggle.checked = true;
+                if (splitsContainer) splitsContainer.classList.remove('hidden');
+                
+                let combinedTotal = 0;
+                siblingRows.forEach(row => {
+                    const cat = row.getAttribute('data-category');
+                    const val = parseFloat(row.getAttribute('data-amount')) || 0;
+                    combinedTotal += val;
+                    
+                    const input = document.querySelector(`.edit-l-split-amount[data-category="${cat}"]`);
+                    if (input) {
+                        input.value = val;
+                    }
+                });
+                
+                // Override the total amount input to show the combined original amount
+                document.getElementById('edit_l_amount').value = combinedTotal;
+            }
+        }
+    } else {
+        if (toggleContainer) toggleContainer.classList.add('hidden');
+    }
+
     UI.showModal('edit-ledger-modal');
+}
+
+function toggleEditSplitPayment(visible) {
+    const container = document.getElementById('edit_l_splits_container');
+    if (visible) {
+        container.classList.remove('hidden');
+        const total = parseFloat(document.getElementById('edit_l_amount').value) || 0;
+        document.querySelectorAll('.edit-l-split-amount').forEach(el => el.value = 0);
+        document.querySelector('.edit-l-split-amount[data-category="booking"]').value = total;
+    } else {
+        container.classList.add('hidden');
+    }
+}
+
+function validateEditSplitSum() {
+    const total = parseFloat(document.getElementById('edit_l_amount').value) || 0;
+    let sum = 0;
+    document.querySelectorAll('.edit-l-split-amount').forEach(el => {
+        sum += parseFloat(el.value) || 0;
+    });
+    const msg = document.getElementById('edit_l_split_validation_msg');
+    const isSplit = document.getElementById('edit_l_split_toggle').checked;
+    if (isSplit && Math.abs(sum - total) > 0.01) {
+        msg.classList.remove('hidden');
+        return false;
+    } else {
+        msg.classList.add('hidden');
+        return true;
+    }
 }
 
 async function saveLedgerEdit(btn) {
@@ -290,11 +361,29 @@ async function saveLedgerEdit(btn) {
     const amt = document.getElementById('edit_l_amount').value;
     const method = document.getElementById('edit_l_method').value;
 
+    const isSplit = document.getElementById('edit_l_split_toggle').checked;
+    let splits = [];
+    if (isSplit) {
+        if (!validateEditSplitSum()) {
+            UI.setLoading(btn, false);
+            return showToast('Allocated split amounts must equal total amount.');
+        }
+        document.querySelectorAll('.edit-l-split-amount').forEach(el => {
+            const val = parseFloat(el.value) || 0;
+            if (val > 0) {
+                splits.push({
+                    category: el.getAttribute('data-category'),
+                    amount: val
+                });
+            }
+        });
+    }
+
     try {
         const res = await fetch('/api/admin/edit_ledger', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ ledger_id: id, description: desc, amount: amt, payment_method: method })
+            body: JSON.stringify({ ledger_id: id, description: desc, amount: amt, payment_method: method, splits: splits })
         });
         const data = await res.json();
         if(data.success) location.reload(); else { showToast(data.message); UI.setLoading(btn, false); }
@@ -382,9 +471,58 @@ async function uploadDoc(type, input) {
     }
 }
 
+function toggleSplitPayment(visible) {
+    const container = document.getElementById('cp_splits_container');
+    if (visible) {
+        container.classList.remove('hidden');
+        const total = parseFloat(document.getElementById('cp_amount').value) || 0;
+        document.querySelectorAll('.cp-split-amount').forEach(el => el.value = 0);
+        document.querySelector('.cp-split-amount[data-category="booking"]').value = total;
+    } else {
+        container.classList.add('hidden');
+    }
+}
+
+function validateSplitSum() {
+    const total = parseFloat(document.getElementById('cp_amount').value) || 0;
+    let sum = 0;
+    document.querySelectorAll('.cp-split-amount').forEach(el => {
+        sum += parseFloat(el.value) || 0;
+    });
+    const msg = document.getElementById('split_validation_msg');
+    const isSplit = document.getElementById('cp_split_toggle').checked;
+    if (isSplit && Math.abs(sum - total) > 0.01) {
+        msg.classList.remove('hidden');
+        return false;
+    } else {
+        msg.classList.add('hidden');
+        return true;
+    }
+}
+
 async function recordManualPayment(btn, method) {
     const amt = parseFloat(document.getElementById('cp_amount').value);
     if(amt <= 0) return showToast('Invalid amount');
+    
+    const date = document.getElementById('cp_date').value;
+    const isSplit = document.getElementById('cp_split_toggle').checked;
+    let splits = [];
+    
+    if (isSplit) {
+        if (!validateSplitSum()) {
+            return showToast('Allocated split amounts must equal total amount.');
+        }
+        document.querySelectorAll('.cp-split-amount').forEach(el => {
+            const val = parseFloat(el.value) || 0;
+            if (val > 0) {
+                splits.push({
+                    category: el.getAttribute('data-category'),
+                    amount: val
+                });
+            }
+        });
+    }
+
     if(!confirm(`Record ₹${amt} payment via ${method.toUpperCase()}?`)) return;
 
     const originalHTML = btn.innerHTML;
@@ -393,8 +531,15 @@ async function recordManualPayment(btn, method) {
 
     try {
         const res = await fetch('/api/admin/record_payment', {
-            method: 'POST', body: JSON.stringify({
-                booking_id: bookingId, amount: amt, method: method, ref: 'MANUAL_' + Date.now()
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                booking_id: bookingId,
+                amount: amt,
+                method: method,
+                ref: 'MANUAL_' + Date.now(),
+                date: date,
+                splits: splits
             })
         });
         const data = await res.json();
@@ -413,6 +558,25 @@ async function sendPaymentLink(btn) {
 async function payViaGateway(btn) {
     const amt = parseFloat(document.getElementById('cp_amount').value);
     if(amt <= 0 || isNaN(amt)) return showToast('Invalid amount');
+
+    const date = document.getElementById('cp_date').value;
+    const isSplit = document.getElementById('cp_split_toggle').checked;
+    let splits = [];
+    
+    if (isSplit) {
+        if (!validateSplitSum()) {
+            return showToast('Allocated split amounts must equal total amount.');
+        }
+        document.querySelectorAll('.cp-split-amount').forEach(el => {
+            const val = parseFloat(el.value) || 0;
+            if (val > 0) {
+                splits.push({
+                    category: el.getAttribute('data-category'),
+                    amount: val
+                });
+            }
+        });
+    }
 
     const originalHTML = btn.innerHTML;
     btn.innerHTML = 'Wait...';
@@ -453,7 +617,12 @@ async function payViaGateway(btn) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    booking_id: bookingId, amount: amt, method: 'Razorpay', ref: response.razorpay_payment_id
+                    booking_id: bookingId,
+                    amount: amt,
+                    method: 'Razorpay',
+                    ref: response.razorpay_payment_id,
+                    date: date,
+                    splits: splits
                 })
             });
             const data = await res.json();

@@ -45,24 +45,26 @@ if (!$ledgerId) {
         
         if ($canDelete) {
             // Hard delete
-            $delFinStmt = $db->prepare("DELETE FROM finance_transactions WHERE booking_id = :bid AND description LIKE :desc");
+            $delFinStmt = $db->prepare("DELETE FROM finance_transactions WHERE booking_id = :bid AND description LIKE :desc AND property_id = :pid");
             $delFinStmt->execute([
                 'bid' => $bId,
-                'desc' => "%{$displayId}%"
+                'desc' => "%{$displayId}%",
+                'pid' => $currentPropertyId
             ]);
             
-            $stmt = $db->prepare("DELETE FROM folio_ledger WHERE id = :id");
-            $stmt->execute(['id' => $ledgerId]);
+            $stmt = $db->prepare("DELETE FROM folio_ledger WHERE id = :id AND property_id = :pid");
+            $stmt->execute(['id' => $ledgerId, 'pid' => $currentPropertyId]);
         } else {
             // Role based immutability - post a rebate instead
             $rebateAmount = -(float)$info['amount'];
             
             // Insert rebate into folio_ledger
             $rebateStmt = $db->prepare("
-                INSERT INTO folio_ledger (booking_id, amount, description, type, recorded_by, created_at, cgst_amount, sgst_amount)
-                VALUES (:bid, :amt, :desc, :type, :uid, NOW(), 0, 0)
+                INSERT INTO folio_ledger (property_id, booking_id, amount, description, type, recorded_by, created_at, cgst_amount, sgst_amount)
+                VALUES (:pid, :bid, :amt, :desc, :type, :uid, NOW(), 0, 0)
             ");
             $rebateStmt->execute([
+                'pid' => $currentPropertyId,
                 'bid' => $bId,
                 'amt' => $rebateAmount,
                 'desc' => "Rebate for: " . $info['description'] . " (Ref: {$displayId})",

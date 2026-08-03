@@ -182,6 +182,17 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::success(['invoice_link' => $link]);
     }
 
+    // Action: Get booking balance/due
+    elseif ($action === 'get_balance') {
+        $bookingId = (int)($data['booking_id'] ?? $_GET['booking_id'] ?? 0);
+        if (!$bookingId) {
+            ApiResponse::error('Missing booking ID');
+        }
+        require_once __DIR__ . '/../../../pms_core/services/FolioService.php';
+        $balance = FolioService::getBalance($db, $bookingId);
+        ApiResponse::success(['balance' => max(0.0, $balance)]);
+    }
+
     else {
         ApiResponse::error('Invalid action');
     }

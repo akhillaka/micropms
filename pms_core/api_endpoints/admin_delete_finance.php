@@ -14,8 +14,9 @@ if (!isset($data['id'])) {
 }
 
 
-    $stmt = $db->prepare("DELETE FROM finance_transactions WHERE id = :id");
-    $stmt->execute(['id' => $data['id']]);
+    $propertyId = AuthHelper::getPropertyId();
+    $stmt = $db->prepare("DELETE FROM finance_transactions WHERE id = :id AND property_id = :prop_id");
+    $stmt->execute(['id' => $data['id'], 'prop_id' => $propertyId]);
     
     AuditLogger::log($_SESSION['user_id'] ?? null, 'DELETE_FINANCE', 'SYSTEM', $data['id']);
     

@@ -27,19 +27,19 @@ $_pms_hotel_logo = defined('PROPERTY_LOGO_BASE64') ? PROPERTY_LOGO_BASE64 : '';
                 },
                 colors: {
                     brand: {
-                        50: '#F0F4FC',
-                        100: '#DBE2F4',
-                        200: '#BFCEEC',
-                        300: '#99B2DF',
-                        400: '#6F91CF',
-                        500: '#1E3A8A',
-                        600: '#1A3279',
-                        700: '#162963',
-                        800: '#101E49',
-                        900: '#080F25',
-                        accent: '#CA8A04',
-                        accentHover: '#A16E03',
-                        accentLight: '#FEF9EC'
+                        50: '#EEF2FF',
+                        100: '#E0E7FF',
+                        200: '#C7D2FE',
+                        300: '#A5B4FC',
+                        400: '#818CF8',
+                        500: '#4F46E5',
+                        600: '#4338CA',
+                        700: '#3730A3',
+                        800: '#312E81',
+                        900: '#1E1B4B',
+                        accent: '#10B981',
+                        accentHover: '#059669',
+                        accentLight: '#ECFDF5'
                     },
                     success: { 50: '#F0FDF4', 100: '#DCFCE7', 500: '#22C55E', 600: '#16A34A', 700: '#15803D' },
                     error:   { 50: '#FEF2F2', 100: '#FEE2E2', 500: '#EF4444', 600: '#DC2626', 700: '#B91C1C' },
@@ -59,9 +59,9 @@ $_pms_hotel_logo = defined('PROPERTY_LOGO_BASE64') ? PROPERTY_LOGO_BASE64 : '';
         font-family: 'Inter', sans-serif;
         -webkit-tap-highlight-color: transparent;
         background-color: #F8FAFC;
-        color: #1E40AF;
+        color: #334155;
         font-weight: 500;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.015em;
     }
     h1, h2, h3, h4, h5, h6, .font-display {
         font-family: 'Plus Jakarta Sans', sans-serif;

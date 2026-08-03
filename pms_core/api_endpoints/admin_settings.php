@@ -11,15 +11,17 @@ ApiHandler::run(function(\PDO $db) {
     $data = json_decode(file_get_contents('php://input'), true);
     if (!isset($data['action'])) throw new Exception("Action required");
     
+    $propertyId = AuthHelper::getPropertyId();
+    
     if ($data['action'] === 'save_category') {
         if (!empty($data['cat_id'])) {
-            $stmt = $db->prepare("UPDATE room_categories SET name = :name WHERE id = :id");
-            $stmt->execute(['name' => $data['cat_name'], 'id' => $data['cat_id']]);
-            AuditLogger::log($_SESSION['user_id'], 'EDIT_CATEGORY', 'SYSTEM', $data['cat_id'], $data);
+            $stmt = $db->prepare("UPDATE room_categories SET name = :name WHERE id = :id AND property_id = :prop_id");
+            $stmt->execute(['name' => $data['cat_name'], 'id' => $data['cat_id'], 'prop_id' => $propertyId]);
+            AuditLogger::log($_SESSION['user_id'], 'EDIT_CATEGORY', 'SYSTEM', $data['cat_id'], $data, $propertyId);
             ApiResponse::success(['id' => $data['cat_id'], 'data' => $data]);
         } else {
-            $stmt = $db->prepare("INSERT INTO room_categories (name) VALUES (:name)");
-            $stmt->execute(['name' => $data['cat_name']]);
+            $stmt = $db->prepare("INSERT INTO room_categories (name, property_id) VALUES (:name, :prop_id)");
+            $stmt->execute(['name' => $data['cat_name'], 'prop_id' => $propertyId]);
             $id = $db->lastInsertId();
             AuditLogger::log($_SESSION['user_id'], 'ADD_CATEGORY', 'SYSTEM', $id, $data);
             ApiResponse::success(['id' => $id, 'data' => $data]);
@@ -27,11 +29,10 @@ ApiHandler::run(function(\PDO $db) {
         
     } elseif ($data['action'] === 'save_room') {
         require_once __DIR__ . '/../../pms_core/services/SaaSBillingEngine.php';
-        $propertyId = AuthHelper::getPropertyId();
 
         if (!empty($data['room_id'])) {
-            $stmt = $db->prepare("UPDATE rooms SET room_number = :num, category_id = :cat_id WHERE id = :id");
-            $stmt->execute(['num' => $data['room_number'], 'cat_id' => $data['category_id'], 'id' => $data['room_id']]);
+            $stmt = $db->prepare("UPDATE rooms SET room_number = :num, category_id = :cat_id WHERE id = :id AND property_id = :prop_id");
+            $stmt->execute(['num' => $data['room_number'], 'cat_id' => $data['category_id'], 'id' => $data['room_id'], 'prop_id' => $propertyId]);
             $id = $data['room_id'];
             AuditLogger::log($_SESSION['user_id'], 'EDIT_ROOM', 'ROOM', $id, $data);
         } else {
@@ -68,7 +69,7 @@ ApiHandler::run(function(\PDO $db) {
                     'cat_id' => $categoryId, 
                     'hours' => $hour, 
                     'price' => $priceFloat, 
-                    'rate_name' => $rateName, 
+                    'rate_name' => $rateName,
                     'update_price' => $priceFloat, 
                     'update_rate_name' => $rateName
                 ]);
@@ -145,8 +146,8 @@ ApiHandler::run(function(\PDO $db) {
             throw new Exception("Cannot delete: category has rooms assigned to it");
         }
         
-        $stmt = $db->prepare("DELETE FROM room_categories WHERE id = :id");
-        $stmt->execute(['id' => $id]);
+        $stmt = $db->prepare("DELETE FROM room_categories WHERE id = :id AND property_id = :prop_id");
+        $stmt->execute(['id' => $id, 'prop_id' => $propertyId]);
         AuditLogger::log($_SESSION['user_id'], 'DELETE_CATEGORY', 'SYSTEM', $id, $data);
         ApiResponse::success();
         
@@ -154,14 +155,14 @@ ApiHandler::run(function(\PDO $db) {
         $id = $data['room_id'] ?? null;
         if (!$id) throw new Exception("Room ID required");
         
-        $bookingCount = $db->prepare("SELECT COUNT(*) FROM bookings WHERE room_id = :id AND payment_status != 'cancelled'");
+        $bookingCount = $db->prepare("SELECT COUNT(*) FROM bookings WHERE room_id = :id");
         $bookingCount->execute(['id' => $id]);
         if ($bookingCount->fetchColumn() > 0) {
-            throw new Exception("Cannot delete: room has active bookings");
+            throw new Exception("Cannot delete: room has existing booking history. Please rename it or mark it out of order instead.");
         }
         
-        $stmt = $db->prepare("DELETE FROM rooms WHERE id = :id");
-        $stmt->execute(['id' => $id]);
+        $stmt = $db->prepare("DELETE FROM rooms WHERE id = :id AND property_id = :prop_id");
+        $stmt->execute(['id' => $id, 'prop_id' => $propertyId]);
         AuditLogger::log($_SESSION['user_id'], 'DELETE_ROOM', 'ROOM', $id, $data);
         ApiResponse::success();
         

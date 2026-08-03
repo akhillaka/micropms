@@ -158,27 +158,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Staff Login</title>
+    <title>Staff Login | MicroPMS</title>
     <?php include __DIR__ . '/components/ui_head.php'; ?>
-
+    <style>
+        body {
+            background: radial-gradient(circle at 10% 20%, rgb(4, 8, 24) 0%, rgb(15, 23, 42) 90%);
+        }
+        .login-glass {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .login-glass input {
+            padding-left: 2.75rem !important;
+            background-color: rgba(9, 15, 29, 0.8) !important;
+            color: #ffffff !important;
+            border-color: rgba(51, 65, 85, 0.5) !important;
+        }
+        .login-glass input:focus {
+            border-color: #4f46e5 !important;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.25) !important;
+        }
+    </style>
 </head>
-<body class="bg-brand-100 flex items-center justify-center h-screen px-4">
-    <div class="bg-white p-8 rounded-2xl  w-full max-w-sm border border-brand-100">
-        <h2 class="text-2xl font-bold mb-6 text-center text-brand-800">Staff Login</h2>
+<body class="flex items-center justify-center min-h-screen px-4 overflow-hidden relative">
+    <!-- Gradient glow animations in background -->
+    <div class="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+    <div class="absolute bottom-1/4 right-1/4 w-[350px] h-[350px] bg-violet-600/10 rounded-full blur-[100px] pointer-events-none"></div>
+
+    <div class="login-glass p-8 rounded-3xl w-full max-w-[420px] z-10 animate-fade-up relative">
+        <!-- Logo Icon Header -->
+        <div class="flex flex-col items-center mb-8">
+            <div class="w-14 h-14 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-2xl flex items-center justify-center mb-3 shadow-inner">
+                <i class="ph ph-buildings text-3xl"></i>
+            </div>
+            <h2 class="text-2xl font-extrabold text-white tracking-tight">Welcome Back</h2>
+            <p class="text-slate-400 text-xs mt-1.5 font-medium">Log in to manage your property operations</p>
+        </div>
+
         <?php if (isset($error)): ?>
-            <p class="text-error-500 text-sm mb-4 text-center"><?= htmlspecialchars($error) ?></p>
+            <div class="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold rounded-xl p-3 text-center mb-5 animate-pulse-glow">
+                ⚠️ <?= htmlspecialchars($error) ?>
+            </div>
         <?php endif; ?>
-        <form method="POST" class="space-y-4">
+
+        <form method="POST" class="space-y-5">
             <div>
-                <label class="block text-sm font-medium text-brand-900">Username</label>
-                <input type="text" name="username" class="mt-1 block w-full rounded-md border-brand-300  focus:border-blue-500 focus:ring-blue-500 border p-2 outline-none" required>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Username</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                        <i class="ph ph-user text-lg"></i>
+                    </span>
+                    <input type="text" name="username" class="w-full bg-slate-950/50 border border-slate-800 rounded-xl pl-11 pr-4 py-3 text-white text-sm focus:border-indigo-500 focus:outline-none transition-all placeholder-slate-600 shadow-inner" placeholder="Enter username" required>
+                </div>
             </div>
+
             <div>
-                <label class="block text-sm font-medium text-brand-900">Password</label>
-                <input type="password" name="password" class="mt-1 block w-full rounded-md border-brand-300  focus:border-blue-500 focus:ring-blue-500 border p-2 outline-none" required>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                        <i class="ph ph-lock text-lg"></i>
+                    </span>
+                    <input type="password" name="password" class="w-full bg-slate-950/50 border border-slate-800 rounded-xl pl-11 pr-4 py-3 text-white text-sm focus:border-indigo-500 focus:outline-none transition-all placeholder-slate-600 shadow-inner" placeholder="••••••••" required>
+                </div>
             </div>
-            <button type="submit" class="w-full bg-brand-accent text-white rounded-lg py-2.5 font-semibold hover:bg-brand-accentHover active:scale-95 transition-transform ">Login</button>
+
+            <button type="submit" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold rounded-xl text-sm transition shadow-lg shadow-indigo-500/20 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]">
+                Access Dashboard
+            </button>
         </form>
+
+        <div class="mt-8 border-t border-slate-800/80 pt-5 text-center">
+            <a href="/saas-admin/login" class="text-xs text-slate-400 hover:text-indigo-400 transition-colors font-bold flex items-center justify-center gap-1.5">
+                <i class="ph ph-arrow-left"></i> SaaS Control Panel Login
+            </a>
+        </div>
     </div>
 </body>
 </html>

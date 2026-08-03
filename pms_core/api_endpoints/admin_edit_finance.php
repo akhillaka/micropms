@@ -22,13 +22,15 @@ if (!isset($data['id']) || !isset($data['amount']) || !isset($data['description'
 
     $payment_method = isset($data['payment_method']) ? $data['payment_method'] : 'cash';
 
-    $stmt = $db->prepare("UPDATE finance_transactions SET amount = :amt, description = :desc, category = :cat, payment_method = :pm WHERE id = :id");
+    $propertyId = AuthHelper::getPropertyId();
+    $stmt = $db->prepare("UPDATE finance_transactions SET amount = :amt, description = :desc, category = :cat, payment_method = :pm WHERE id = :id AND property_id = :prop_id");
     $stmt->execute([
         'amt' => $amount,
         'desc' => $data['description'],
         'cat' => $data['category'],
         'pm' => $payment_method,
-        'id' => $data['id']
+        'id' => $data['id'],
+        'prop_id' => $propertyId
     ]);
     
     AuditLogger::log($_SESSION['user_id'] ?? null, 'EDIT_FINANCE', 'SYSTEM', $data['id'], [

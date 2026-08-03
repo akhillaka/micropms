@@ -26,76 +26,83 @@ ApiHandler::run(function(\PDO $db) use ($isCli) {
         AuthHelper::requirePermission('view_finance');
     }
 
+    $propertyId = $isCli ? (isset($_SERVER['argv'][1]) ? (int)$_SERVER['argv'][1] : 1) : AuthHelper::getPropertyId();
     $today = date('Y-m-d');
 
     // 1. Total Booking created today
     $createdStmt = $db->prepare("SELECT COUNT(*) as cnt FROM bookings 
-        WHERE DATE(created_at) = :d AND payment_status != 'cancelled'");
-    $createdStmt->execute(['d' => $today]);
+        WHERE DATE(created_at) = :d AND payment_status != 'cancelled' AND property_id = :pid");
+    $createdStmt->execute(['d' => $today, 'pid' => $propertyId]);
     $bookingsCreated = $createdStmt->fetch()['cnt'];
 
     // 2. Occupied count (rooms currently checked in)
-    $inHouseStmt = $db->query("SELECT COUNT(*) as cnt FROM bookings 
-        WHERE booking_status = 'checked_in' AND payment_status != 'cancelled'");
+    $inHouseStmt = $db->prepare("SELECT COUNT(*) as cnt FROM bookings 
+        WHERE booking_status = 'checked_in' AND payment_status != 'cancelled' AND property_id = :pid");
+    $inHouseStmt->execute(['pid' => $propertyId]);
     $inHouse = $inHouseStmt->fetch()['cnt'];
 
     // 3. Check out count (completed checkouts today)
     $coutStmt = $db->prepare("SELECT COUNT(*) as cnt FROM bookings 
-        WHERE booking_status = 'checked_out' AND DATE(check_out) = :d AND payment_status != 'cancelled'");
-    $coutStmt->execute(['d' => $today]);
+        WHERE booking_status = 'checked_out' AND DATE(check_out) = :d AND payment_status != 'cancelled' AND property_id = :pid");
+    $coutStmt->execute(['d' => $today, 'pid' => $propertyId]);
     $checkouts = $coutStmt->fetch()['cnt'];
 
     // 4. UPI Amount collected today
     $upiStmt = $db->prepare("SELECT COALESCE(SUM(-amount), 0) as total FROM folio_ledger 
         WHERE transaction_type IN ('payment', 'refund') 
           AND DATE(recorded_at) = :d 
-          AND LOWER(payment_method) = 'upi'");
-    $upiStmt->execute(['d' => $today]);
+          AND LOWER(payment_method) = 'upi' AND property_id = :pid");
+    $upiStmt->execute(['d' => $today, 'pid' => $propertyId]);
     $upiAmount = (float)$upiStmt->fetch()['total'];
 
     // 5. Cash Amount collected today
     $cashStmt = $db->prepare("SELECT COALESCE(SUM(-amount), 0) as total FROM folio_ledger 
         WHERE transaction_type IN ('payment', 'refund') 
           AND DATE(recorded_at) = :d 
-          AND LOWER(payment_method) = 'cash'");
-    $cashStmt->execute(['d' => $today]);
+          AND LOWER(payment_method) = 'cash' AND property_id = :pid");
+    $cashStmt->execute(['d' => $today, 'pid' => $propertyId]);
     $cashAmount = (float)$cashStmt->fetch()['total'];
 
     // 6. Expense amount today
     $expStmt = $db->prepare("SELECT COALESCE(SUM(amount), 0) as total FROM finance_transactions 
-        WHERE type = 'expense' AND DATE(recorded_at) = :d");
-    $expStmt->execute(['d' => $today]);
+        WHERE type = 'expense' AND DATE(recorded_at) = :d AND property_id = :pid");
+    $expStmt->execute(['d' => $today, 'pid' => $propertyId]);
     $expenseAmount = (float)$expStmt->fetch()['total'];
 
     // 7. Total Amount collected today (Revenue across all methods)
     $revStmt = $db->prepare("SELECT COALESCE(SUM(-amount), 0) as total FROM folio_ledger 
-        WHERE transaction_type IN ('payment', 'refund') AND DATE(recorded_at) = :d");
-    $revStmt->execute(['d' => $today]);
+        WHERE transaction_type IN ('payment', 'refund') AND DATE(recorded_at) = :d AND property_id = :pid");
+    $revStmt->execute(['d' => $today, 'pid' => $propertyId]);
     $totalAmount = (float)$revStmt->fetch()['total'];
 
     // 8. Net Amount today (Total collected - Expenses)
     $netAmount = $totalAmount - $expenseAmount;
 
     // 9. Detailed occupied rooms
-    $roomsQuery = $db->query("
+    $roomsQuery = $db->prepare("
         SELECT 
             b.id as booking_id,
             r.room_number,
             rc.name as room_type,
             g.name as guest_name,
-            (SELECT COALESCE(SUM(ABS(fl.amount)), 0) FROM folio_ledger fl WHERE fl.booking_id = b.id AND fl.transaction_type = 'payment') as amount_collected,
-            (SELECT COALESCE(SUM(fl.amount), 0) FROM folio_ledger fl WHERE fl.booking_id = b.id) as pending_due
+            (SELECT COALESCE(SUM(ABS(fl.amount)), 0) FROM folio_ledger fl WHERE fl.booking_id = b.id AND fl.transaction_type = 'payment' AND fl.property_id = :pid) as amount_collected,
+            (SELECT COALESCE(SUM(fl.amount), 0) FROM folio_ledger fl WHERE fl.booking_id = b.id AND fl.property_id = :pid) as pending_due
         FROM bookings b
         JOIN rooms r ON b.room_id = r.id
         JOIN room_categories rc ON r.category_id = rc.id
         JOIN guests g ON b.guest_id = g.id
-        WHERE b.booking_status = 'checked_in' AND b.payment_status != 'cancelled'
+        WHERE b.booking_status = 'checked_in' AND b.payment_status != 'cancelled' AND b.property_id = :pid
         ORDER BY r.room_number ASC
     ");
+    $roomsQuery->execute(['pid' => $propertyId]);
     $occupiedList = $roomsQuery->fetchAll(\PDO::FETCH_ASSOC);
 
-    $totalRooms = $db->query("SELECT COUNT(*) as cnt FROM rooms")->fetch()['cnt'];
-    $dirtyRooms = $db->query("SELECT COUNT(*) as cnt FROM rooms WHERE state = 'dirty'")->fetch()['cnt'];
+    $totalRoomsStmt = $db->prepare("SELECT COUNT(*) as cnt FROM rooms WHERE property_id = ?");
+    $totalRoomsStmt->execute([$propertyId]);
+    $totalRooms = $totalRoomsStmt->fetch()['cnt'];
+    $dirtyRoomsStmt = $db->prepare("SELECT COUNT(*) as cnt FROM rooms WHERE state = 'dirty' AND property_id = ?");
+    $dirtyRoomsStmt->execute([$propertyId]);
+    $dirtyRooms = $dirtyRoomsStmt->fetch()['cnt'];
     $cleanRooms = $totalRooms - $dirtyRooms;
 
     // Build message

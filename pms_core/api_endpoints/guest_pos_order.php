@@ -87,17 +87,19 @@ try {
     ");
     $insOrder->execute([$propertyId, $outletId, (int)$bookingId, $totalAmount]);
     $orderId = (int)$db->lastInsertId();
+    require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
+    SequenceGenerator::assignDisplayId($db, 'pos_orders', $orderId, 'SEQ_POS_ORDER_FORMAT');
 
     // Deduct stock and record items
     $insLine = $db->prepare("
         INSERT INTO pos_order_items (order_id, item_id, quantity, price_per_unit)
         VALUES (?, ?, ?, ?)
     ");
-    $deductStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty - ? WHERE id = ?");
+    $deductStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty - ? WHERE id = ? AND property_id = ?");
 
     foreach ($validatedItems as $vi) {
         $insLine->execute([$orderId, $vi['id'], $vi['qty'], $vi['price_per_unit']]);
-        $deductStock->execute([$vi['qty'], $vi['id']]);
+        $deductStock->execute([$vi['qty'], $vi['id'], $propertyId]);
     }
 
     // Charge room folio (uses positive amount for charges)
