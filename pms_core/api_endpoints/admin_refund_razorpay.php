@@ -19,9 +19,10 @@ ApiHandler::run(function(\PDO $db) {
     }
 
 
-    // Get the ledger entry
-    $stmt = $db->prepare("SELECT * FROM folio_ledger WHERE id = :id");
-    $stmt->execute(['id' => $ledgerId]);
+    // Get the ledger entry — scoped to this property to prevent cross-tenant refunds
+    $propertyId = AuthHelper::getPropertyId();
+    $stmt = $db->prepare("SELECT * FROM folio_ledger WHERE id = :id AND property_id = :pid");
+    $stmt->execute(['id' => $ledgerId, 'pid' => $propertyId]);
     $ledger = $stmt->fetch();
     
     if (!$ledger || empty($ledger['transaction_ref']) || !str_starts_with($ledger['transaction_ref'], 'pay_')) {
@@ -96,13 +97,14 @@ ApiHandler::run(function(\PDO $db) {
         
         // Add a positive ledger entry (Debit) to cancel out the negative payment (Credit)
         // 'REFUND' is a valid ENUM value (migration 010 adds it); 'refund' lowercase would fail strict mode
-        $refundStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description, payment_method)
-                              VALUES (:b, 'REFUND', :a, :r, :d, 'online_refund')");
+        $refundStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, property_id, transaction_type, amount, transaction_ref, description, payment_method)
+                              VALUES (:b, :pid, 'REFUND', :a, :r, :d, 'online_refund')");
         $refundStmt->execute([
-            'b' => $ledger['booking_id'],
-            'a' => $amountToRefund,
-            'r' => $res['id'] ?? ('refund_' . time()),
-            'd' => 'Refund for ' . $paymentId
+            'b'   => $ledger['booking_id'],
+            'pid' => (int)$ledger['property_id'],
+            'a'   => $amountToRefund,
+            'r'   => $res['id'] ?? ('refund_' . time()),
+            'd'   => 'Refund for ' . $paymentId
         ]);
         
         // Log it

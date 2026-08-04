@@ -12,15 +12,15 @@ require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('edit_folio');
-$data = json_decode(file_get_contents('php://input'), true);
-$ledgerId = $data['ledger_id'] ?? 0;
-$amount = floatval($data['amount'] ?? 0);
-$desc = trim($data['description'] ?? '');
-$method = trim($data['payment_method'] ?? '');
-if (!$ledgerId || !$desc) {
-    ApiResponse::error('Missing fields');
-    
-}
+
+    $data     = json_decode(file_get_contents('php://input'), true);
+    $ledgerId = $data['ledger_id'] ?? 0;
+    $amount   = floatval($data['amount'] ?? 0);
+    $desc     = trim($data['description'] ?? '');
+    $method   = trim($data['payment_method'] ?? '');
+    if (!$ledgerId || !$desc) {
+        ApiResponse::error('Missing fields');
+    }
 
 
     // Fetch original details to preserve sign logic

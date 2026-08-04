@@ -66,8 +66,8 @@ ApiHandler::run(function(\PDO $db) {
             $rStmt->execute([$roomId, $propertyId]);
             $roomNumber = $rStmt->fetchColumn();
             
-            $hkStaffStmt = $db->prepare("SELECT phone FROM staff WHERE role = 'maintenance' OR role = 'admin' LIMIT 1");
-            $hkStaffStmt->execute();
+            $hkStaffStmt = $db->prepare("SELECT phone FROM staff_users WHERE (access_level = 'housekeeping' OR access_level = 'admin') AND property_id = ? AND is_active = 1 LIMIT 1");
+            $hkStaffStmt->execute([$propertyId]);
             $staffPhone = $hkStaffStmt->fetchColumn();
             
             if ($staffPhone) {

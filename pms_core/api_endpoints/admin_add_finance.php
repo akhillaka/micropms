@@ -31,13 +31,13 @@ ApiHandler::run(function(\PDO $db) {
         'amt' => $amount,
         'desc' => $data['description'],
         'pm' => $payment_method,
-        'staff_id' => $_SESSION['user_id']
+        'staff_id' => $_SESSION['user_id'] ?? null
     ]);
     
     $id = (int)$db->lastInsertId();
     SequenceGenerator::assignDisplayId($db, 'finance_transactions', $id, 'SEQ_TRANSACTION_FORMAT');
     
-    AuditLogger::log($_SESSION['user_id'], 'ADD_FINANCE', 'SYSTEM', $id, $data);
+    AuditLogger::log($_SESSION['user_id'] ?? null, 'ADD_FINANCE', 'SYSTEM', $id, $data);
 
     if ($data['type'] === 'expense') {
         try {

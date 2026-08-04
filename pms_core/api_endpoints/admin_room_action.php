@@ -31,13 +31,13 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('Room is not dirty or not found');
         }
         
-        AuditLogger::log($_SESSION['user_id'], 'MARKED_ROOM_CLEAN', 'ROOM', $roomId, ['source' => 'admin']);
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'MARKED_ROOM_CLEAN', 'ROOM', $roomId, ['source' => 'admin']);
     } else {
         // Mark out of order
         $stmt = $db->prepare("UPDATE rooms SET state = 'out_of_order' WHERE id = :id AND property_id = :prop_id");
         $stmt->execute(['id' => $roomId, 'prop_id' => $propertyId]);
         
-        AuditLogger::log($_SESSION['user_id'], 'MARKED_ROOM_OOO', 'ROOM', $roomId, ['source' => 'admin']);
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'MARKED_ROOM_OOO', 'ROOM', $roomId, ['source' => 'admin']);
     }
     
     ApiResponse::success();
