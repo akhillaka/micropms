@@ -80,7 +80,7 @@ ApiHandler::run(function(\PDO $db) {
         $delStmt = $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type = 'ROOM_CHARGE' AND property_id = :prop_id");
         $delStmt->execute(['id' => $booking['id'], 'prop_id' => $propertyId]);
         
-        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, :prop_id)");
+        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, transaction_ref, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, 'MANUAL', :prop_id)");
         
         if (!empty($breakdown)) {
             foreach ($breakdown as $item) {
@@ -105,7 +105,7 @@ ApiHandler::run(function(\PDO $db) {
     } else {
         // For overridden, just update the single charge if they only have one, or do a differential
         if (abs($difference) > 0.01) {
-            $diffStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, 'Checkout Date Adjustment', :prop_id)");
+            $diffStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, transaction_ref, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, 'Checkout Date Adjustment', 'MANUAL', :prop_id)");
             $diffStmt->execute([
                 'id' => $booking['id'],
                 'amount' => $difference,
@@ -123,7 +123,7 @@ ApiHandler::run(function(\PDO $db) {
         'prop_id' => $propertyId
     ]);
     
-    AuditLogger::log($_SESSION['user_id'], 'UPDATE_CHECKOUT', 'BOOKING', $booking['id'], [
+    AuditLogger::log($_SESSION['user_id'] ?? null, 'UPDATE_CHECKOUT', 'BOOKING', $booking['id'], [
         'old_checkout' => $booking['check_out'],
         'new_checkout' => $newCheckOut,
         'new_total' => $newTotal

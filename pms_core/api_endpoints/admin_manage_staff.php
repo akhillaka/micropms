@@ -54,8 +54,9 @@ ApiHandler::run(function(\PDO $db) {
         require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
         SaaSEntitlementsService::checkStaffLimit($db, $propertyId);
 
-        $stmt = $db->prepare("SELECT id FROM staff_users WHERE username = :u");
-        $stmt->execute(['u' => $username]);
+        // Username must be unique within this property
+        $stmt = $db->prepare("SELECT id FROM staff_users WHERE username = :u AND property_id = :pid");
+        $stmt->execute(['u' => $username, 'pid' => $propertyId]);
         if ($stmt->fetch()) {
             throw new Exception("Username already exists");
         }
@@ -73,7 +74,7 @@ ApiHandler::run(function(\PDO $db) {
         ]);
         $newId = $db->lastInsertId();
 
-        AuditLogger::log($_SESSION['user_id'], 'ADD_USER', 'SYSTEM', (int)$newId, [
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'ADD_USER', 'SYSTEM', (int)$newId, [
             'username' => $username,
             'role' => $roleInput
         ]);
@@ -111,8 +112,9 @@ ApiHandler::run(function(\PDO $db) {
             throw new Exception("Access denied: You cannot modify a superadmin account");
         }
 
-        $stmt = $db->prepare("SELECT id FROM staff_users WHERE username = :u AND id != :id");
-        $stmt->execute(['u' => $username, 'id' => $userId]);
+        // Username must be unique within this property (excluding self)
+        $stmt = $db->prepare("SELECT id FROM staff_users WHERE username = :u AND id != :id AND property_id = :pid");
+        $stmt->execute(['u' => $username, 'id' => $userId, 'pid' => $propertyId]);
         if ($stmt->fetch()) {
             throw new Exception("Username already taken by another user");
         }
@@ -157,7 +159,7 @@ ApiHandler::run(function(\PDO $db) {
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
 
-        AuditLogger::log($_SESSION['user_id'], 'EDIT_USER', 'SYSTEM', (int)$userId, [
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'EDIT_USER', 'SYSTEM', (int)$userId, [
             'username' => $username,
             'role' => $roleInput,
             'is_active' => $isActive,
@@ -192,7 +194,7 @@ ApiHandler::run(function(\PDO $db) {
         $stmt = $db->prepare("UPDATE staff_users SET is_active = 0 WHERE id = :id");
         $stmt->execute(['id' => $userId]);
 
-        AuditLogger::log($_SESSION['user_id'], 'DELETE_USER', 'SYSTEM', $userId, [
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'DELETE_USER', 'SYSTEM', $userId, [
             'username' => $user['username'],
             'status' => 'deactivated_soft_delete'
         ]);
@@ -222,7 +224,7 @@ ApiHandler::run(function(\PDO $db) {
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
         $inviteLink = "{$proto}://{$host}/admin/accept_invite.php?token={$token}";
         
-        AuditLogger::log($_SESSION['user_id'], 'INVITE_USER', 'SYSTEM', null, [
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'INVITE_USER', 'SYSTEM', null, [
             'email' => $email,
             'role' => $roleInput
         ]);

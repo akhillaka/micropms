@@ -60,16 +60,14 @@ if (!$ledgerId) {
             
             // Insert rebate into folio_ledger
             $rebateStmt = $db->prepare("
-                INSERT INTO folio_ledger (property_id, booking_id, amount, description, type, recorded_by, created_at, cgst_amount, sgst_amount)
-                VALUES (:pid, :bid, :amt, :desc, :type, :uid, NOW(), 0, 0)
+                INSERT INTO folio_ledger (property_id, booking_id, amount, description, transaction_type, created_at)
+                VALUES (:pid, :bid, :amt, :desc, 'REBATE', NOW())
             ");
             $rebateStmt->execute([
                 'pid' => $currentPropertyId,
                 'bid' => $bId,
                 'amt' => $rebateAmount,
                 'desc' => "Rebate for: " . $info['description'] . " (Ref: {$displayId})",
-                'type' => 'REBATE',
-                'uid' => $_SESSION['user_id'] ?? null
             ]);
             $newLedgerId = $db->lastInsertId();
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$newLedgerId, 'SEQ_RECEIPT_FORMAT', 'display_id');

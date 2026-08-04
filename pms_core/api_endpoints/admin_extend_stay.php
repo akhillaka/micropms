@@ -12,11 +12,11 @@ require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('edit_booking');
-$data = json_decode(file_get_contents('php://input'), true);
-if (!isset($data['booking_id']) || !isset($data['hours'])) {
-    ApiResponse::error('Missing parameters');
-    
-}
+
+    $data = json_decode(file_get_contents('php://input'), true);
+    if (!isset($data['booking_id']) || !isset($data['hours'])) {
+        ApiResponse::error('Missing parameters');
+    }
 
 
     // Fetch booking and room category
@@ -93,7 +93,7 @@ if (!isset($data['booking_id']) || !isset($data['hours'])) {
         $delStmt->execute(['id' => $booking['id'], 'prop_id' => $propertyId]);
     }
     
-    $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, :prop_id)");
+    $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, transaction_ref, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, 'MANUAL', :prop_id)");
     
     if (!empty($breakdown)) {
         foreach ($breakdown as $item) {
@@ -128,7 +128,7 @@ if (!isset($data['booking_id']) || !isset($data['hours'])) {
         'prop_id' => $propertyId
     ]);
     
-    AuditLogger::log($_SESSION['user_id'], 'EXTEND_STAY', 'BOOKING', $booking['id'], [
+    AuditLogger::log($_SESSION['user_id'] ?? null, 'EXTEND_STAY', 'BOOKING', $booking['id'], [
         'hours_added' => $hours,
         'new_checkout' => $newCheckOut,
         'new_total' => $newTotal

@@ -66,13 +66,15 @@ class FolioService {
 
         foreach ($entries as $entry) {
             $amount = (float)$entry['amount'];
-            $desc = strtolower($entry['description'] ?? '');
-            $type = $entry['transaction_type'];
+            $desc   = strtolower($entry['description'] ?? '');
+            $type   = $entry['transaction_type'];
 
-            // Refunds are positive amounts with type REFUND — check before generic sign test
-            if ($type === 'REFUND' || str_contains($desc, 'refund')) {
+            // Refunds stored as POSITIVE amounts (they reduce balance just like payments)
+            // BUG-14 fix: use abs() for display bucket but honour sign for balance
+            if ($type === 'REFUND' || str_contains($desc, 'refund') || $type === 'REBATE') {
                 $breakdown['refunds'] += abs($amount);
             } elseif ($amount < 0) {
+                // Negative = payment collected
                 $breakdown['payments'] += abs($amount);
             } elseif ($type === 'ROOM_CHARGE') {
                 if (str_contains($desc, 'extra bed')) {
