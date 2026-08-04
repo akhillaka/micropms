@@ -42,6 +42,8 @@ class PricingEngine {
 
         if ($residualHours > 0) {
             $costForHours = self::getRateForHours($categoryId, $residualHours, $ratePlanName);
+            // BUG-18 fix: residual hourly cost must not exceed one full-day rate
+            $costForHours = min($costForHours, $baseDailyRate);
         }
 
         return $costForDays + $costForHours;

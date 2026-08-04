@@ -134,14 +134,16 @@ ApiHandler::run(function(\PDO $db) {
             
             $financeParams = [
                 'prop_id' => $propertyId,
-                'cat' => $splitCat,
-                'bid' => $bookingId,
-                'amount' => $splitAmt,
-                'desc' => $desc,
-                'method' => strtolower($method),
-                'staff' => $_SESSION['user_id'] ?? null,
+                'cat'     => $splitCat,
+                'bid'     => $bookingId,
+                'amount'  => $splitAmt,
+                'desc'    => $desc,
+                'method'  => strtolower($method),
+                'staff'   => $_SESSION['user_id'] ?? null,
                 'recorded_at' => $recordedAt ?: date('Y-m-d H:i:s')
             ];
+            // BUG-1 fix: execute was missing — finance record was never saved
+            $financeStmt->execute($financeParams);
             $financeId = (int)$db->lastInsertId();
             SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
 

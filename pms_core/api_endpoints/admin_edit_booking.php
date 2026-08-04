@@ -15,9 +15,11 @@ ApiHandler::run(function(\PDO $db) {
 
     $data = json_decode(file_get_contents('php://input'), true);
     
+    // BUG-4 fix: cast booking_id to int before use
     if (!isset($data['booking_id'], $data['check_in'], $data['check_out'])) {
         throw new Exception("Missing parameters");
     }
+    $data['booking_id'] = (int)$data['booking_id'];
 
     if (strtotime($data['check_out']) <= strtotime($data['check_in'])) {
         throw new Exception("Check-out date and time must be after check-in.");
@@ -92,7 +94,7 @@ ApiHandler::run(function(\PDO $db) {
         } catch (\Exception $e) {
             $breakdown = [];
         }
-        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, :prop_id)");
+        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, transaction_ref, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, 'MANUAL', :prop_id)");
         
         if (!empty($breakdown)) {
             foreach ($breakdown as $item) {
@@ -109,13 +111,14 @@ ApiHandler::run(function(\PDO $db) {
                 'id' => $booking['id'],
                 'amount' => $newTotal,
                 'desc' => "Room Charges - {$newRoom['category_name']}",
+                'ref' => 'MANUAL',
                 'prop_id' => $propertyId
             ]);
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
         }
     }
     
-    AuditLogger::log($_SESSION['user_id'], 'EDIT_BOOKING_DATES', 'BOOKING', $booking['id'], [
+    AuditLogger::log($_SESSION['user_id'] ?? null, 'EDIT_BOOKING_DATES', 'BOOKING', $booking['id'], [
         'old_in' => $booking['check_in'], 'old_out' => $booking['check_out'], 'old_total' => $booking['total_amount'],
         'new_in' => $data['check_in'], 'new_out' => $data['check_out'], 'new_total' => $newTotal
     ]);

@@ -34,8 +34,8 @@ ApiHandler::run(function(\PDO $db) {
                 WHERE b.check_in < :check_out 
                   AND b.check_out > :check_in
                   AND b.payment_status != 'cancelled'
-            )";
-            
+                  AND b.property_id = :property_id
+            )";            
     $stmt = $db->prepare($sql);
     $stmt->execute([
         'property_id' => $propertyId,

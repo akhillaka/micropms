@@ -29,7 +29,10 @@ class GuestService {
                 LIMIT :limit
             ");
             $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
-            $stmt->execute(['phone' => $phone, 'limit' => $limit, 'propId' => $propId]);
+            $stmt->bindValue(':phone', $phone);
+            $stmt->bindValue(':propId', $propId, \PDO::PARAM_INT);
+            $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+            $stmt->execute();
         } else {
             // Search by name
             $stmt = $db->prepare("
@@ -45,7 +48,10 @@ class GuestService {
                 LIMIT :limit
             ");
             $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
-            $stmt->execute(['name' => "%$query%", 'limit' => $limit, 'propId' => $propId]);
+            $stmt->bindValue(':name', "%$query%");
+            $stmt->bindValue(':propId', $propId, \PDO::PARAM_INT);
+            $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+            $stmt->execute();
         }
 
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);

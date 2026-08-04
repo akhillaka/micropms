@@ -41,9 +41,15 @@ ApiHandler::run(function(\PDO $db) {
         if ($currentStatus !== 'booked') {
             throw new Exception("Can only check-in from 'booked' status");
         }
-        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = :id");
-        $stmt->execute(['id' => $bookingId]);
-        AuditLogger::log($_SESSION['user_id'], 'CHECK_IN', 'BOOKING', $bookingId, [
+        // BUG-2 fix: scope UPDATE to property to prevent cross-tenant mutation
+        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = :id AND property_id = :pid");
+        $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
+
+        // BUG-3 fix: mark room as occupied on check-in
+        $occupyStmt = $db->prepare("UPDATE rooms SET state = 'occupied' WHERE id = :rid AND property_id = :pid");
+        $occupyStmt->execute(['rid' => $booking['room_id'], 'pid' => $propertyId]);
+
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'CHECK_IN', 'BOOKING', $bookingId, [
             'action' => 'check_in',
             'from_status' => $currentStatus,
             'to_status' => 'checked_in',
@@ -96,12 +102,13 @@ ApiHandler::run(function(\PDO $db) {
             throw new Exception("Cannot check-out: Guest has pending dues of ₹" . number_format($balance, 2) . ". Please settle the folio first.");
         }
 
-        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = :id");
-        $stmt->execute(['id' => $bookingId]);
+        // BUG-2 fix: scope UPDATE to property
+        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = :id AND property_id = :pid");
+        $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
         
-        $stmt2 = $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = :rid");
-        $stmt2->execute(['rid' => $booking['room_id']]);
-        AuditLogger::log($_SESSION['user_id'], 'CHECK_OUT', 'BOOKING', $bookingId, [
+        $stmt2 = $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = :rid AND property_id = :pid");
+        $stmt2->execute(['rid' => $booking['room_id'], 'pid' => $propertyId]);
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'CHECK_OUT', 'BOOKING', $bookingId, [
             'action' => 'check_out',
             'from_status' => $currentStatus,
             'to_status' => 'checked_out',
@@ -153,9 +160,10 @@ ApiHandler::run(function(\PDO $db) {
         if (empty($reason)) {
             throw new Exception("Reason is required for rollback");
         }
-        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'booked' WHERE id = :id");
-        $stmt->execute(['id' => $bookingId]);
-        AuditLogger::log($_SESSION['user_id'], 'ROLLBACK_TO_BOOKED', 'BOOKING', $bookingId, [
+        // BUG-2 fix: scope UPDATE to property
+        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'booked' WHERE id = :id AND property_id = :pid");
+        $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'ROLLBACK_TO_BOOKED', 'BOOKING', $bookingId, [
             'action' => 'rollback_to_booked',
             'from_status' => $currentStatus,
             'to_status' => 'booked',
@@ -177,9 +185,10 @@ ApiHandler::run(function(\PDO $db) {
         if (empty($reason)) {
             throw new Exception("Reason is required for rollback");
         }
-        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = :id");
-        $stmt->execute(['id' => $bookingId]);
-        AuditLogger::log($_SESSION['user_id'], 'ROLLBACK_TO_CHECKED_IN', 'BOOKING', $bookingId, [
+        // BUG-2 fix: scope UPDATE to property
+        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = :id AND property_id = :pid");
+        $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'ROLLBACK_TO_CHECKED_IN', 'BOOKING', $bookingId, [
             'action' => 'rollback_to_checked_in',
             'from_status' => $currentStatus,
             'to_status' => 'checked_in',
@@ -207,12 +216,13 @@ ApiHandler::run(function(\PDO $db) {
         $pmtStmt->execute(['id' => $bookingId]);
         $totalPaid = abs((float)$pmtStmt->fetchColumn());
 
-        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'cancelled', payment_status = 'cancelled' WHERE id = :id");
-        $stmt->execute(['id' => $bookingId]);
+        // BUG-2 fix: scope UPDATE to property
+        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'cancelled', payment_status = 'cancelled' WHERE id = :id AND property_id = :pid");
+        $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
 
         // Do NOT delete folio entries — preserve the ledger trail for audit.
         // If payments were collected, staff must manually process refund.
-        AuditLogger::log($_SESSION['user_id'], 'CANCEL_BOOKING', 'BOOKING', $bookingId, [
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'CANCEL_BOOKING', 'BOOKING', $bookingId, [
             'action'       => 'cancel',
             'from_status'  => $currentStatus,
             'to_status'    => 'cancelled',

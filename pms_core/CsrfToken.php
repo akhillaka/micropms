@@ -130,7 +130,7 @@ class CsrfToken {
             if ($inactive > self::TIMEOUT_SECONDS) {
                 session_unset();
                 session_destroy();
-                header('Location: /admin/login.php');
+                header('Location: /admin/login');
                 exit;
             }
         }

@@ -148,6 +148,10 @@ ApiHandler::run(function(\PDO $db) {
         SequenceGenerator::assignDisplayId($db, 'bookings', $bookingId, 'SEQ_BOOKING_FORMAT', 'display_id');
         SequenceGenerator::assignDisplayId($db, 'bookings', $bookingId, 'SEQ_FOLIO_FORMAT', 'offline_folio_id');
 
+        // BUG-13 fix: mark room as occupied since booking is immediately checked_in
+        $db->prepare("UPDATE rooms SET state = 'occupied' WHERE id = :rid AND property_id = :pid")
+           ->execute(['rid' => $roomId, 'pid' => $propertyId]);
+
         $dispStmt = $db->prepare("SELECT display_id FROM bookings WHERE id = ? AND property_id = ?");
         $dispStmt->execute([$bookingId, $propertyId]);
         $displayId = $dispStmt->fetchColumn() ?: ('BKG-' . $bookingId);

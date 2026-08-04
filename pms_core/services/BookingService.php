@@ -107,14 +107,19 @@ class BookingService {
             // Insert booking
             $insertStmt = $db->prepare("
                 INSERT INTO bookings (property_id, room_id, guest_id, check_in, check_out, payment_status, booking_status, total_amount, rate_plan_name, booking_source, price_override, adults, children, extra_bed, offline_folio_id)
-                VALUES (:property_id, :room_id, :guest_id, :check_in, :check_out, 'completed_paid', :booking_status, :total_amount, :rate_plan_name, :booking_source, :price_override, :adults, :children, :extra_bed, :offline_folio_id)
+                VALUES (:property_id, :room_id, :guest_id, :check_in, :check_out, :payment_status, :booking_status, :total_amount, :rate_plan_name, :booking_source, :price_override, :adults, :children, :extra_bed, :offline_folio_id)
             ");
+            // BUG-12 fix: default to 'pending'; only mark completed when advance covers full amount
+            $defaultPaymentStatus = ($paymentCollected > 0 && $paymentCollected >= $totalAmount)
+                ? 'completed_paid'
+                : ($paymentCollected > 0 ? 'partial' : 'pending');
             $insertStmt->execute([
                 'property_id'     => $propertyId,
                 'room_id'         => $roomId,
                 'guest_id'        => $guestId,
                 'check_in'        => $checkIn,
                 'check_out'       => $checkOut,
+                'payment_status'  => $defaultPaymentStatus,
                 'booking_status'  => $bookingStatus,
                 'total_amount'    => $totalAmount,
                 'rate_plan_name'  => $ratePlanName,
@@ -230,9 +235,9 @@ class BookingService {
      * Check if a room is available for the given timeframe.
      */
     public static function isRoomAvailable(\PDO $db, int $roomId, string $checkIn, string $checkOut, ?int $excludeBookingId = null, ?int $propertyId = null): bool {
-        // Normalize date-only strings to full DATETIME
-        if (strlen($checkIn) === 10) $checkIn .= ' 00:00:00';
-        if (strlen($checkOut) === 10) $checkOut .= ' 23:59:59';
+        // BUG-5 fix: pad both dates to 00:00:00 for consistent open-interval comparisons
+        if (strlen($checkIn) === 10)  $checkIn  .= ' 00:00:00';
+        if (strlen($checkOut) === 10) $checkOut .= ' 00:00:00';
 
         $propId = $propertyId ?? (class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1);
 
