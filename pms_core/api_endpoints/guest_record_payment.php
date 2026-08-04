@@ -77,9 +77,9 @@ try {
     $receiptDisplayId = $receiptStmt->fetchColumn() ?: 'RCPT-' . $entryId;
 
     // Record finance transaction
-    $financeStmt = $db->prepare("INSERT INTO finance_transactions (type, category, booking_id, amount, description, payment_method, staff_id) VALUES ('income', 'booking', ?, ?, ?, 'razorpay', NULL)");
+    $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id) VALUES (?, 'income', 'booking', ?, ?, ?, 'razorpay', NULL)");
     $desc = "Payment - Razorpay (Receipt {$receiptDisplayId})";
-    $financeStmt->execute([$bookingId, $amount, $desc]);
+    $financeStmt->execute([(int)$booking['property_id'], $bookingId, $amount, $desc]);
     
     $financeId = (int)$db->lastInsertId();
     SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');

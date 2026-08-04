@@ -45,12 +45,21 @@ ApiHandler::run(function(\PDO $db) {
             $pmJson = $pmJsonStmt->fetchColumn();
             $configuredMethods = $pmJson ? json_decode((string)$pmJson, true, 512, JSON_THROW_ON_ERROR) : ["Cash", "UPI", "Razorpay"];
 
+            // BUG-24 fix: fetch all folio entries for all bookings in one query (eliminates N+1)
+            $bookingIds = array_column($bookings, 'booking_id');
+            $ledgerByBooking = [];
+            if (!empty($bookingIds)) {
+                $inClause = implode(',', array_fill(0, count($bookingIds), '?'));
+                $allLedgerStmt = $db->prepare("SELECT booking_id, transaction_type, COALESCE(NULLIF(payment_method, ''), 'Cash') as payment_method, amount FROM folio_ledger WHERE booking_id IN ({$inClause}) AND property_id = ?");
+                $allLedgerStmt->execute(array_merge($bookingIds, [$propertyId]));
+                foreach ($allLedgerStmt->fetchAll(PDO::FETCH_ASSOC) as $le) {
+                    $ledgerByBooking[$le['booking_id']][] = $le;
+                }
+            }
+
             $result = [];
             foreach ($bookings as $b) {
-                $folioSql = "SELECT transaction_type, COALESCE(NULLIF(payment_method, ''), 'Cash') as payment_method, amount FROM folio_ledger WHERE booking_id = ?";
-                $lStmt = $db->prepare($folioSql);
-                $lStmt->execute([$b['booking_id']]);
-                $ledger = $lStmt->fetchAll(PDO::FETCH_ASSOC);
+                $ledger = $ledgerByBooking[$b['booking_id']] ?? [];
                 
                 $row = [
                     'booking_id' => $b['booking_id'],
