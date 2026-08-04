@@ -162,70 +162,108 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php include __DIR__ . '/components/ui_head.php'; ?>
     <style>
         body {
-            background: radial-gradient(circle at 10% 20%, rgb(4, 8, 24) 0%, rgb(15, 23, 42) 90%);
+            background: linear-gradient(135deg, #EFF6FF 0%, #F8FAFC 50%, #DBEAFE 100%);
+            min-height: 100vh;
         }
-        .login-glass {
-            background: rgba(15, 23, 42, 0.65);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        .login-card {
+            background: rgba(255,255,255,0.94);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(226,232,240,0.8);
+            box-shadow: 0 24px 48px -8px rgba(30,58,138,0.14), 0 8px 20px -4px rgba(15,23,42,0.06);
         }
-        .login-glass input {
-            padding-left: 2.75rem !important;
-            background-color: rgba(9, 15, 29, 0.8) !important;
-            color: #ffffff !important;
-            border-color: rgba(51, 65, 85, 0.5) !important;
+        .login-blob-1 {
+            position: absolute; top: -80px; right: -80px;
+            width: 300px; height: 300px;
+            background: radial-gradient(circle, rgba(59,130,246,0.18) 0%, transparent 70%);
+            border-radius: 50%; pointer-events: none;
         }
-        .login-glass input:focus {
-            border-color: #4f46e5 !important;
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.25) !important;
+        .login-blob-2 {
+            position: absolute; bottom: -60px; left: -60px;
+            width: 220px; height: 220px;
+            background: radial-gradient(circle, rgba(30,58,138,0.12) 0%, transparent 70%);
+            border-radius: 50%; pointer-events: none;
+        }
+        .input-icon-wrap { position: relative; }
+        .input-icon-wrap input { padding-left: 2.75rem !important; }
+        .input-icon {
+            position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+            color: #94A3B8; font-size: 1.1rem; pointer-events: none;
+            transition: color 0.15s;
+        }
+        .input-icon-wrap input:focus ~ .input-icon { color: #1E3A8A; }
+        .login-btn {
+            background: linear-gradient(135deg, #1E3A8A, #2563EB);
+            color: #fff; font-weight: 800; font-size: 0.9rem;
+            padding: 0.875rem; border-radius: 0.875rem; border: none;
+            width: 100%; cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.16,1,0.3,1);
+            box-shadow: 0 8px 20px -4px rgba(30,58,138,0.35);
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            letter-spacing: -0.01em;
+        }
+        .login-btn:hover {
+            background: linear-gradient(135deg, #162F73, #1E3A8A);
+            transform: translateY(-2px);
+            box-shadow: 0 14px 28px -6px rgba(30,58,138,0.40);
+        }
+        .login-btn:active { transform: translateY(1px); }
+        .brand-icon {
+            width: 60px; height: 60px;
+            background: linear-gradient(135deg, #EFF6FF, #DBEAFE);
+            border: 2px solid #BFDBFE; border-radius: 18px;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 6px 16px -3px rgba(30,58,138,0.18);
         }
     </style>
 </head>
-<body class="flex items-center justify-center min-h-screen px-4 overflow-hidden relative">
-    <!-- Gradient glow animations in background -->
-    <div class="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none"></div>
-    <div class="absolute bottom-1/4 right-1/4 w-[350px] h-[350px] bg-violet-600/10 rounded-full blur-[100px] pointer-events-none"></div>
+<body class="flex items-center justify-center min-h-screen px-4 py-8">
+    <div class="fixed top-20 left-10 w-72 h-72 bg-blue-200/30 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="fixed bottom-10 right-10 w-56 h-56 bg-indigo-300/20 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="fixed top-1/2 right-1/4 w-40 h-40 bg-sky-200/25 rounded-full blur-2xl pointer-events-none"></div>
 
-    <div class="login-glass p-8 rounded-3xl w-full max-w-[420px] z-10 animate-fade-up relative">
-        <!-- Logo Icon Header -->
-        <div class="flex flex-col items-center mb-8">
-            <div class="w-14 h-14 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-2xl flex items-center justify-center mb-3 shadow-inner">
-                <i class="ph ph-buildings text-3xl"></i>
+    <div class="login-card p-8 rounded-3xl w-full max-w-[420px] z-10 animate-fade-up relative overflow-hidden">
+        <div class="login-blob-1"></div>
+        <div class="login-blob-2"></div>
+
+        <div class="flex flex-col items-center mb-8 relative">
+            <div class="brand-icon mb-4">
+                <i class="ph ph-buildings text-3xl text-blue-700"></i>
             </div>
-            <h2 class="text-2xl font-extrabold text-white tracking-tight">Welcome Back</h2>
-            <p class="text-slate-400 text-xs mt-1.5 font-medium">Log in to manage your property operations</p>
+            <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">Welcome Back</h1>
+            <p class="text-slate-500 text-sm mt-1.5 font-medium">Sign in to manage your property</p>
         </div>
 
         <?php if (isset($error)): ?>
-            <div class="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold rounded-xl p-3 text-center mb-5 animate-pulse-glow">
-                ⚠️ <?= htmlspecialchars($error) ?>
+            <div class="flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl p-3.5 mb-5">
+                <i class="ph ph-warning-circle text-lg flex-shrink-0"></i>
+                <span><?= htmlspecialchars($error) ?></span>
             </div>
         <?php endif; ?>
 
-        <form method="POST" class="space-y-5">
+        <form method="POST" class="space-y-5 relative">
             <div>
-                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Username</label>
-                <div class="relative">
-                    <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
-                        <i class="ph ph-user text-lg"></i>
-                    </span>
-                    <input type="text" name="username" class="w-full bg-slate-950/50 border border-slate-800 rounded-xl pl-11 pr-4 py-3 text-white text-sm focus:border-indigo-500 focus:outline-none transition-all placeholder-slate-600 shadow-inner" placeholder="Enter username" required>
+                <label for="login-username" class="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">Username</label>
+                <div class="input-icon-wrap">
+                    <input type="text" id="login-username" name="username"
+                        class="w-full border border-slate-200 rounded-xl py-3 text-sm focus:border-blue-700 focus:outline-none transition-all"
+                        placeholder="Enter your username" required autocomplete="username">
+                    <i class="ph ph-user input-icon"></i>
                 </div>
             </div>
 
             <div>
-                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
-                <div class="relative">
-                    <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
-                        <i class="ph ph-lock text-lg"></i>
-                    </span>
-                    <input type="password" name="password" class="w-full bg-slate-950/50 border border-slate-800 rounded-xl pl-11 pr-4 py-3 text-white text-sm focus:border-indigo-500 focus:outline-none transition-all placeholder-slate-600 shadow-inner" placeholder="••••••••" required>
+                <label for="login-password" class="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">Password</label>
+                <div class="input-icon-wrap">
+                    <input type="password" id="login-password" name="password"
+                        class="w-full border border-slate-200 rounded-xl py-3 text-sm focus:border-blue-700 focus:outline-none transition-all"
+                        placeholder="••••••••" required autocomplete="current-password">
+                    <i class="ph ph-lock input-icon"></i>
                 </div>
             </div>
 
-            <button type="submit" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold rounded-xl text-sm transition shadow-lg shadow-indigo-500/20 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]">
+            <button type="submit" class="login-btn">
+                <i class="ph ph-sign-in text-lg"></i>
                 Access Dashboard
             </button>
         </form>

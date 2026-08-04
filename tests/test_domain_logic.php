@@ -2,13 +2,13 @@
 /**
  * Comprehensive Multi-Level Domain & Security Test Suite for MicroPMS
  */
-require_once __DIR__ . '/pms_core/Database.php';
-require_once __DIR__ . '/pms_core/config.php';
-require_once __DIR__ . '/pms_core/services/BookingService.php';
-require_once __DIR__ . '/pms_core/services/FolioService.php';
-require_once __DIR__ . '/pms_core/services/GuestService.php';
-require_once __DIR__ . '/pms_core/SequenceGenerator.php';
-require_once __DIR__ . '/pms_core/PhoneHelper.php';
+require_once __DIR__ . '/../pms_core/Database.php';
+require_once __DIR__ . '/../pms_core/config.php';
+require_once __DIR__ . '/../pms_core/services/BookingService.php';
+require_once __DIR__ . '/../pms_core/services/FolioService.php';
+require_once __DIR__ . '/../pms_core/services/GuestService.php';
+require_once __DIR__ . '/../pms_core/SequenceGenerator.php';
+require_once __DIR__ . '/../pms_core/PhoneHelper.php';
 
 $report = [
     'critical' => [],

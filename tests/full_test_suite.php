@@ -9,14 +9,14 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/pms_core/Database.php';
-require_once __DIR__ . '/pms_core/config.php';
-require_once __DIR__ . '/pms_core/PhoneHelper.php';
-require_once __DIR__ . '/pms_core/SequenceGenerator.php';
-require_once __DIR__ . '/pms_core/PricingEngine.php';
-require_once __DIR__ . '/pms_core/services/GuestService.php';
-require_once __DIR__ . '/pms_core/services/BookingService.php';
-require_once __DIR__ . '/pms_core/services/FolioService.php';
+require_once __DIR__ . '/../pms_core/Database.php';
+require_once __DIR__ . '/../pms_core/config.php';
+require_once __DIR__ . '/../pms_core/PhoneHelper.php';
+require_once __DIR__ . '/../pms_core/SequenceGenerator.php';
+require_once __DIR__ . '/../pms_core/PricingEngine.php';
+require_once __DIR__ . '/../pms_core/services/GuestService.php';
+require_once __DIR__ . '/../pms_core/services/BookingService.php';
+require_once __DIR__ . '/../pms_core/services/FolioService.php';
 
 $db = Database::getInstance()->getConnection();
 

@@ -188,9 +188,9 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             border-color: #CBD5E1;
         }
         .metric-tile.active {
-            border-color: #4F46E5;
-            background: #EEF2FF;
-            box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.08);
+            border-color: #1E3A8A;
+            background: #EFF6FF;
+            box-shadow: 0 4px 6px -1px rgba(30,58,138,0.10);
         }
         .metric-tile.active::after {
             content: '';
@@ -198,8 +198,9 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             bottom: 0;
             left: 0;
             right: 0;
-            height: 4px;
-            background: #4F46E5;
+            height: 3px;
+            background: linear-gradient(90deg, #1E3A8A, #3B82F6);
+            border-radius: 0 0 16px 16px;
         }
         
         .guest-card {
@@ -217,12 +218,13 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
 </head>
 <body class="flex flex-col min-h-screen bg-slate-50/50">
     <?php if ($activePropertyId > 1 && AuthHelper::isSuperAdmin()): ?>
-        <div class="bg-indigo-600 text-white px-4 py-2.5 text-center text-xs font-bold flex items-center justify-center gap-2">
-            <span>👁️ SaaS VIEW: Currently viewing dashboard for <strong><?= htmlspecialchars($hotelName) ?></strong> (Property ID: <?= $activePropertyId ?>)</span>
+        <div class="bg-blue-700 text-white px-4 py-2.5 text-center text-xs font-bold flex items-center justify-center gap-2">
+            <i class="ph ph-eye"></i>
+            <span>SaaS VIEW: Currently viewing dashboard for <strong><?= htmlspecialchars($hotelName) ?></strong> (Property ID: <?= $activePropertyId ?>)</span>
             <form method="POST" action="/saas-admin/index.php" class="inline">
                 <input type="hidden" name="action" value="switch_context">
                 <input type="hidden" name="property_id" value="1">
-                <button type="submit" class="underline text-yellow-300 ml-2">Switch back to Primary Hotel</button>
+                <button type="submit" class="underline text-yellow-300 ml-2 hover:text-yellow-100 transition">Switch back to Primary Hotel</button>
             </form>
         </div>
     <?php endif; ?>
@@ -272,7 +274,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             <!-- Greeting & Search Banner -->
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-xl font-extrabold text-slate-900 tracking-tight font-display"><?= htmlspecialchars($greeting) ?>, <?= htmlspecialchars($staffName) ?> 👋</h2>
+                    <h2 class="text-xl font-extrabold text-slate-900 tracking-tight font-display flex items-center gap-2"><?= htmlspecialchars($greeting) ?>, <?= htmlspecialchars($staffName) ?> <i class="ph ph-hand-waving text-amber-500 text-2xl"></i></h2>
                     <p class="text-xs text-slate-500 font-semibold mt-0.5">Property summary for <span class="text-slate-800 font-bold"><?= date('l, d M Y') ?></span></p>
                 </div>
                 <div class="relative w-full md:w-80">
