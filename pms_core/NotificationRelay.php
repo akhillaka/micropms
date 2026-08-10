@@ -37,9 +37,14 @@ class NotificationRelay {
     /**
      * Send Telegram message by queueing it to jobs_queue.
      */
-    public static function sendTelegram(string $fallbackMessage, ?string $eventKey = null, array $context = []): bool {
+    public static function sendTelegram(string $fallbackMessage, ?string $eventKey = null, array $context = [], ?int $propertyId = null): bool {
         require_once __DIR__ . '/Database.php';
         $db = Database::getInstance()->getConnection();
+
+        if ($propertyId === null) {
+            require_once __DIR__ . '/AuthHelper.php';
+            $propertyId = AuthHelper::getPropertyId();
+        }
 
         if (!defined('TELEGRAM_BOT_TOKEN') || empty(TELEGRAM_BOT_TOKEN) || TELEGRAM_BOT_TOKEN === 'your_telegram_bot_token') {
             return false;
@@ -60,8 +65,8 @@ class NotificationRelay {
         $payload = json_encode(['message' => $formatted]);
 
         try {
-            $stmt = $db->prepare("INSERT INTO jobs_queue (type, payload) VALUES ('telegram', ?)");
-            return $stmt->execute([$payload]);
+            $stmt = $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('telegram', ?, ?)");
+            return $stmt->execute([$propertyId, $payload]);
         } catch (\Exception $e) {
             error_log("Failed to queue telegram job: " . $e->getMessage());
             return false;
@@ -71,12 +76,26 @@ class NotificationRelay {
     /**
      * Send Telegram message synchronously.
      */
-    public static function sendTelegramSync(string $fallbackMessage, ?string $eventKey = null, array $context = []): bool {
-        // Ensure Database settings are loaded dynamically
+    public static function sendTelegramSync(string $fallbackMessage, ?string $eventKey = null, array $context = [], ?int $propertyId = null): bool {
         require_once __DIR__ . '/Database.php';
-        Database::getInstance();
+        $db = Database::getInstance()->getConnection();
 
-        if (!defined('TELEGRAM_BOT_TOKEN') || empty(TELEGRAM_BOT_TOKEN) || TELEGRAM_BOT_TOKEN === 'your_telegram_bot_token') {
+        if ($propertyId === null) {
+            require_once __DIR__ . '/AuthHelper.php';
+            $propertyId = AuthHelper::getPropertyId();
+        }
+
+        $stmt = $db->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ? AND key_name IN ('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID')");
+        $stmt->execute([$propertyId]);
+        $settings = [];
+        while ($row = $stmt->fetch()) {
+            $settings[$row['key_name']] = $row['key_value'];
+        }
+
+        $token = $settings['TELEGRAM_BOT_TOKEN'] ?? (defined('TELEGRAM_BOT_TOKEN') ? TELEGRAM_BOT_TOKEN : null);
+        $chatIds = $settings['TELEGRAM_CHAT_ID'] ?? (defined('TELEGRAM_CHAT_ID') ? TELEGRAM_CHAT_ID : '');
+
+        if (empty($token) || $token === 'your_telegram_bot_token') {
             return false;
         }
         if ($eventKey !== null && !self::isEnabled($eventKey)) {
@@ -93,9 +112,8 @@ class NotificationRelay {
 
         $formatted = self::formatTemplate($message, $context);
 
-        $url = 'https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage';
+        $url = 'https://api.telegram.org/bot' . $token . '/sendMessage';
 
-        $chatIds = defined('TELEGRAM_CHAT_ID') ? TELEGRAM_CHAT_ID : '';
         $idList = array_filter(array_map('trim', explode(',', $chatIds)));
         
         if (empty($idList)) {
@@ -171,6 +189,7 @@ class NotificationRelay {
                 }
 
                 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch); // FIX: Close handle
                 $body = is_string($response) ? json_decode($response, true) : [];
 
                 $success = match (true) {
@@ -183,18 +202,21 @@ class NotificationRelay {
                     return ['ok' => false, 'error' => $body['description'] ?? "HTTP $httpCode on chat ID $id"];
                 }
             } catch (\Exception $e) {
+                if (isset($ch) && is_resource($ch)) curl_close($ch);
                 return ['ok' => false, 'error' => $e->getMessage() . " on chat ID $id"];
             }
         }
         return ['ok' => true];
     }
 
-    /**
-     * Sends a WhatsApp message by queueing it to jobs_queue.
-     */
-    public static function sendWhatsApp(string $phoneNumber, array|string $payloadData, bool $isTemplate = true): array {
+    public static function sendWhatsApp(string $phoneNumber, array|string $payloadData, bool $isTemplate = true, ?int $propertyId = null): array {
         require_once __DIR__ . '/Database.php';
         $db = Database::getInstance()->getConnection();
+
+        if ($propertyId === null) {
+            require_once __DIR__ . '/AuthHelper.php';
+            $propertyId = AuthHelper::getPropertyId();
+        }
 
         $payload = json_encode([
             'phone' => $phoneNumber,
@@ -203,8 +225,8 @@ class NotificationRelay {
         ]);
 
         try {
-            $stmt = $db->prepare("INSERT INTO jobs_queue (type, payload) VALUES ('whatsapp', ?)");
-            $stmt->execute([$payload]);
+            $stmt = $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('whatsapp', ?, ?)");
+            $stmt->execute([$propertyId, $payload]);
             return ['ok' => true, 'queued' => true];
         } catch (\Exception $e) {
             error_log("Failed to queue whatsapp job: " . $e->getMessage());
@@ -215,17 +237,32 @@ class NotificationRelay {
     /**
      * Sends a WhatsApp message synchronously and returns a structured array with ok status and message/error.
      */
-    public static function sendWhatsAppSync(string $phoneNumber, array|string $payloadData, bool $isTemplate = true): array {
-        // Ensure Database settings are loaded dynamically
+    public static function sendWhatsAppSync(string $phoneNumber, array|string $payloadData, bool $isTemplate = true, ?int $propertyId = null): array {
         require_once __DIR__ . '/Database.php';
-        Database::getInstance();
+        $db = Database::getInstance()->getConnection();
 
-        if (!defined('WHATSAPP_TOKEN') || empty(WHATSAPP_TOKEN) || WHATSAPP_TOKEN === 'your_whatsapp_token_here') {
+        if ($propertyId === null) {
+            require_once __DIR__ . '/AuthHelper.php';
+            $propertyId = AuthHelper::getPropertyId();
+        }
+
+        $stmt = $db->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ? AND key_name IN ('WHATSAPP_TOKEN', 'WHATSAPP_WABA_ID', 'WHATSAPP_PHONE_NUMBER_ID')");
+        $stmt->execute([$propertyId]);
+        $settings = [];
+        while ($row = $stmt->fetch()) {
+            $settings[$row['key_name']] = $row['key_value'];
+        }
+
+        $waToken = $settings['WHATSAPP_TOKEN'] ?? (defined('WHATSAPP_TOKEN') ? WHATSAPP_TOKEN : null);
+        $wabaId = $settings['WHATSAPP_WABA_ID'] ?? (defined('WHATSAPP_WABA_ID') ? WHATSAPP_WABA_ID : null);
+        $phoneId = $settings['WHATSAPP_PHONE_NUMBER_ID'] ?? (defined('WHATSAPP_PHONE_NUMBER_ID') ? WHATSAPP_PHONE_NUMBER_ID : '');
+
+        if (empty($waToken) || $waToken === 'your_whatsapp_token_here') {
             return ['ok' => false, 'error_message' => 'WhatsApp token is not configured'];
         }
 
-        $baseUrl = defined('WHATSAPP_WABA_ID') && str_starts_with(WHATSAPP_WABA_ID, 'http') 
-                   ? rtrim(WHATSAPP_WABA_ID, '/')
+        $baseUrl = !empty($wabaId) && str_starts_with($wabaId, 'http') 
+                   ? rtrim($wabaId, '/')
                    : 'https://one.xpressbot.org/api/workspace/v1';
 
         // Always resolve to E.164 (digits only, with country code) via PhoneHelper
@@ -250,7 +287,7 @@ class NotificationRelay {
             }
             
             $data = [
-                'channelId' => defined('WHATSAPP_PHONE_NUMBER_ID') ? WHATSAPP_PHONE_NUMBER_ID : '',
+                'channelId' => $phoneId,
                 'to' => $cleanPhone,
                 'templateName' => $templateName,
                 'languageCode' => $languageCode,
@@ -259,14 +296,14 @@ class NotificationRelay {
         } else {
             $url = $baseUrl . '/whatsapp/message/send';
             $data = [
-                'channelId' => defined('WHATSAPP_PHONE_NUMBER_ID') ? WHATSAPP_PHONE_NUMBER_ID : '',
+                'channelId' => $phoneId,
                 'to' => $cleanPhone,
                 'type' => 'text',
                 'body' => is_array($payloadData) ? ($payloadData['text']['body'] ?? '') : $payloadData
             ];
         }
 
-        $res = self::makePostRequest($url, $data, WHATSAPP_TOKEN);
+        $res = self::makePostRequest($url, $data, $waToken);
         if ($res && isset($res['ok']) && $res['ok'] === true) {
             $msgId = "msg_" . uniqid();
             if (isset($res['data']['messageId'])) $msgId = (string)$res['data']['messageId'];
@@ -302,11 +339,13 @@ class NotificationRelay {
             
             if (curl_errno($ch)) {
                 $errStr = curl_error($ch);
+                curl_close($ch);
                 error_log("PMS cURL Connection Error: " . $errStr);
                 return ['ok' => false, 'error_message' => 'cURL Error: ' . $errStr];
             }
             
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch); // FIX: Close handle after reading response
 
             $decoded = json_decode((string)$response, true);
             $isDecodedArray = is_array($decoded);
@@ -366,6 +405,9 @@ class NotificationRelay {
             }
             
         } catch (\Exception $e) {
+            if (isset($ch) && $ch !== false && (is_resource($ch) || $ch instanceof \CurlHandle)) {
+                curl_close($ch);
+            }
             error_log("PMS Exception in API request: " . $e->getMessage());
             return ['ok' => false, 'error_message' => $e->getMessage()];
         }
@@ -374,19 +416,24 @@ class NotificationRelay {
     /**
      * Trigger a WhatsApp automation template based on a system event.
      */
-    public static function triggerAutomation(string $eventKey, ?string $phoneNumber, ?int $bookingId = null, array $customDataArray = []): bool {
+    public static function triggerAutomation(string $eventKey, ?string $phoneNumber, ?int $bookingId = null, array $customDataArray = [], ?int $propertyId = null): bool {
         require_once __DIR__ . '/Database.php';
         require_once __DIR__ . '/config.php';
         
         $db = Database::getInstance()->getConnection();
         
+        if ($propertyId === null) {
+            require_once __DIR__ . '/AuthHelper.php';
+            $propertyId = AuthHelper::getPropertyId();
+        }
+
         $stmt = $db->prepare("
             SELECT a.variable_mapping_json, t.name, t.language, t.components_json 
             FROM wa_automations a 
             JOIN wa_templates t ON a.template_id = t.id 
-            WHERE a.event_key = ? AND a.status = 'active'
+            WHERE a.event_key = ? AND a.property_id = ? AND a.status = 'active'
         ");
-        $stmt->execute([$eventKey]);
+        $stmt->execute([$eventKey, $propertyId]);
         $auto = $stmt->fetch();
         
         if (!$auto) {

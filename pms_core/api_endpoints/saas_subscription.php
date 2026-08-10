@@ -1,18 +1,19 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/../../pms_core/ApiHandler.php';
+require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
 require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
 
-ApiHandler::handle(function($data, $auth) {
-    if ($auth['role'] !== 'owner') {
-        throw new Exception("Only property owners can manage SaaS subscriptions", 403);
+ApiHandler::run(function(\PDO $db) {
+    if (AuthHelper::getRole() !== 'owner') {
+        ApiResponse::error("Only property owners can manage SaaS subscriptions", 403);
     }
 
-    $db = Database::getInstance()->getConnection();
-    $propertyId = $auth['property_id'];
-    $action = $data['action'] ?? '';
+    $data = json_decode(file_get_contents('php://input'), true) ?? $_POST ?? [];
+    $propertyId = AuthHelper::getPropertyId();
+    $action = $data['action'] ?? $_GET['action'] ?? '';
 
     // The SaaS razorpay credentials (global)
     $keyId = defined('RAZORPAY_KEY_ID') ? RAZORPAY_KEY_ID : '';
@@ -20,14 +21,14 @@ ApiHandler::handle(function($data, $auth) {
     $isLive = defined('RAZORPAY_LIVE_MODE') && RAZORPAY_LIVE_MODE === 'true';
 
     if (empty($keyId) || empty($keySecret)) {
-        throw new Exception("SaaS Payments are not configured globally");
+        ApiResponse::error("SaaS Payments are not configured globally");
     }
 
     $rz = new RazorpayService($keyId, $keySecret, $isLive);
 
     if ($action === 'create_subscription') {
         $planId = trim($data['plan_id'] ?? '');
-        if (!$planId) throw new Exception("Plan ID required");
+        if (!$planId) ApiResponse::error("Plan ID required");
 
         $notes = ['property_id' => $propertyId];
         $result = $rz->createSubscription($planId, 12, $notes);
@@ -46,15 +47,14 @@ ApiHandler::handle(function($data, $auth) {
                 0 // Or proper amount
             ]);
 
-            return [
-                'success' => true,
+            ApiResponse::success([
                 'subscription_id' => $result['subscription_id'],
                 'short_url' => $result['short_url']
-            ];
+            ]);
         }
 
-        throw new Exception($result['error'] ?? "Failed to create subscription");
+        ApiResponse::error($result['error'] ?? "Failed to create subscription");
     }
     
-    throw new Exception("Unknown action: " . htmlspecialchars($action));
+    ApiResponse::error("Unknown action: " . htmlspecialchars($action));
 });

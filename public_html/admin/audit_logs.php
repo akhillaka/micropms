@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
 if (!AuthHelper::can('view_audit_logs') && !AuthHelper::can('manage_saas')) {
-    header('Location: login.php');
+    header('Location: /login');
     exit;
 }
 CsrfToken::checkTimeout();
@@ -19,8 +19,9 @@ $filterAction = $_GET['action'] ?? '';
 $filterEntity = $_GET['entity'] ?? '';
 $searchQuery = $_GET['q'] ?? '';
 
-$whereClauses = [];
-$params = [];
+$propertyId = AuthHelper::getPropertyId();
+$whereClauses = ["a.property_id = :property_id"];
+$params = ['property_id' => $propertyId];
 
 if (!empty($filterAction)) {
     $whereClauses[] = "a.action = :action";
@@ -94,14 +95,14 @@ $uniqueEntities = $db->query("SELECT DISTINCT entity_type FROM audit_logs ORDER 
             <form method="GET" class="card-minimal p-4 flex flex-col md:flex-row gap-4 mb-4">
                 <div class="flex-1">
                     <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Search Details / Username</label>
-                    <input type="text" name="q" value="<?= htmlspecialchars($searchQuery) ?>" placeholder="Search..." class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-lg text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
+                    <input type="text" name="q" value="<?= htmlspecialchars((string)($searchQuery)) ?>" placeholder="Search..." class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-lg text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
                 </div>
                 <div class="w-full md:w-48">
                     <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Action</label>
                     <select name="action" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-lg text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
                         <option value="">All Actions</option>
                         <?php foreach($uniqueActions as $ua): ?>
-                            <option value="<?= htmlspecialchars($ua) ?>" <?= $filterAction === $ua ? 'selected' : '' ?>><?= htmlspecialchars($ua) ?></option>
+                            <option value="<?= htmlspecialchars((string)($ua)) ?>" <?= htmlspecialchars((string)($filterAction === $ua ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>><?= htmlspecialchars((string)($ua)) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -110,7 +111,7 @@ $uniqueEntities = $db->query("SELECT DISTINCT entity_type FROM audit_logs ORDER 
                     <select name="entity" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-lg text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
                         <option value="">All Entities</option>
                         <?php foreach($uniqueEntities as $ue): ?>
-                            <option value="<?= htmlspecialchars($ue) ?>" <?= $filterEntity === $ue ? 'selected' : '' ?>><?= htmlspecialchars($ue) ?></option>
+                            <option value="<?= htmlspecialchars((string)($ue)) ?>" <?= htmlspecialchars((string)($filterEntity === $ue ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>><?= htmlspecialchars((string)($ue)) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -148,18 +149,18 @@ $uniqueEntities = $db->query("SELECT DISTINCT entity_type FROM audit_logs ORDER 
                                 <?php foreach($logs as $log): ?>
                                 <tr class="hover:bg-brand-50/50 transition-colors">
                                     <td class="p-4 text-brand-900/70 text-xs">
-                                        <?= date('Y-m-d H:i:s', strtotime($log['created_at'])) ?>
+                                        <?= htmlspecialchars((string)(date('Y-m-d H:i:s', strtotime($log['created_at']))), ENT_QUOTES, 'UTF-8') ?>
                                     </td>
                                     <td class="p-4 font-bold text-brand-900 text-xs">
-                                        <?= htmlspecialchars($log['username']) ?>
+                                        <?= htmlspecialchars((string)($log['username'])) ?>
                                     </td>
                                     <td class="p-4">
                                         <span class="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded-full uppercase tracking-wider">
-                                            <?= htmlspecialchars($log['action']) ?>
+                                            <?= htmlspecialchars((string)($log['action'])) ?>
                                         </span>
                                     </td>
                                     <td class="p-4 text-brand-900 font-bold text-xs">
-                                        <?= $log['entity_type'] ?> <span class="text-brand-400 font-medium">#<?= $log['entity_id'] ?></span>
+                                        <?= htmlspecialchars((string)($log['entity_type']), ENT_QUOTES, 'UTF-8') ?> <span class="text-brand-400 font-medium">#<?= htmlspecialchars((string)($log['entity_id']), ENT_QUOTES, 'UTF-8') ?></span>
                                     </td>
                                     <td class="p-4 text-[11px] text-brand-900/80 font-mono leading-relaxed max-w-md truncate">
                                         <?php 
@@ -168,11 +169,11 @@ $uniqueEntities = $db->query("SELECT DISTINCT entity_type FROM audit_logs ORDER 
                                                 $formatted = [];
                                                 foreach($details as $k => $v) {
                                                     $val = is_array($v) ? json_encode($v) : $v;
-                                                    $formatted[] = htmlspecialchars("$k: $val");
+                                                    $formatted[] = htmlspecialchars((string)("$k: $val"));
                                                 }
                                                 echo implode(' &bull; ', $formatted);
                                             } else {
-                                                echo htmlspecialchars($log['details'] ?: '-');
+                                                echo htmlspecialchars((string)($log['details'] ?: '-'));
                                             }
                                         ?>
                                     </td>
@@ -201,11 +202,11 @@ $uniqueEntities = $db->query("SELECT DISTINCT entity_type FROM audit_logs ORDER 
                 ]));
                 ?>
                 <?php if($page > 1): ?>
-                <a href="?<?= $paginationParams ?>" class="px-3 py-1.5 text-sm font-bold rounded-lg bg-white border border-slate-200 text-slate-900 hover:bg-slate-50">Previous</a>
+                <a href="?<?= htmlspecialchars((string)($paginationParams), ENT_QUOTES, 'UTF-8') ?>" class="px-3 py-1.5 text-sm font-bold rounded-lg bg-white border border-slate-200 text-slate-900 hover:bg-slate-50">Previous</a>
                 <?php endif; ?>
-                <span class="px-3 py-1.5 text-sm font-bold text-slate-500">Page <?= $page ?> of <?= $totalPages ?></span>
+                <span class="px-3 py-1.5 text-sm font-bold text-slate-500">Page <?= htmlspecialchars((string)($page), ENT_QUOTES, 'UTF-8') ?> of <?= htmlspecialchars((string)($totalPages), ENT_QUOTES, 'UTF-8') ?></span>
                 <?php if($page < $totalPages): ?>
-                <a href="?<?= $paginationParamsNext ?>" class="px-3 py-1.5 text-sm font-bold rounded-lg bg-white border border-slate-200 text-slate-900 hover:bg-slate-50">Next</a>
+                <a href="?<?= htmlspecialchars((string)($paginationParamsNext), ENT_QUOTES, 'UTF-8') ?>" class="px-3 py-1.5 text-sm font-bold rounded-lg bg-white border border-slate-200 text-slate-900 hover:bg-slate-50">Next</a>
                 <?php endif; ?>
             </div>
             <?php endif; ?>

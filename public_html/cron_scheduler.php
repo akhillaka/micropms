@@ -150,7 +150,7 @@ foreach ($overstays as $o) {
     // Room will be marked dirty on actual checkout via admin_booking_status.php or NightAudit auto-checkout.
     // Here we only send the alert and flag the booking for staff attention.
 
-    $msg = "\u26a0\ufe0f <b>Overstay Alert</b>\n\nRoom: {$o['room_number']}\nGuest: " . htmlspecialchars($o['guest_name'] ?? 'N/A') . "\nCheckout was: {$o['check_out']}\nGuest has not checked out. Please investigate.";
+    $msg = "\u26a0\ufe0f <b>Overstay Alert</b>\n\nRoom: {$o['room_number']}\nGuest: " . htmlspecialchars((string)($o['guest_name'] ?? 'N/A')) . "\nCheckout was: {$o['check_out']}\nGuest has not checked out. Please investigate.";
 
     $context = [
         'guest_name'     => $o['guest_name'] ?? 'N/A',

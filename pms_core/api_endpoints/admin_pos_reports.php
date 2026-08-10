@@ -131,13 +131,13 @@ try {
         
         $stmt = $db->prepare("
             SELECT o.*, 
-                   COUNT(oi.id) as item_count,
-                   (SELECT u.username FROM staff_users u WHERE u.id = o.staff_id) as staff_name
+                   o.recorded_at AS created_at,
+                   COUNT(oi.id) as item_count
             FROM pos_orders o
             LEFT JOIN pos_order_items oi ON o.id = oi.order_id
-            WHERE o.property_id = ? AND o.created_at BETWEEN ? AND ?
+            WHERE o.property_id = ? AND o.recorded_at BETWEEN ? AND ?
             GROUP BY o.id
-            ORDER BY o.created_at DESC
+            ORDER BY o.recorded_at DESC
         ");
         $stmt->execute([$propertyId, $startDate, $endDate]);
         $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);

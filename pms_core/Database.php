@@ -109,9 +109,9 @@ class TenantQuery {
         $clause = trim($whereClause);
         
         if (empty($clause)) {
-            $newWhere = "{$prefix}property_id = ?";
+            $newWhere = "{$prefix}property_id = ? AND {$prefix}deleted_at IS NULL";
         } else {
-            $newWhere = "({$clause}) AND {$prefix}property_id = ?";
+            $newWhere = "({$clause}) AND {$prefix}property_id = ? AND {$prefix}deleted_at IS NULL";
         }
         
         $params[] = $propertyId;

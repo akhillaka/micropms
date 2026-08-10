@@ -5,9 +5,11 @@ $navItems = [
     'index.php' => ['icon' => 'ph-house', 'label' => 'Home', 'permission' => 'view_dashboard'],
     '../booking_wizard.php' => ['icon' => 'ph-calendar-plus', 'label' => 'Wizard', 'permission' => 'create_booking'],
     'modules/housekeeping/rooms_calendar.php' => ['icon' => 'ph-calendar-blank', 'label' => 'Rooms', 'permission' => 'housekeeping'],
+    'modules/housekeeping/service_requests.php' => ['icon' => 'ph-bell', 'label' => 'Requests', 'permission' => 'housekeeping'],
     'finance.php' => ['icon' => 'ph-wallet', 'label' => 'Finance', 'permission' => 'view_finance'],
-    'modules/whatsapp/whatsapp_automations.php' => ['icon' => 'ph-robot', 'label' => 'Automations', 'permission' => 'send_whatsapp'],
-    'settings.php' => ['icon' => 'ph-gear', 'label' => 'Settings', 'permission' => 'manage_settings']
+    'settings.php' => ['icon' => 'ph-gear', 'label' => 'Settings', 'permission' => 'manage_settings'],
+    'guest_portal_settings.php' => ['icon' => 'ph-device-mobile', 'label' => 'Portal', 'permission' => 'manage_settings'],
+    'settings.php?tab=roles' => ['icon' => 'ph-shield-check', 'label' => 'Roles', 'permission' => 'manage_settings']
 ];
 ?>
 <!-- Premium Glassmorphism Mobile Nav -->
@@ -23,7 +25,7 @@ $navItems = [
             $iconWeight = $isActive ? 'ph-fill' : 'ph';
             ?>
             <?php $finalUrl = (strpos($url, '../') === 0) ? str_replace('/admin/', '/', $adminBaseUrl) . substr($url, 3) : $adminBaseUrl . $url; ?>
-            <a href="<?= htmlspecialchars($finalUrl) ?>" class="relative flex flex-col items-center justify-center w-16 h-full transition-all duration-300 <?= $activeContainer ?>">
+            <a href="<?= htmlspecialchars((string)($finalUrl)) ?>" class="relative flex flex-col items-center justify-center w-16 h-full transition-all duration-300 <?= htmlspecialchars((string)($activeContainer), ENT_QUOTES, 'UTF-8') ?>">
                 
                 <!-- Active Indicator Dot / Pill -->
                 <?php if($isActive): ?>
@@ -31,12 +33,12 @@ $navItems = [
                 <?php endif; ?>
                 
                 <!-- Icon container with bouncy animation on active -->
-                <div class="flex items-center justify-center w-10 h-10 rounded-full <?= $isActive ? 'bg-brand-50 text-brand-900 -translate-y-1 shadow-sm' : 'bg-transparent' ?> transition-all duration-300">
-                    <i class="<?= $iconWeight ?> <?= $item['icon'] ?> text-2xl"></i>
+                <div class="flex items-center justify-center w-10 h-10 rounded-full <?= htmlspecialchars((string)($isActive ? 'bg-brand-50 text-brand-900 -translate-y-1 shadow-sm' : 'bg-transparent'), ENT_QUOTES, 'UTF-8') ?> transition-all duration-300">
+                    <i class="<?= htmlspecialchars((string)($iconWeight), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)($item['icon']), ENT_QUOTES, 'UTF-8') ?> text-2xl"></i>
                 </div>
                 
-                <span class="text-[10px] font-bold tracking-wide transition-all duration-300 <?= $isActive ? 'opacity-100 -translate-y-0.5' : 'opacity-70' ?>">
-                    <?= $item['label'] ?>
+                <span class="text-[10px] font-bold tracking-wide transition-all duration-300 <?= htmlspecialchars((string)($isActive ? 'opacity-100 -translate-y-0.5' : 'opacity-70'), ENT_QUOTES, 'UTF-8') ?>">
+                    <?= htmlspecialchars((string)($item['label']), ENT_QUOTES, 'UTF-8') ?>
                 </span>
             </a>
         <?php endforeach; ?>

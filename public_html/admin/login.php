@@ -108,6 +108,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['role'] = $user['access_level']; // Normalize role
                 $_SESSION['access_level'] = $user['access_level']; // Ensure legacy check passes
                 $_SESSION['username'] = $user['username'];
+                $_SESSION['primary_property_id'] = (int)($user['property_id'] ?? 0);
+                $_SESSION['property_id'] = (int)($user['property_id'] ?? 0);
+                if ($_SESSION['property_id'] <= 0) {
+                    $_SESSION['property_id'] = 1000; // default to first 4-digit property
+                }
                 
                 // Automatically log them into the SaaS control panel if they are a superadmin
                 if ($user['access_level'] === 'superadmin' || $user['role'] === 'superadmin') {
@@ -237,7 +242,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if (isset($error)): ?>
             <div class="flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl p-3.5 mb-5">
                 <i class="ph ph-warning-circle text-lg flex-shrink-0"></i>
-                <span><?= htmlspecialchars($error) ?></span>
+                <span><?= htmlspecialchars((string)($error)) ?></span>
             </div>
         <?php endif; ?>
 

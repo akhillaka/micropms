@@ -8,17 +8,17 @@ class QueueService {
     /**
      * Push a new job onto the queue.
      */
-    public static function push(string $queueName, array $payload, int $delaySeconds = 0): int {
+    public static function push(string $queueName, array $payload, int $delaySeconds = 0, ?int $propertyId = null): int {
         $db = Database::getInstance()->getConnection();
         
         $availableAt = date('Y-m-d H:i:s', time() + $delaySeconds);
         $payloadJson = json_encode($payload);
         
         $stmt = $db->prepare("
-            INSERT INTO jobs_queue (queue_name, payload_json, status, available_at)
-            VALUES (?, ?, 'pending', ?)
+            INSERT INTO jobs_queue (queue_name, property_id, payload_json, status, available_at)
+            VALUES (?, ?, ?, 'pending', ?)
         ");
-        $stmt->execute([$queueName, $payloadJson, $availableAt]);
+        $stmt->execute([$queueName, $propertyId, $payloadJson, $availableAt]);
         
         return (int)$db->lastInsertId();
     }

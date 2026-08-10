@@ -9,22 +9,24 @@ ApiHandler::run(function(\PDO $db) {
     // Session is checked by ApiHandler
 
     $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    $propertyId = AuthHelper::getPropertyId();
     $action = $_GET['action'] ?? $data['action'] ?? '';
-    
+
     if ($action === 'all') {
         $sql = "SELECT r.id, r.room_number, r.category_id, r.state as room_state, c.name as category_name 
                 FROM rooms r
-                JOIN room_categories c ON r.category_id = c.id";
+                JOIN room_categories c ON r.category_id = c.id
+                WHERE r.property_id = :pid";
         $stmt = $db->prepare($sql);
-        $stmt->execute();
+        $stmt->execute(['pid' => $propertyId]);
         $allRooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         $processedRooms = [];
         $now = date('Y-m-d H:i:s');
         foreach ($allRooms as $room) {
             // Check if occupied right now
-            $occStmt = $db->prepare("SELECT COUNT(*) FROM bookings WHERE room_id = :rid AND check_in <= :now1 AND check_out >= :now2 AND booking_status IN ('booked', 'checked_in') AND payment_status != 'cancelled'");
-            $occStmt->execute(['rid' => $room['id'], 'now1' => $now, 'now2' => $now]);
+            $occStmt = $db->prepare("SELECT COUNT(*) FROM bookings WHERE room_id = :rid AND check_in <= :now1 AND check_out >= :now2 AND booking_status IN ('booked', 'checked_in') AND payment_status != 'cancelled' AND property_id = :pid");
+            $occStmt->execute(['rid' => $room['id'], 'now1' => $now, 'now2' => $now, 'pid' => $propertyId]);
             $isOccupied = (int)$occStmt->fetchColumn() > 0;
             
             $floor = 'Ground Floor';
@@ -63,17 +65,21 @@ ApiHandler::run(function(\PDO $db) {
             FROM rooms r
             JOIN room_categories c ON r.category_id = c.id
             WHERE r.state != 'out_of_order'
+              AND r.property_id = :pid1
               AND r.id NOT IN (
                   SELECT b.room_id FROM bookings b
                   WHERE b.check_in < :check_out 
                     AND b.check_out > :check_in
                     AND b.payment_status != 'cancelled'
+                    AND b.property_id = :pid2
               )";
               
     $stmt = $db->prepare($sql);
     $stmt->execute([
         'check_in' => $checkIn,
-        'check_out' => $checkOut
+        'check_out' => $checkOut,
+        'pid1' => $propertyId,
+        'pid2' => $propertyId
     ]);
     
     $availableRooms = $stmt->fetchAll(PDO::FETCH_ASSOC);

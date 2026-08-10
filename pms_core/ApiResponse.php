@@ -3,15 +3,11 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/ApiException.php';
 
+require_once __DIR__ . '/ApiSuccessException.php';
+
 class ApiResponse {
     public static function success(array $data = [], int $statusCode = 200): void {
-        http_response_code($statusCode);
-        $response = ['success' => true];
-        if (!empty($data)) {
-            $response = array_merge($response, $data);
-        }
-        echo json_encode($response, JSON_THROW_ON_ERROR);
-        exit;
+        throw new ApiSuccessException($data, $statusCode);
     }
 
     public static function error(string $message, int $statusCode = 400, array $extra = []): void {

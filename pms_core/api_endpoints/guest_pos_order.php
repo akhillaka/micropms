@@ -49,6 +49,13 @@ try {
 
     $propertyId = (int)$booking['property_id'];
 
+    $st = $db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'GUEST_PORTAL_POS_ENABLED'");
+    $st->execute([$propertyId]);
+    $posEnabled = ($st->fetchColumn() === 'true');
+    if (!$posEnabled) {
+        throw new Exception("POS feature is disabled for this property.");
+    }
+
     // Validate items, prices, and stock
     $totalAmount = 0.0;
     $validatedItems = [];
@@ -124,7 +131,7 @@ try {
         'room' => $booking['room_number'],
         'guest' => $booking['guest_name'],
         'total' => number_format($totalAmount, 2)
-    ]);
+    ], $propertyId);
 
     $db->commit();
     echo json_encode(['success' => true, 'message' => 'Order placed successfully! It will be delivered to your room soon.']);

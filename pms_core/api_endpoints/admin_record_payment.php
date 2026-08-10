@@ -152,7 +152,7 @@ ApiHandler::run(function(\PDO $db) {
             $txnStmt->execute([$financeId]);
             $txnDisplayId = $txnStmt->fetchColumn();
             if ($txnDisplayId) {
-                $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref = 'MANUAL' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $entryId]);
+                $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref LIKE 'MANUAL%' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $entryId]);
             }
         }
         $receiptDisplayId = implode(', ', $receipts);
@@ -196,7 +196,7 @@ ApiHandler::run(function(\PDO $db) {
             $txnStmt->execute([$financeId]);
             $txnDisplayId = $txnStmt->fetchColumn();
             if ($txnDisplayId) {
-                $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref = 'MANUAL' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $entryId]);
+                $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref LIKE 'MANUAL%' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $entryId]);
             }
         }
     }

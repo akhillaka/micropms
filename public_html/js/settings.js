@@ -1166,7 +1166,7 @@ function loadNightAuditSettings() {
             document.getElementById('night_audit_report_bookings').checked = s.night_audit_report_bookings !== 'false';
         }
     })
-    .catch(() => showToast('Failed to load night audit settings', 'error'));
+    .catch(e => showToast('Failed to load night audit settings: ' + e.message, 'error'));
 }
 
 function loadAuditExceptions() {

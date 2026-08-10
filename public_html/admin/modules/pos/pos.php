@@ -145,16 +145,16 @@ $auditStmt = $db->prepare("
     SELECT a.*, u.username, u.access_level as role
     FROM audit_logs a
     LEFT JOIN staff_users u ON a.staff_id = u.id
-    WHERE (a.action LIKE '%POS%' OR a.action LIKE '%INVENTORY%')
+    WHERE a.property_id = :prop_id AND (a.action LIKE '%POS%' OR a.action LIKE '%INVENTORY%')
     ORDER BY a.id DESC LIMIT 50
 ");
-$auditStmt->execute([]);
+$auditStmt->execute(['prop_id' => $propertyId]);
 $posAuditLogs = $auditStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch POS Settings from system_settings
-$posTax = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'POS_DEFAULT_TAX'")->fetchColumn() ?: '0';
-$posAutoCharge = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'POS_AUTO_POST_ROOM'")->fetchColumn() ?: 'true';
-$posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'POS_LOW_STOCK_DEFAULT'")->fetchColumn() ?: '5';
+$posTax = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'POS_DEFAULT_TAX' AND property_id = " . (int)$propertyId)->fetchColumn() ?: '0';
+$posAutoCharge = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'POS_AUTO_POST_ROOM' AND property_id = " . (int)$propertyId)->fetchColumn() ?: 'true';
+$posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'POS_LOW_STOCK_DEFAULT' AND property_id = " . (int)$propertyId)->fetchColumn() ?: '5';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -207,7 +207,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                 <button onclick="togglePosTab('orders')" id="tabBtn-orders" class="flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 relative shrink-0 px-3 cursor-pointer transition">
                     <i class="ph ph-bell"></i> Guest Orders
                     <?php if (count($pendingOrders) > 0): ?>
-                        <span class="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[8px] font-black animate-bounce"><?= count($pendingOrders) ?></span>
+                        <span class="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[8px] font-black animate-bounce"><?= htmlspecialchars((string)(count($pendingOrders)), ENT_QUOTES, 'UTF-8') ?></span>
                     <?php endif; ?>
                 </button>
                 <button onclick="togglePosTab('history')" id="tabBtn-history" class="flex-1 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-50 shrink-0 px-3 cursor-pointer transition">
@@ -235,8 +235,8 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                         All Shops
                     </button>
                     <?php foreach ($outlets as $o): ?>
-                        <button onclick="filterOutlet(<?= $o['id'] ?>)" id="btn-outlet-<?= $o['id'] ?>" class="px-4 py-2 rounded-full text-xs font-bold bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 transition shrink-0 cursor-pointer">
-                            <?= htmlspecialchars($o['name']) ?>
+                        <button onclick="filterOutlet(<?= htmlspecialchars((string)($o['id']), ENT_QUOTES, 'UTF-8') ?>)" id="btn-outlet-<?= htmlspecialchars((string)($o['id']), ENT_QUOTES, 'UTF-8') ?>" class="px-4 py-2 rounded-full text-xs font-bold bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 transition shrink-0 cursor-pointer">
+                            <?= htmlspecialchars((string)($o['name'])) ?>
                         </button>
                     <?php endforeach; ?>
                 </div>
@@ -263,26 +263,26 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                             $isOutOfStock = $item['stock_qty'] <= 0;
                             $isLowStock = !$isOutOfStock && $item['stock_qty'] <= $item['low_stock_threshold'];
                             ?>
-                            <div class="bg-white border border-slate-100 rounded-2xl shadow-sm p-4 flex flex-col justify-between hover:border-slate-350 transition duration-200 relative overflow-hidden product-card <?= $isOutOfStock ? 'opacity-50' : '' ?>" data-name="<?= htmlspecialchars(strtolower($item['name'])) ?>" data-sku="<?= htmlspecialchars(strtolower($item['sku'])) ?>" data-outlet-id="<?= (int)$item['outlet_id'] ?>">
+                            <div class="bg-white border border-slate-100 rounded-2xl shadow-sm p-4 flex flex-col justify-between hover:border-slate-350 transition duration-200 relative overflow-hidden product-card <?= htmlspecialchars((string)($isOutOfStock ? 'opacity-50' : ''), ENT_QUOTES, 'UTF-8') ?>" data-name="<?= htmlspecialchars((string)(strtolower($item['name']))) ?>" data-sku="<?= htmlspecialchars((string)(strtolower($item['sku']))) ?>" data-outlet-id="<?= htmlspecialchars((string)((int)$item['outlet_id']), ENT_QUOTES, 'UTF-8') ?>">
                                 
                                 <?php if ($isOutOfStock): ?>
                                     <span class="absolute top-2 right-2 stayflexi-badge bg-rose-50 text-rose-600 border-rose-200 border">Out of Stock</span>
                                 <?php elseif ($isLowStock): ?>
-                                    <span class="absolute top-2 right-2 stayflexi-badge bg-indigo-50 text-indigo-600 border-indigo-200 border">Low Stock (<?= $item['stock_qty'] ?>)</span>
+                                    <span class="absolute top-2 right-2 stayflexi-badge bg-indigo-50 text-indigo-600 border-indigo-200 border">Low Stock (<?= htmlspecialchars((string)($item['stock_qty']), ENT_QUOTES, 'UTF-8') ?>)</span>
                                 <?php endif; ?>
 
                                 <div class="space-y-1 mt-2">
-                                    <span class="text-[9px] uppercase tracking-wider font-bold text-indigo-600"><?= htmlspecialchars($item['outlet_name'] ?: 'General') ?></span>
-                                    <span class="text-xs font-bold text-slate-800 block truncate"><?= htmlspecialchars($item['name']) ?></span>
-                                    <span class="text-[9px] font-mono text-slate-400 block"><?= htmlspecialchars($item['sku'] ?: 'No SKU') ?></span>
-                                    <span class="text-[10px] text-slate-500 block">In stock: <?= $item['stock_qty'] ?></span>
+                                    <span class="text-[9px] uppercase tracking-wider font-bold text-indigo-600"><?= htmlspecialchars((string)($item['outlet_name'] ?: 'General')) ?></span>
+                                    <span class="text-xs font-bold text-slate-800 block truncate"><?= htmlspecialchars((string)($item['name'])) ?></span>
+                                    <span class="text-[9px] font-mono text-slate-400 block"><?= htmlspecialchars((string)($item['sku'] ?: 'No SKU')) ?></span>
+                                    <span class="text-[10px] text-slate-500 block">In stock: <?= htmlspecialchars((string)($item['stock_qty']), ENT_QUOTES, 'UTF-8') ?></span>
                                 </div>
 
                                 <div class="flex justify-between items-center mt-4 pt-2 border-t border-slate-100">
-                                    <span class="text-xs font-bold text-slate-800 font-mono">₹<?= number_format((float)$item['selling_price'], 2) ?></span>
+                                    <span class="text-xs font-bold text-slate-800 font-mono">₹<?= htmlspecialchars((string)(number_format((float)$item['selling_price'], 2)), ENT_QUOTES, 'UTF-8') ?></span>
                                     <button 
-                                        onclick="addToCart(<?= htmlspecialchars(json_encode($item)) ?>)"
-                                        <?= $isOutOfStock ? 'disabled' : '' ?>
+                                        onclick="addToCart(<?= htmlspecialchars((string)(json_encode($item))) ?>)"
+                                        <?= htmlspecialchars((string)($isOutOfStock ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?>
                                         class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 transition-colors cursor-pointer">
                                         <i class="ph ph-plus font-bold"></i>
                                     </button>
@@ -306,17 +306,17 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                             <div class="bg-white border border-slate-100 rounded-2xl shadow-sm p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <div class="space-y-1">
                                     <div class="flex items-center gap-2">
-                                        <span class="px-2 py-0.5 rounded font-mono font-bold bg-slate-100 text-indigo-600 text-xs border border-slate-200">Room <?= htmlspecialchars($order['room_number']) ?></span>
-                                        <span class="text-xs font-bold text-slate-800"><?= htmlspecialchars($order['guest_name']) ?></span>
+                                        <span class="px-2 py-0.5 rounded font-mono font-bold bg-slate-100 text-indigo-600 text-xs border border-slate-200">Room <?= htmlspecialchars((string)($order['room_number'])) ?></span>
+                                        <span class="text-xs font-bold text-slate-800"><?= htmlspecialchars((string)($order['guest_name'])) ?></span>
                                     </div>
-                                    <p class="text-[10px] text-slate-500">Shop: <strong><?= htmlspecialchars($order['outlet_name'] ?: 'General') ?></strong> · Order ID: #<?= htmlspecialchars($order['display_id'] ?? (string)$order['id']) ?> · Ordered on <?= date('d M, H:i', strtotime($order['recorded_at'])) ?></p>
+                                    <p class="text-[10px] text-slate-500">Shop: <strong><?= htmlspecialchars((string)($order['outlet_name'] ?: 'General')) ?></strong> · Order ID: #<?= htmlspecialchars((string)($order['display_id'] ?? (string)$order['id'])) ?> · Ordered on <?= htmlspecialchars((string)(date('d M, H:i', strtotime($order['recorded_at']))), ENT_QUOTES, 'UTF-8') ?></p>
                                     <div class="text-xs font-bold text-slate-800 mt-2">
-                                        Total Amount: <span class="font-mono text-indigo-600">₹<?= number_format((float)$order['total_amount'], 2) ?></span> (Charge Posted to Folio)
+                                        Total Amount: <span class="font-mono text-indigo-600">₹<?= htmlspecialchars((string)(number_format((float)$order['total_amount'], 2)), ENT_QUOTES, 'UTF-8') ?></span> (Charge Posted to Folio)
                                     </div>
                                 </div>
                                 <div class="flex gap-2 shrink-0">
-                                    <button onclick="updateOrderStatus(<?= $order['id'] ?>, 'cancelled')" class="px-4 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 rounded-xl text-xs font-bold transition cursor-pointer">Cancel</button>
-                                    <button onclick="updateOrderStatus(<?= $order['id'] ?>, 'delivered')" class="px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl text-xs font-bold transition cursor-pointer">Mark Delivered</button>
+                                    <button onclick="updateOrderStatus(<?= htmlspecialchars((string)($order['id']), ENT_QUOTES, 'UTF-8') ?>, 'cancelled')" class="px-4 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 rounded-xl text-xs font-bold transition cursor-pointer">Cancel</button>
+                                    <button onclick="updateOrderStatus(<?= htmlspecialchars((string)($order['id']), ENT_QUOTES, 'UTF-8') ?>, 'delivered')" class="px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl text-xs font-bold transition cursor-pointer">Mark Delivered</button>
                                 </div>
                             </div>
                         <?php endforeach; ?>
@@ -350,28 +350,28 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                                 <tbody>
                                     <?php foreach ($orderHistory as $o): ?>
                                         <tr class="hover:bg-slate-50/50">
-                                            <td class="p-3 font-mono font-bold text-slate-900">#<?= htmlspecialchars($o['display_id'] ?? (string)$o['id']) ?></td>
-                                            <td class="p-3 text-slate-500 font-mono"><?= date('d M, H:i', strtotime($o['recorded_at'])) ?></td>
-                                            <td class="p-3 font-bold text-indigo-600"><?= htmlspecialchars($o['outlet_name'] ?: 'General') ?></td>
+                                            <td class="p-3 font-mono font-bold text-slate-900">#<?= htmlspecialchars((string)($o['display_id'] ?? (string)$o['id'])) ?></td>
+                                            <td class="p-3 text-slate-500 font-mono"><?= htmlspecialchars((string)(date('d M, H:i', strtotime($o['recorded_at']))), ENT_QUOTES, 'UTF-8') ?></td>
+                                            <td class="p-3 font-bold text-indigo-600"><?= htmlspecialchars((string)($o['outlet_name'] ?: 'General')) ?></td>
                                             <td class="p-3">
                                                 <?php if ($o['payment_method'] === 'room_charge'): ?>
-                                                    <a href="../../folio.php?id=<?= $o['booking_id'] ?>" target="_blank" class="px-2 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 transition cursor-pointer" title="View Folio">Room <?= htmlspecialchars($o['room_number'] ?: '') ?> <i class="ph ph-arrow-square-out ml-0.5"></i></a>
+                                                    <a href="../../folio.php?id=<?= htmlspecialchars((string)($o['booking_id']), ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="px-2 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 transition cursor-pointer" title="View Folio">Room <?= htmlspecialchars((string)($o['room_number'] ?: '')) ?> <i class="ph ph-arrow-square-out ml-0.5"></i></a>
                                                 <?php else: ?>
-                                                    <span class="uppercase text-slate-600 text-xs font-bold"><?= htmlspecialchars($o['payment_method']) ?></span>
+                                                    <span class="uppercase text-slate-600 text-xs font-bold"><?= htmlspecialchars((string)($o['payment_method'])) ?></span>
                                                 <?php endif; ?>
                                             </td>
-                                            <td class="p-3 font-mono font-bold text-slate-900">₹<?= number_format((float)$o['total_amount'], 2) ?></td>
-                                            <td class="p-3 text-slate-500 text-xs font-semibold"><?= htmlspecialchars($o['source']) ?></td>
+                                            <td class="p-3 font-mono font-bold text-slate-900">₹<?= htmlspecialchars((string)(number_format((float)$o['total_amount'], 2)), ENT_QUOTES, 'UTF-8') ?></td>
+                                            <td class="p-3 text-slate-500 text-xs font-semibold"><?= htmlspecialchars((string)($o['source'])) ?></td>
                                             <td class="p-3">
-                                                <select onchange="updateOrderStatus(<?= $o['id'] ?>, this.value)" class="bg-white border border-slate-200 p-1.5 rounded-lg text-[10px] font-bold text-slate-700 outline-none focus:border-indigo-600 cursor-pointer">
-                                                    <option value="delivered" <?= $o['delivery_status'] === 'delivered' ? 'selected' : '' ?>>Delivered</option>
-                                                    <option value="pending" <?= $o['delivery_status'] === 'pending' ? 'selected' : '' ?>>Pending</option>
-                                                    <option value="cancelled" <?= $o['delivery_status'] === 'cancelled' ? 'selected' : '' ?>>Cancelled</option>
+                                                <select onchange="updateOrderStatus(<?= htmlspecialchars((string)($o['id']), ENT_QUOTES, 'UTF-8') ?>, this.value)" class="bg-white border border-slate-200 p-1.5 rounded-lg text-[10px] font-bold text-slate-700 outline-none focus:border-indigo-600 cursor-pointer">
+                                                    <option value="delivered" <?= htmlspecialchars((string)($o['delivery_status'] === 'delivered' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Delivered</option>
+                                                    <option value="pending" <?= htmlspecialchars((string)($o['delivery_status'] === 'pending' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Pending</option>
+                                                    <option value="cancelled" <?= htmlspecialchars((string)($o['delivery_status'] === 'cancelled' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Cancelled</option>
                                                 </select>
                                             </td>
                                             <td class="p-3 flex items-center gap-2">
-                                                <button onclick="editOrder(<?= $o['id'] ?>)" class="text-indigo-600 hover:text-indigo-800 transition text-sm p-1 rounded hover:bg-indigo-50" title="Edit Order"><i class="ph-bold ph-pencil-simple"></i></button>
-                                                <button onclick="deleteOrderPOS(<?= $o['id'] ?>)" class="text-rose-600 hover:text-rose-800 transition text-sm p-1 rounded hover:bg-rose-50" title="Delete Order"><i class="ph-bold ph-trash"></i></button>
+                                                <button onclick="editOrder(<?= htmlspecialchars((string)($o['id']), ENT_QUOTES, 'UTF-8') ?>)" class="text-indigo-600 hover:text-indigo-800 transition text-sm p-1 rounded hover:bg-indigo-50" title="Edit Order"><i class="ph-bold ph-pencil-simple"></i></button>
+                                                <button onclick="deleteOrderPOS(<?= htmlspecialchars((string)($o['id']), ENT_QUOTES, 'UTF-8') ?>)" class="text-rose-600 hover:text-rose-800 transition text-sm p-1 rounded hover:bg-rose-50" title="Delete Order"><i class="ph-bold ph-trash"></i></button>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -381,9 +381,9 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                         
                         <?php if ($totalPages > 1): ?>
                         <div class="flex justify-between items-center mt-4 bg-white p-4 rounded-xl border border-slate-100">
-                            <a href="?page=<?= max(1, $page - 1) ?>&tab=history" class="text-sm px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-bold transition <?= $page <= 1 ? 'opacity-50 pointer-events-none' : '' ?>">Previous</a>
-                            <span class="text-xs font-semibold text-slate-500">Page <?= $page ?> of <?= $totalPages ?></span>
-                            <a href="?page=<?= min($totalPages, $page + 1) ?>&tab=history" class="text-sm px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-bold transition <?= $page >= $totalPages ? 'opacity-50 pointer-events-none' : '' ?>">Next</a>
+                            <a href="?page=<?= htmlspecialchars((string)(max(1, $page - 1)), ENT_QUOTES, 'UTF-8') ?>&tab=history" class="text-sm px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-bold transition <?= htmlspecialchars((string)($page <= 1 ? 'opacity-50 pointer-events-none' : ''), ENT_QUOTES, 'UTF-8') ?>">Previous</a>
+                            <span class="text-xs font-semibold text-slate-500">Page <?= htmlspecialchars((string)($page), ENT_QUOTES, 'UTF-8') ?> of <?= htmlspecialchars((string)($totalPages), ENT_QUOTES, 'UTF-8') ?></span>
+                            <a href="?page=<?= htmlspecialchars((string)(min($totalPages, $page + 1)), ENT_QUOTES, 'UTF-8') ?>&tab=history" class="text-sm px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-bold transition <?= htmlspecialchars((string)($page >= $totalPages ? 'opacity-50 pointer-events-none' : ''), ENT_QUOTES, 'UTF-8') ?>">Next</a>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -398,17 +398,17 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                     <form onsubmit="savePosSettings(event)" id="posSettingsForm" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                             <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">POS Sales Tax / GST (%)</label>
-                            <input type="number" step="0.1" min="0" max="100" id="cfg_tax" value="<?= htmlspecialchars($posTax) ?>" class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-semibold">
+                            <input type="number" step="0.1" min="0" max="100" id="cfg_tax" value="<?= htmlspecialchars((string)($posTax)) ?>" class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-semibold">
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Low Stock Warning Limit</label>
-                            <input type="number" min="1" id="cfg_alert" value="<?= htmlspecialchars($posAlertLevel) ?>" class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-semibold">
+                            <input type="number" min="1" id="cfg_alert" value="<?= htmlspecialchars((string)($posAlertLevel)) ?>" class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-semibold">
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Auto Post Room Charges</label>
                             <select id="cfg_autocharge" class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-bold cursor-pointer">
-                                <option value="true" <?= $posAutoCharge === 'true' ? 'selected' : '' ?>>Auto-charge Folio Ledger</option>
-                                <option value="false" <?= $posAutoCharge === 'false' ? 'selected' : '' ?>>Manual Review Required</option>
+                                <option value="true" <?= htmlspecialchars((string)($posAutoCharge === 'true' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Auto-charge Folio Ledger</option>
+                                <option value="false" <?= htmlspecialchars((string)($posAutoCharge === 'false' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Manual Review Required</option>
                             </select>
                         </div>
                         <div class="sm:col-span-3 flex justify-end">
@@ -427,8 +427,8 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                     <div class="flex flex-wrap gap-2 pt-2">
                         <?php foreach($outlets as $o): ?>
                             <span class="px-3 py-1 bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center gap-2">
-                                <?= htmlspecialchars($o['name']) ?>
-                                <button onclick="deleteOutlet(<?= $o['id'] ?>)" class="text-rose-600 hover:text-rose-500 transition cursor-pointer">
+                                <?= htmlspecialchars((string)($o['name'])) ?>
+                                <button onclick="deleteOutlet(<?= htmlspecialchars((string)($o['id']), ENT_QUOTES, 'UTF-8') ?>)" class="text-rose-600 hover:text-rose-500 transition cursor-pointer">
                                     <i class="ph ph-trash"></i>
                                 </button>
                             </span>
@@ -454,7 +454,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                             <select id="add_outlet_id" required class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-bold cursor-pointer">
                                 <option value="">-- Select Shop --</option>
                                 <?php foreach ($outlets as $o): ?>
-                                    <option value="<?= $o['id'] ?>"><?= htmlspecialchars($o['name']) ?></option>
+                                    <option value="<?= htmlspecialchars((string)($o['id']), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($o['name'])) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -504,18 +504,18 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                             <tbody>
                                 <?php foreach ($inventoryItems as $item): ?>
                                     <tr class="hover:bg-slate-50/50">
-                                        <td class="p-3 font-bold text-slate-800"><?= htmlspecialchars($item['name']) ?></td>
-                                        <td class="p-3 text-slate-500"><?= htmlspecialchars($item['outlet_name'] ?: 'General') ?></td>
+                                        <td class="p-3 font-bold text-slate-800"><?= htmlspecialchars((string)($item['name'])) ?></td>
+                                        <td class="p-3 text-slate-500"><?= htmlspecialchars((string)($item['outlet_name'] ?: 'General')) ?></td>
                                         <td class="p-3 text-center">
-                                            <span class="px-2 py-0.5 rounded font-mono font-bold <?= $item['stock_qty'] <= $item['low_stock_threshold'] ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-slate-100 text-slate-600' ?>">
-                                                <?= $item['stock_qty'] ?>
+                                            <span class="px-2 py-0.5 rounded font-mono font-bold <?= htmlspecialchars((string)($item['stock_qty'] <= $item['low_stock_threshold'] ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-slate-100 text-slate-600'), ENT_QUOTES, 'UTF-8') ?>">
+                                                <?= htmlspecialchars((string)($item['stock_qty']), ENT_QUOTES, 'UTF-8') ?>
                                             </span>
                                         </td>
-                                        <td class="p-3 text-right font-mono text-slate-500">₹<?= number_format((float)$item['cost_price'], 2) ?></td>
-                                        <td class="p-3 text-right font-mono font-bold text-slate-800">₹<?= number_format((float)$item['selling_price'], 2) ?></td>
+                                        <td class="p-3 text-right font-mono text-slate-500">₹<?= htmlspecialchars((string)(number_format((float)$item['cost_price'], 2)), ENT_QUOTES, 'UTF-8') ?></td>
+                                        <td class="p-3 text-right font-mono font-bold text-slate-800">₹<?= htmlspecialchars((string)(number_format((float)$item['selling_price'], 2)), ENT_QUOTES, 'UTF-8') ?></td>
                                         <td class="p-3 text-center flex items-center justify-center gap-2">
-                                            <button onclick="openEditModal(<?= htmlspecialchars(json_encode($item)) ?>)" class="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold transition border border-slate-200 cursor-pointer">Edit</button>
-                                            <button onclick="openRestockModal(<?= htmlspecialchars(json_encode($item)) ?>)" class="px-2.5 py-1 bg-indigo-50 hover:bg-amber-100 text-indigo-600 rounded-lg text-[10px] font-bold transition border border-indigo-200 cursor-pointer">Restock</button>
+                                            <button onclick="openEditModal(<?= htmlspecialchars((string)(json_encode($item))) ?>)" class="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold transition border border-slate-200 cursor-pointer">Edit</button>
+                                            <button onclick="openRestockModal(<?= htmlspecialchars((string)(json_encode($item))) ?>)" class="px-2.5 py-1 bg-indigo-50 hover:bg-amber-100 text-indigo-600 rounded-lg text-[10px] font-bold transition border border-indigo-200 cursor-pointer">Restock</button>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -665,12 +665,12 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                                         ?>
                                         <tr class="hover:bg-slate-50/50 border-b border-slate-100 last:border-0">
                                             <td class="p-3 text-slate-500 font-mono text-[10px] whitespace-nowrap">
-                                                <?= date('d M Y, H:i', strtotime($log['created_at'])) ?>
+                                                <?= htmlspecialchars((string)(date('d M Y, H:i', strtotime($log['created_at']))), ENT_QUOTES, 'UTF-8') ?>
                                             </td>
                                             <td class="p-3">
                                                 <div class="flex flex-col">
-                                                    <span class="font-bold text-slate-800 text-xs"><?= htmlspecialchars($log['username'] ?? 'System') ?></span>
-                                                    <span class="text-[9px] uppercase font-bold text-slate-400"><?= htmlspecialchars($log['role'] ?? '') ?></span>
+                                                    <span class="font-bold text-slate-800 text-xs"><?= htmlspecialchars((string)($log['username'] ?? 'System')) ?></span>
+                                                    <span class="text-[9px] uppercase font-bold text-slate-400"><?= htmlspecialchars((string)($log['role'] ?? '')) ?></span>
                                                 </div>
                                             </td>
                                             <td class="p-3">
@@ -686,12 +686,12 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                                                     ];
                                                     $color = $actionColors[$log['action']] ?? 'bg-slate-100 text-slate-600 border-slate-200';
                                                 ?>
-                                                <span class="px-2 py-0.5 rounded text-[9px] font-bold border <?= $color ?>">
-                                                    <?= htmlspecialchars($actionLabel) ?>
+                                                <span class="px-2 py-0.5 rounded text-[9px] font-bold border <?= htmlspecialchars((string)($color), ENT_QUOTES, 'UTF-8') ?>">
+                                                    <?= htmlspecialchars((string)($actionLabel)) ?>
                                                 </span>
                                             </td>
-                                            <td class="p-3 text-[10px] font-mono text-slate-500 max-w-[200px] truncate" title="<?= htmlspecialchars($detailStr) ?>">
-                                                <?= htmlspecialchars($detailStr ?: '—') ?>
+                                            <td class="p-3 text-[10px] font-mono text-slate-500 max-w-[200px] truncate" title="<?= htmlspecialchars((string)($detailStr)) ?>">
+                                                <?= htmlspecialchars((string)($detailStr ?: '—')) ?>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -748,7 +748,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                         <select id="checkout_booking_id" class="w-full bg-white border border-slate-200 p-2.5 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-indigo-600 cursor-pointer">
                             <option value="">-- Select Active Room --</option>
                             <?php foreach ($activeBookings as $bk): ?>
-                                <option value="<?= $bk['id'] ?>">Room <?= htmlspecialchars($bk['room_number']) ?> - <?= htmlspecialchars($bk['guest_name']) ?> (<?= htmlspecialchars($bk['category_name']) ?>)</option>
+                                <option value="<?= htmlspecialchars((string)($bk['id']), ENT_QUOTES, 'UTF-8') ?>">Room <?= htmlspecialchars((string)($bk['room_number'])) ?> - <?= htmlspecialchars((string)($bk['guest_name'])) ?> (<?= htmlspecialchars((string)($bk['category_name'])) ?>)</option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -801,7 +801,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                     <select id="edit_outlet_id" class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-bold cursor-pointer">
                         <option value="">-- General Stock --</option>
                         <?php foreach($outlets as $o): ?>
-                            <option value="<?= $o['id'] ?>"><?= htmlspecialchars($o['name']) ?></option>
+                            <option value="<?= htmlspecialchars((string)($o['id']), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($o['name'])) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -875,8 +875,8 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                         <select id="edit_order_add_item_select" class="flex-1 bg-white border border-slate-200 p-2 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-indigo-600 cursor-pointer">
                             <option value="">-- Choose Product --</option>
                             <?php foreach($inventoryItems as $item): ?>
-                                <option value="<?= $item['id'] ?>" data-price="<?= $item['selling_price'] ?>" data-name="<?= htmlspecialchars($item['name']) ?>" data-stock="<?= $item['stock_qty'] ?>">
-                                    <?= htmlspecialchars($item['name']) ?> (₹<?= $item['selling_price'] ?>) - Stock: <?= $item['stock_qty'] ?>
+                                <option value="<?= htmlspecialchars((string)($item['id']), ENT_QUOTES, 'UTF-8') ?>" data-price="<?= htmlspecialchars((string)($item['selling_price']), ENT_QUOTES, 'UTF-8') ?>" data-name="<?= htmlspecialchars((string)($item['name'])) ?>" data-stock="<?= htmlspecialchars((string)($item['stock_qty']), ENT_QUOTES, 'UTF-8') ?>">
+                                    <?= htmlspecialchars((string)($item['name'])) ?> (₹<?= htmlspecialchars((string)($item['selling_price']), ENT_QUOTES, 'UTF-8') ?>) - Stock: <?= htmlspecialchars((string)($item['stock_qty']), ENT_QUOTES, 'UTF-8') ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -1611,7 +1611,7 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
         });
 
         // Order Notification Polling
-        let lastOrderId = <?= !empty($pendingOrders) ? (int)$pendingOrders[0]['id'] : (!empty($orderHistory) ? (int)$orderHistory[0]['id'] : 0) ?>;
+        let lastOrderId = <?= htmlspecialchars((string)(!empty($pendingOrders) ? (int)$pendingOrders[0]['id'] : (!empty($orderHistory) ? (int)$orderHistory[0]['id'] : 0)), ENT_QUOTES, 'UTF-8') ?>;
         
         function playNotificationBeep() {
             try {

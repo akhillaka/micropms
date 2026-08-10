@@ -1,50 +1,29 @@
 <?php
 declare(strict_types=1);
 
-header('Content-Type: application/json');
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-require_once __DIR__ . '/../../pms_core/Database.php';
-require_once __DIR__ . '/../../pms_core/AuthHelper.php';
-require_once __DIR__ . '/../../pms_core/CsrfToken.php';
+require_once __DIR__ . '/../../pms_core/ApiHandler.php';
+require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/services/FolioService.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
+require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 
-// Auth checks
-if (!isset($_SESSION['user_id'])) {
-    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
-    exit;
-}
+ApiHandler::run(function(\PDO $db) {
+    $propertyId = AuthHelper::getPropertyId();
 
-$headers = getallheaders();
-$csrfToken = $headers['X-CSRF-Token'] ?? $headers['x-csrf-token'] ?? '';
-if (!CsrfToken::validate($csrfToken)) {
-    echo json_encode(['success' => false, 'message' => 'CSRF verification failed. Please refresh the page.']);
-    exit;
-}
-
-$db = Database::getInstance()->getConnection();
-$propertyId = AuthHelper::getPropertyId();
-
-if ($propertyId <= 0) {
-    echo json_encode(['success' => false, 'message' => 'Invalid property context.']);
-    exit;
-}
+    if ($propertyId <= 0) {
+        ApiResponse::error('Invalid property context.');
+    }
 
 $data = json_decode(file_get_contents('php://input'), true);
 $action = $data['action'] ?? '';
 
-if (empty($action)) {
-    echo json_encode(['success' => false, 'message' => 'Missing action parameter.']);
-    exit;
-}
+    if (empty($action)) {
+        ApiResponse::error('Missing action parameter.');
+    }
 
 try {
     if ($action === 'add_inventory_item') {
-        if (!AuthHelper::can('manage_settings')) {
+        if (!AuthHelper::can('manage_inventory')) {
             throw new Exception("Unauthorized to add products.");
         }
 
@@ -117,6 +96,7 @@ try {
         exit;
 
     } elseif ($action === 'edit_inventory_item') {
+        if (!AuthHelper::can('manage_inventory')) throw new Exception("Unauthorized");
         $itemId = (int)($data['item_id'] ?? 0);
         if ($itemId <= 0) throw new Exception("Invalid item ID.");
         
@@ -192,7 +172,7 @@ try {
         exit;
 
     } elseif ($action === 'delete_order') {
-        if (!AuthHelper::can('manage_finance')) throw new Exception("Unauthorized to modify financial records.");
+        if (!AuthHelper::can('void_pos_order')) throw new Exception("Unauthorized to modify financial records.");
         $orderId = (int)($data['order_id'] ?? 0);
         if ($orderId <= 0) throw new Exception("Invalid order ID.");
 
@@ -274,7 +254,13 @@ try {
         exit;
 
     } elseif ($action === 'edit_order_full') {
-        if (!AuthHelper::can('manage_finance')) throw new Exception("Unauthorized to modify financial records.");
+        if (!AuthHelper::can('void_pos_order')) throw new Exception("Unauthorized");
+
+        $discount = isset($data['discount']) ? (float)$data['discount'] : 0;
+        if ($discount > 0 && !AuthHelper::can('discount_pos_order')) {
+            throw new Exception("Unauthorized to apply POS discounts.");
+        }
+
         $orderId = (int)($data['order_id'] ?? 0);
         $method = $data['payment_method'] ?? 'cash';
         $status = $data['delivery_status'] ?? 'delivered';
@@ -408,6 +394,7 @@ try {
         exit;
 
     } elseif ($action === 'restock_item') {
+        if (!AuthHelper::can('manage_inventory')) throw new Exception("Unauthorized");
         $itemId = (int)($data['item_id'] ?? 0);
         $qty = (int)($data['quantity'] ?? 0);
 
@@ -442,7 +429,13 @@ try {
         exit;
 
     } elseif ($action === 'create_pos_order') {
-        if (!AuthHelper::can('manage_finance')) throw new Exception("Unauthorized to modify financial records.");
+        if (!AuthHelper::can('manage_pos')) throw new Exception("Unauthorized");
+
+        $discount = isset($data['discount']) ? (float)$data['discount'] : 0;
+        if ($discount > 0 && !AuthHelper::can('discount_pos_order')) {
+            throw new Exception("Unauthorized to apply POS discounts.");
+        }
+
         $method = $data['method'] ?? 'cash';
         $outletId = isset($data['outlet_id']) ? (int)$data['outlet_id'] : null;
         $bookingId = isset($data['booking_id']) ? (int)$data['booking_id'] : null;
@@ -556,6 +549,6 @@ try {
     if ($db->inTransaction()) {
         $db->rollBack();
     }
-    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-    exit;
+    ApiResponse::error($e->getMessage());
 }
+});

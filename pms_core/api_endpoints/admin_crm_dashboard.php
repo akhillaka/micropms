@@ -1,8 +1,10 @@
 <?php
 declare(strict_types=1);
 
-return static function (\PDO $db): void {
-    // Requires admin authentication
+require_once __DIR__ . '/../ApiHandler.php';
+require_once __DIR__ . '/../ApiResponse.php';
+
+ApiHandler::run(function(\PDO $db) {
     $propertyId = AuthHelper::getPropertyId();
     
     // 1. Total Guest LTV (Lifetime Value) - Sum of total_amount of all completed/checked-out bookings
@@ -81,4 +83,4 @@ return static function (\PDO $db): void {
         ]
     ]);
     exit;
-};
+});

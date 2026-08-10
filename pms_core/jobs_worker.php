@@ -15,7 +15,7 @@ while (true) {
 
         // Fetch a pending job using FOR UPDATE SKIP LOCKED
         $stmt = $db->query("
-            SELECT id, type, payload, attempts, max_attempts
+            SELECT id, queue_name AS type, property_id, payload_json AS payload, attempts, max_attempts
             FROM jobs_queue
             WHERE status = 'pending' AND available_at <= NOW()
             ORDER BY created_at ASC
@@ -42,6 +42,7 @@ while (true) {
         $payload = json_decode($job['payload'], true);
         $success = false;
         $errorMsg = null;
+        $propertyId = (int)$job['property_id'];
 
         try {
             switch ($job['type']) {
@@ -49,7 +50,7 @@ while (true) {
                     $phone = $payload['phone'] ?? '';
                     $message = $payload['message'] ?? '';
                     $isHsm = $payload['is_hsm'] ?? false;
-                    $res = NotificationRelay::sendWhatsAppSync($phone, $message, $isHsm);
+                    $res = NotificationRelay::sendWhatsAppSync($phone, $message, $isHsm, $propertyId);
                     $success = isset($res['success']) && $res['success'] === true;
                     if (!$success) {
                         $errorMsg = json_encode($res);
@@ -58,7 +59,7 @@ while (true) {
 
                 case 'telegram':
                     $message = $payload['message'] ?? '';
-                    $res = NotificationRelay::sendTelegramSync($message);
+                    $res = NotificationRelay::sendTelegramSync($message, null, [], $propertyId);
                     $success = $res;
                     if (!$success) {
                         $errorMsg = "Telegram API failed.";
@@ -81,9 +82,9 @@ while (true) {
             echo "Job {$job['id']} completed successfully.\n";
         } else {
             if ($job['attempts'] >= $job['max_attempts']) {
-                $stmt = $db->prepare("UPDATE jobs_queue SET status = 'failed', error_log = ? WHERE id = ?");
+                $stmt = $db->prepare("UPDATE jobs_queue SET status = 'failed', dead_letter = 1, error_log = ? WHERE id = ?");
                 $stmt->execute([$errorMsg, $job['id']]);
-                echo "Job {$job['id']} failed permanently.\n";
+                echo "Job {$job['id']} failed permanently and moved to DLQ.\n";
             } else {
                 // Retry in 1 minute
                 $stmt = $db->prepare("UPDATE jobs_queue SET status = 'pending', available_at = DATE_ADD(NOW(), INTERVAL 1 MINUTE), error_log = ? WHERE id = ?");

@@ -15,46 +15,80 @@ class AuthHelper {
             'view_finance', 'manage_finance', 'export_finance', 'view_reports', 'manage_guests',
             'upload_document', 'housekeeping', 'manage_rooms', 'manage_staff', 'manage_settings',
             'view_audit_logs', 'send_whatsapp', 'view_error_logs', 'resolve_error_logs',
-            'manage_properties', 'manage_saas', 'manage_billing'
+            'manage_pos', 'run_night_audit',
+            'manage_properties', 'manage_saas', 'manage_billing',
+            'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
+            'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
+            'update_room_status', 'inspect_rooms', 'manage_maintenance',
+            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations'
         ],
         'owner' => [
             'view_dashboard', 'create_booking', 'edit_booking', 'cancel_booking', 'check_in_out',
             'view_folio', 'edit_folio', 'record_payment', 'refund_payment', 'generate_payment_link',
             'view_finance', 'manage_finance', 'export_finance', 'view_reports', 'manage_guests',
             'upload_document', 'housekeeping', 'manage_rooms', 'manage_staff', 'manage_settings',
-            'view_audit_logs', 'send_whatsapp', 'view_error_logs', 'resolve_error_logs'
+            'view_audit_logs', 'send_whatsapp', 'view_error_logs', 'resolve_error_logs',
+            'manage_pos', 'run_night_audit',
+            'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
+            'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
+            'update_room_status', 'inspect_rooms', 'manage_maintenance',
+            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations'
         ],
         'admin' => [
             'view_dashboard', 'create_booking', 'edit_booking', 'cancel_booking', 'check_in_out',
             'view_folio', 'edit_folio', 'record_payment', 'refund_payment', 'generate_payment_link',
             'view_finance', 'manage_finance', 'export_finance', 'view_reports', 'manage_guests',
             'upload_document', 'housekeeping', 'manage_rooms', 'manage_staff', 'manage_settings',
-            'view_audit_logs', 'send_whatsapp', 'view_error_logs', 'resolve_error_logs'
+            'view_audit_logs', 'send_whatsapp', 'view_error_logs', 'resolve_error_logs',
+            'manage_pos', 'run_night_audit',
+            'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
+            'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
+            'update_room_status', 'inspect_rooms', 'manage_maintenance',
+            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations'
         ],
         'manager' => [
             'view_dashboard', 'create_booking', 'edit_booking', 'cancel_booking', 'check_in_out',
             'view_folio', 'edit_folio', 'record_payment', 'generate_payment_link',
             'view_finance', 'view_reports', 'manage_guests',
-            'upload_document', 'housekeeping', 'send_whatsapp', 'view_audit_logs'
+            'upload_document', 'housekeeping', 'send_whatsapp', 'view_audit_logs',
+            'manage_pos', 'run_night_audit',
+            'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
+            'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
+            'update_room_status', 'inspect_rooms', 'manage_maintenance',
+            'export_reports', 'manage_automations'
         ],
         'receptionist' => [
             'view_dashboard', 'create_booking', 'edit_booking', 'check_in_out',
             'view_folio', 'record_payment', 'generate_payment_link', 'manage_guests',
-            'upload_document', 'housekeeping', 'send_whatsapp'
+            'upload_document', 'housekeeping', 'send_whatsapp',
+            'update_room_status', 'view_pos_reports'
         ],
         'housekeeping' => [
-            'view_dashboard', 'housekeeping'
+            'view_dashboard', 'housekeeping', 'update_room_status', 'inspect_rooms'
         ],
         'maintenance' => [
-            'view_dashboard', 'manage_rooms' // Can update room states
+            'view_dashboard', 'manage_rooms', 'manage_maintenance'
         ],
         'fb_cashier' => [
-            'view_dashboard', 'manage_pos' // Need to add manage_pos to permissions
+            'view_dashboard', 'manage_pos', 'view_pos_reports'
         ],
         'night_auditor' => [
-            'view_dashboard', 'view_reports', 'view_finance', 'run_night_audit' // Need to add run_night_audit
+            'view_dashboard', 'view_reports', 'view_finance', 'run_night_audit', 'view_pos_reports'
         ]
     ];
+    
+    /**
+     * Seeds the default roles for a newly created property.
+     */
+    public static function seedRolesForProperty(\PDO $db, int $propertyId): void {
+        $stmt = $db->prepare("INSERT IGNORE INTO roles (property_id, name, permissions, is_system) VALUES (?, ?, ?, 1)");
+        foreach (self::PERMISSIONS as $roleName => $perms) {
+            // Keep superadmin internal only, don't seed it to properties
+            if ($roleName === 'superadmin') continue;
+            
+            $stmt->execute([$propertyId, $roleName, json_encode($perms)]);
+        }
+    }
     
     /**
      * Ensures the user is logged in. 
@@ -167,7 +201,22 @@ class AuthHelper {
             'view_error_logs' => 'View Error Logs',
             'resolve_error_logs' => 'Resolve Error Logs',
             'manage_pos' => 'Manage Point of Sale',
-            'run_night_audit' => 'Run Night Audit'
+            'run_night_audit' => 'Run Night Audit',
+            'override_room_rates' => 'Override Room Rates',
+            'apply_discounts' => 'Apply Discounts',
+            'void_folio_item' => 'Void Folio Items',
+            'waive_cancellation_fee' => 'Waive Cancellation Fees',
+            'void_pos_order' => 'Void POS Orders',
+            'discount_pos_order' => 'Discount POS Orders',
+            'manage_inventory' => 'Manage Inventory & Stock',
+            'view_pos_reports' => 'View POS Reports',
+            'update_room_status' => 'Update Housekeeping Status',
+            'inspect_rooms' => 'Inspect & Verify Rooms',
+            'manage_maintenance' => 'Manage Room Maintenance',
+            'export_reports' => 'Export Reports & Data',
+            'export_guest_data' => 'Export Guest Database',
+            'manage_payment_gateways' => 'Manage Payment Gateways',
+            'manage_automations' => 'Manage WhatsApp Automations'
         ];
         
         if (self::isSuperAdmin()) {
@@ -219,13 +268,21 @@ class AuthHelper {
     }
 
     /**
-     * Returns the current active property ID from the session (default 1).
+     * Returns the current active property ID from the session.
+     * Throws an exception if no property context exists, preventing silent cross-tenant leaks.
      */
     public static function getPropertyId(): int {
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
-        return (int)($_SESSION['property_id'] ?? 1);
+        if (!isset($_SESSION['property_id']) || (int)$_SESSION['property_id'] <= 0) {
+            // Check if superadmin is bypassing without a specific property selected
+            if (self::isSuperAdmin()) {
+                return 1; // Superadmins might fallback to a master ID in some legacy scripts
+            }
+            throw new \Exception("Unauthorized: No active property context found. Tenant isolation blocked this request.");
+        }
+        return (int)$_SESSION['property_id'];
     }
 
     /**
@@ -248,7 +305,7 @@ class AuthHelper {
         }
         
         if (!isset($_SESSION['user_id'])) {
-            header('Location: /admin/login');
+            header('Location: /login');
             exit;
         }
     }

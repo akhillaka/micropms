@@ -152,7 +152,7 @@ ApiHandler::run(function(\PDO $db) {
 
             // Trigger Alerts & Messaging
             try {
-                $tgMsg = "🚪 <b>Guest Checked Out</b>\n\nRoom: {$booking['room_number']}\nGuest: " . htmlspecialchars($booking['guest_name']) . "\nRoom is now dirty — needs cleaning.";
+                $tgMsg = "🚪 <b>Guest Checked Out</b>\n\nRoom: {$booking['room_number']}\nGuest: " . htmlspecialchars((string)($booking['guest_name'])) . "\nRoom is now dirty — needs cleaning.";
                 $context = [
                     'guest_name' => $booking['guest_name'],
                     'room_number' => $booking['room_number'],

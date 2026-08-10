@@ -12,8 +12,10 @@ ApiHandler::run(function(\PDO $db) {
     $data = json_decode($raw, true) ?: [];
     $action = $data['action'] ?? 'bulk_sync';
 
+    $propertyId = AuthHelper::getPropertyId();
+
     if ($action === 'test') {
-        $url = $data['webhook_url'] ?? (defined('GOOGLE_SHEETS_WEBHOOK_URL') ? GOOGLE_SHEETS_WEBHOOK_URL : '');
+        $url = $data['webhook_url'] ?? '';
         $res = GoogleSheetService::testConnection($url);
         if ($res['success']) {
             ApiResponse::success(['message' => $res['message']]);
@@ -22,7 +24,7 @@ ApiHandler::run(function(\PDO $db) {
         }
     } elseif ($action === 'bulk_sync') {
         $type = $data['type'] ?? 'all';
-        $res = GoogleSheetService::bulkSync($db, $type);
+        $res = GoogleSheetService::bulkSync($db, $propertyId, $type);
         if ($res['success']) {
             ApiResponse::success(['message' => $res['message'], 'count' => $res['count']]);
         } else {

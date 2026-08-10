@@ -11,13 +11,13 @@ $db = Database::getInstance()->getConnection();
 $guestId = $_GET['id'] ?? null;
 if (!$guestId) render_error_page('Missing Guest ID', 'A guest ID is required to view the profile.', 400);
 
-$guestStmt = $db->prepare("SELECT * FROM guests WHERE id = :id");
-$guestStmt->execute(['id' => $guestId]);
+$propertyId = AuthHelper::getPropertyId();
+
+$guestStmt = $db->prepare("SELECT * FROM guests WHERE id = :id AND property_id = :property_id");
+$guestStmt->execute(['id' => $guestId, 'property_id' => $propertyId]);
 $guest = $guestStmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$guest) render_error_page('Guest Not Found', 'The requested guest profile does not exist.', 404);
-
-$propertyId = AuthHelper::getPropertyId();
 
 // Metrics Query
 $metricsStmt = $db->prepare("
@@ -68,7 +68,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                 </a>
                 <div>
                     <h1 class="text-xl font-extrabold text-slate-900 tracking-tight leading-none">Guest Profile</h1>
-                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">ID #<?= htmlspecialchars($guest['id']) ?></span>
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">ID #<?= htmlspecialchars((string)($guest['id'])) ?></span>
                 </div>
             </div>
             <?php include __DIR__ . '/components/desktop_nav.php'; ?>
@@ -82,30 +82,30 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                 <div class="card-minimal p-6 lg:col-span-2 flex flex-col sm:flex-row gap-6 items-start sm:items-center relative">
                     <div class="w-24 h-24 sm:w-32 sm:h-32 rounded-2xl bg-brand-900 flex items-center justify-center text-white text-4xl sm:text-5xl font-black shadow-minimal overflow-hidden shrink-0 border-4 border-white">
                         <?php if($guest['photo']): ?>
-                            <img src="/api/admin/view_document?file=<?= htmlspecialchars($guest['photo']) ?>" class="w-full h-full object-cover">
+                            <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['photo'])) ?>" class="w-full h-full object-cover">
                         <?php else: ?>
-                            <?= strtoupper(substr($guest['name'] ?: '?', 0, 1)) ?>
+                            <?= htmlspecialchars((string)(strtoupper(substr($guest['name'] ?: '?', 0, 1))), ENT_QUOTES, 'UTF-8') ?>
                         <?php endif; ?>
                     </div>
                     <div class="flex-1 min-w-0">
-                        <h2 class="text-3xl font-black text-brand-900 tracking-tight truncate"><?= htmlspecialchars($guest['name']) ?></h2>
+                        <h2 class="text-3xl font-black text-brand-900 tracking-tight truncate"><?= htmlspecialchars((string)($guest['name'])) ?></h2>
                         
                         <div class="flex flex-wrap gap-2 mt-3">
                             <?php if($guest['phone']): ?>
                             <div class="bg-white border border-brand-200 px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-bold text-brand-900 shadow-sm">
-                                <i class="ph-fill ph-phone text-brand-400"></i> <?= htmlspecialchars($guest['phone']) ?>
+                                <i class="ph-fill ph-phone text-brand-400"></i> <?= htmlspecialchars((string)($guest['phone'])) ?>
                             </div>
                             <?php endif; ?>
                             
                             <?php if($guest['email']): ?>
                             <div class="bg-white border border-brand-200 px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-bold text-brand-900 shadow-sm">
-                                <i class="ph-fill ph-envelope text-brand-400"></i> <?= htmlspecialchars($guest['email']) ?>
+                                <i class="ph-fill ph-envelope text-brand-400"></i> <?= htmlspecialchars((string)($guest['email'])) ?>
                             </div>
                             <?php endif; ?>
                             
                             <div class="bg-white border border-brand-200 px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-bold text-brand-900 shadow-sm">
                                 <i class="ph-fill ph-map-pin text-brand-400"></i> 
-                                <?= htmlspecialchars(implode(', ', array_filter([$guest['city'], $guest['state']]))) ?: 'No Location' ?>
+                                <?= htmlspecialchars((string)(implode(', ', array_filter([$guest['city'], $guest['state']])))) ?: 'No Location' ?>
                             </div>
                         </div>
 
@@ -114,7 +114,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                                 <i class="ph-bold ph-pencil-simple"></i> Edit Profile
                             </button>
                             <?php if(!empty($guest['phone'])): ?>
-                                <a href="https://wa.me/<?= preg_replace('/[^0-9]/', '', $guest['phone']) ?>" target="_blank" class="bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold px-5 py-2.5 rounded-xl hover:-translate-y-0.5 transition-all text-sm shadow-minimal flex items-center gap-2">
+                                <a href="https://wa.me/<?= htmlspecialchars((string)(preg_replace('/[^0-9]/', '', $guest['phone'])), ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold px-5 py-2.5 rounded-xl hover:-translate-y-0.5 transition-all text-sm shadow-minimal flex items-center gap-2">
                                     <i class="ph-bold ph-whatsapp-logo text-lg"></i> Chat
                                 </a>
                             <?php endif; ?>
@@ -127,7 +127,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                     <div class="card-minimal p-5 flex items-center justify-between bg-gradient-to-br from-brand-900 to-brand-800 text-white">
                         <div>
                             <div class="text-[10px] font-bold text-white/60 uppercase tracking-widest mb-1">Lifetime Spent</div>
-                            <div class="text-2xl font-black">₹<?= number_format($totalSpent, 2) ?></div>
+                            <div class="text-2xl font-black">₹<?= htmlspecialchars((string)(number_format($totalSpent, 2)), ENT_QUOTES, 'UTF-8') ?></div>
                         </div>
                         <div class="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
                             <i class="ph-fill ph-money text-2xl"></i>
@@ -136,11 +136,11 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                     <div class="grid grid-cols-2 gap-4 flex-1">
                         <div class="card-minimal p-4 flex flex-col justify-center">
                             <div class="text-[10px] font-bold text-brand-500 uppercase tracking-widest mb-1">Total Stays</div>
-                            <div class="text-xl font-black text-brand-900"><?= $totalBookings ?></div>
+                            <div class="text-xl font-black text-brand-900"><?= htmlspecialchars((string)($totalBookings), ENT_QUOTES, 'UTF-8') ?></div>
                         </div>
                         <div class="card-minimal p-4 flex flex-col justify-center">
                             <div class="text-[10px] font-bold text-brand-500 uppercase tracking-widest mb-1">Avg Value</div>
-                            <div class="text-xl font-black text-brand-900">₹<?= number_format($avgBooking) ?></div>
+                            <div class="text-xl font-black text-brand-900">₹<?= htmlspecialchars((string)(number_format($avgBooking)), ENT_QUOTES, 'UTF-8') ?></div>
                         </div>
                     </div>
                 </div>
@@ -159,9 +159,9 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                         <!-- ID Proof Front -->
                         <div class="border-2 border-dashed border-brand-300 rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:border-brand-900 hover:bg-brand-50 transition-all relative overflow-hidden group min-h-[220px]">
                             <?php if($guest['id_proof_front']): ?>
-                                <img src="/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_front']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_front']) ?>')">
+                                <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_front'])) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_front'])) ?>')">
                                 <div class="absolute inset-0 bg-brand-900/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_front']) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
+                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_front'])) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
                                     <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
                                 </div>
                             <?php else: ?>
@@ -177,9 +177,9 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                         <!-- ID Proof Back -->
                         <div class="border-2 border-dashed border-brand-300 rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:border-brand-900 hover:bg-brand-50 transition-all relative overflow-hidden group min-h-[220px]">
                             <?php if($guest['id_proof_back']): ?>
-                                <img src="/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_back']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_back']) ?>')">
+                                <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_back'])) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_back'])) ?>')">
                                 <div class="absolute inset-0 bg-brand-900/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['id_proof_back']) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
+                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_back'])) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
                                     <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
                                 </div>
                             <?php else: ?>
@@ -195,9 +195,9 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                         <!-- Guest Photo -->
                         <div class="border-2 border-dashed border-brand-300 rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:border-brand-900 hover:bg-brand-50 transition-all relative overflow-hidden group min-h-[220px]">
                             <?php if($guest['photo']): ?>
-                                <img src="/api/admin/view_document?file=<?= htmlspecialchars($guest['photo']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['photo']) ?>')">
+                                <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['photo'])) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['photo'])) ?>')">
                                 <div class="absolute inset-0 bg-brand-900/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($guest['photo']) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
+                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['photo'])) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
                                     <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" class="hidden" onchange="uploadDoc('photo', this)"></label>
                                 </div>
                             <?php else: ?>
@@ -237,11 +237,11 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                             <tbody class="divide-y divide-gray-100">
                                 <?php foreach($bookings as $b): ?>
                                 <tr class="hover:bg-brand-50 transition-colors group">
-                                    <td class="px-6 py-4 font-black text-brand-900">#<?= $b['id'] ?></td>
-                                    <td class="px-6 py-4 font-bold text-brand-900"><?= $b['room_number'] ?></td>
+                                    <td class="px-6 py-4 font-black text-brand-900">#<?= htmlspecialchars((string)($b['id']), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td class="px-6 py-4 font-bold text-brand-900"><?= htmlspecialchars((string)($b['room_number']), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-6 py-4">
-                                        <div class="text-sm font-bold text-brand-900"><?= date('M j, Y', strtotime($b['check_in'])) ?></div>
-                                        <div class="text-[11px] text-brand-500 font-medium">to <?= date('M j, Y', strtotime($b['check_out'])) ?></div>
+                                        <div class="text-sm font-bold text-brand-900"><?= htmlspecialchars((string)(date('M j, Y', strtotime($b['check_in']))), ENT_QUOTES, 'UTF-8') ?></div>
+                                        <div class="text-[11px] text-brand-500 font-medium">to <?= htmlspecialchars((string)(date('M j, Y', strtotime($b['check_out']))), ENT_QUOTES, 'UTF-8') ?></div>
                                     </td>
                                     <td class="px-6 py-4 text-center">
                                         <?php if($b['payment_status'] === 'completed_paid'): ?>
@@ -253,10 +253,10 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                                         <?php endif; ?>
                                     </td>
                                     <td class="px-6 py-4 text-right">
-                                        <div class="text-sm font-black text-brand-900">₹<?= number_format($b['total_amount'], 2) ?></div>
+                                        <div class="text-sm font-black text-brand-900">₹<?= htmlspecialchars((string)(number_format($b['total_amount'], 2)), ENT_QUOTES, 'UTF-8') ?></div>
                                     </td>
                                     <td class="px-6 py-4 text-right">
-                                        <a href="folio.php?id=<?= $b['id'] ?>" class="inline-flex items-center gap-1.5 text-brand-900 bg-white border border-brand-200 hover:border-brand-900 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm opacity-0 group-hover:opacity-100 focus:opacity-100">
+                                        <a href="folio.php?id=<?= htmlspecialchars((string)($b['id']), ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-1.5 text-brand-900 bg-white border border-brand-200 hover:border-brand-900 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm opacity-0 group-hover:opacity-100 focus:opacity-100">
                                             <i class="ph-bold ph-receipt"></i> View Folio
                                         </a>
                                     </td>
@@ -292,38 +292,38 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
             <div class="space-y-4">
                 <div>
                     <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Guest Name</label>
-                    <input type="text" id="edit_g_name" value="<?= htmlspecialchars($guest['name']) ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-bold text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
+                    <input type="text" id="edit_g_name" value="<?= htmlspecialchars((string)($guest['name'])) ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-bold text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
                 </div>
                 <div>
                     <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">WhatsApp Number</label>
-                    <input type="text" id="edit_g_phone" value="<?= htmlspecialchars($guest['phone'] ?? '') ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-mono font-bold text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
+                    <input type="text" id="edit_g_phone" value="<?= htmlspecialchars((string)($guest['phone'] ?? '')) ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-mono font-bold text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
                 </div>
                 <div>
                     <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Email Address</label>
-                    <input type="email" id="edit_g_email" value="<?= htmlspecialchars($guest['email'] ?? '') ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
+                    <input type="email" id="edit_g_email" value="<?= htmlspecialchars((string)($guest['email'] ?? '')) ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
                 </div>
                 <div>
                     <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Age</label>
-                    <input type="number" id="edit_g_age" value="<?= htmlspecialchars($guest['age'] ?? '') ?>" min="1" max="120" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
+                    <input type="number" id="edit_g_age" value="<?= htmlspecialchars((string)($guest['age'] ?? '')) ?>" min="1" max="120" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">City</label>
-                        <input type="text" id="edit_g_city" value="<?= htmlspecialchars($guest['city'] ?? '') ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
+                        <input type="text" id="edit_g_city" value="<?= htmlspecialchars((string)($guest['city'] ?? '')) ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
                     </div>
                     <div>
                         <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">State</label>
-                        <input type="text" id="edit_g_state" value="<?= htmlspecialchars($guest['state'] ?? '') ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
+                        <input type="text" id="edit_g_state" value="<?= htmlspecialchars((string)($guest['state'] ?? '')) ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Country</label>
-                        <input type="text" id="edit_g_country" value="<?= htmlspecialchars($guest['country'] ?? 'India') ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
+                        <input type="text" id="edit_g_country" value="<?= htmlspecialchars((string)($guest['country'] ?? 'India')) ?>" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
                     </div>
                     <div>
                         <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Pincode</label>
-                        <input type="text" id="edit_g_pincode" value="<?= htmlspecialchars($guest['pincode'] ?? '') ?>" maxlength="6" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
+                        <input type="text" id="edit_g_pincode" value="<?= htmlspecialchars((string)($guest['pincode'] ?? '')) ?>" maxlength="6" class="w-full bg-brand-50 border border-brand-200 rounded-xl p-3 font-medium text-sm outline-none focus:bg-white focus:shadow-minimal transition-all">
                     </div>
                 </div>
                 <div class="pt-2">
@@ -345,7 +345,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
     
     <script>
-        const guestId = <?= $guestId ?>;
+        const guestId = <?= htmlspecialchars((string)($guestId), ENT_QUOTES, 'UTF-8') ?>;
         
         function openEditModal() {
             document.getElementById('edit-guest-modal').classList.remove('hidden');

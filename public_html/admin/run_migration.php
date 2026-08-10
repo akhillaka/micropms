@@ -72,14 +72,14 @@ $migrationStatus = $runner->getStatus();
         <?php if (!empty($status)): ?>
             <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl mb-6 text-sm font-medium">
                 <i class="ph ph-check-circle text-lg inline-block align-middle mr-1"></i>
-                <?= htmlspecialchars($status) ?>
+                <?= htmlspecialchars((string)($status)) ?>
             </div>
         <?php endif; ?>
 
         <?php if (!empty($error)): ?>
             <div class="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl mb-6 text-sm font-medium">
                 <i class="ph ph-warning-circle text-lg inline-block align-middle mr-1"></i>
-                <?= htmlspecialchars($error) ?>
+                <?= htmlspecialchars((string)($error)) ?>
             </div>
         <?php endif; ?>
 
@@ -87,22 +87,22 @@ $migrationStatus = $runner->getStatus();
         <div class="mb-6">
             <div class="flex items-center justify-between mb-3">
                 <h2 class="text-sm font-bold text-slate-900">Migration Status</h2>
-                <span class="text-xs font-bold px-2.5 py-1 rounded-lg <?= $migrationStatus['pending'] > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700' ?>">
-                    <?= $migrationStatus['pending'] > 0 ? $migrationStatus['pending'] . ' pending' : 'All applied' ?>
+                <span class="text-xs font-bold px-2.5 py-1 rounded-lg <?= htmlspecialchars((string)($migrationStatus['pending'] > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'), ENT_QUOTES, 'UTF-8') ?>">
+                    <?= htmlspecialchars((string)($migrationStatus['pending'] > 0 ? $migrationStatus['pending'] . ' pending' : 'All applied'), ENT_QUOTES, 'UTF-8') ?>
                 </span>
             </div>
             
             <div class="space-y-2">
                 <?php foreach ($migrationStatus['migrations'] as $m): ?>
-                    <div class="flex items-center gap-3 p-3 rounded-xl border border-slate-100 <?= $m['status'] === 'applied' ? 'bg-slate-50' : 'bg-amber-50' ?>">
-                        <div class="w-8 h-8 rounded-lg flex items-center justify-center <?= $m['status'] === 'applied' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600' ?>">
-                            <i class="ph <?= $m['status'] === 'applied' ? 'ph-check' : 'ph-clock' ?> text-sm"></i>
+                    <div class="flex items-center gap-3 p-3 rounded-xl border border-slate-100 <?= htmlspecialchars((string)($m['status'] === 'applied' ? 'bg-slate-50' : 'bg-amber-50'), ENT_QUOTES, 'UTF-8') ?>">
+                        <div class="w-8 h-8 rounded-lg flex items-center justify-center <?= htmlspecialchars((string)($m['status'] === 'applied' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'), ENT_QUOTES, 'UTF-8') ?>">
+                            <i class="ph <?= htmlspecialchars((string)($m['status'] === 'applied' ? 'ph-check' : 'ph-clock'), ENT_QUOTES, 'UTF-8') ?> text-sm"></i>
                         </div>
                         <div class="flex-1 min-w-0">
-                            <p class="text-sm font-bold text-slate-900 truncate"><?= htmlspecialchars($m['filename']) ?></p>
+                            <p class="text-sm font-bold text-slate-900 truncate"><?= htmlspecialchars((string)($m['filename'])) ?></p>
                             <p class="text-[10px] text-slate-500 font-semibold">
                                 <?php if ($m['status'] === 'applied'): ?>
-                                    Applied <?= $m['applied_at'] ?> (<?= $m['execution_time_ms'] ?>ms)
+                                    Applied <?= htmlspecialchars((string)($m['applied_at']), ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars((string)($m['execution_time_ms']), ENT_QUOTES, 'UTF-8') ?>ms)
                                 <?php else: ?>
                                     Pending — not yet applied
                                 <?php endif; ?>
@@ -118,7 +118,7 @@ $migrationStatus = $runner->getStatus();
                 <?= CsrfToken::field() ?>
                 <button type="submit" name="run_migration" value="1" class="w-full bg-brand-900 text-white rounded-xl py-3 font-bold hover:bg-indigo-700 active:scale-95 transition-transform flex items-center justify-center gap-2">
                     <i class="ph ph-play text-lg"></i>
-                    Run <?= $migrationStatus['pending'] ?> Pending Migration<?= $migrationStatus['pending'] > 1 ? 's' : '' ?>
+                    Run <?= htmlspecialchars((string)($migrationStatus['pending']), ENT_QUOTES, 'UTF-8') ?> Pending Migration<?= htmlspecialchars((string)($migrationStatus['pending'] > 1 ? 's' : ''), ENT_QUOTES, 'UTF-8') ?>
                 </button>
             </form>
         <?php else: ?>

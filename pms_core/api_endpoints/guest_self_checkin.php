@@ -107,12 +107,16 @@ try {
         $idBackPath = handleUpload($_FILES['id_back'], 'back_' . $bookingId, $uploadDir);
     }
 
-    $preArrivalDoc = ($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_DOC'")->fetchColumn() ?: 'true') === 'true';
+    $st = $db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_DOC'");
+    $st->execute([$booking['property_id']]);
+    $preArrivalDoc = ($st->fetchColumn() ?: 'true') === 'true';
     if ($preArrivalDoc && (!$idFrontPath || !$idBackPath)) {
         throw new Exception("Both front and back ID proofs are required.");
     }
 
-    $preArrivalSig = ($db->query("SELECT key_value FROM system_settings WHERE property_id = " . $booking['property_id'] . " AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_SIGNATURE'")->fetchColumn() ?: 'true') === 'true';
+    $st = $db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_SIGNATURE'");
+    $st->execute([$booking['property_id']]);
+    $preArrivalSig = ($st->fetchColumn() ?: 'true') === 'true';
     $signaturePath = null;
     
     if ($preArrivalSig) {

@@ -99,7 +99,21 @@ if ($code === 'PAYMENT_SUCCESS') {
         'amount' => -$amountPaid,
         'ref' => $merchantTxnId
     ]);
-    SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
+    $ledgerId = (int)$db->lastInsertId();
+    SequenceGenerator::assignDisplayId($db, 'folio_ledger', $ledgerId, 'SEQ_RECEIPT_FORMAT');
+    
+    // Fetch display ID
+    $receiptStmt = $db->prepare("SELECT display_id FROM folio_ledger WHERE id = ?");
+    $receiptStmt->execute([$ledgerId]);
+    $receiptDisplayId = $receiptStmt->fetchColumn() ?: 'RCPT-' . $ledgerId;
+
+    // Record finance transaction
+    $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id) VALUES (?, 'income', 'booking', ?, ?, ?, 'phonepe', NULL)");
+    $desc = "Payment - PhonePe (Webhook Receipt {$receiptDisplayId})";
+    $financeStmt->execute([(int)$propertyId, $bookingId, $amountPaid, $desc]);
+
+    $financeId = (int)$db->lastInsertId();
+    SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
     
     $db->commit();
     
@@ -121,7 +135,7 @@ if ($code === 'PAYMENT_SUCCESS') {
     
     NotificationRelay::triggerAutomation('booking_confirmed', null, $bookingId);
     
-    $tgMsg = "✅ <b>Booking Confirmed (PhonePe)</b>\n\nRoom: {$roomNumber}\nGuest: " . htmlspecialchars($guestName) . "\nCheck-in: {$booking['check_in']}\nCheck-out: {$booking['check_out']}\nAmount: ₹" . number_format($amountPaid, 2);
+    $tgMsg = "✅ <b>Booking Confirmed (PhonePe)</b>\n\nRoom: {$roomNumber}\nGuest: " . htmlspecialchars((string)($guestName)) . "\nCheck-in: {$booking['check_in']}\nCheck-out: {$booking['check_out']}\nAmount: ₹" . number_format($amountPaid, 2);
     
     $context = [
         'guest_name' => $guestName,

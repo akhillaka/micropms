@@ -48,7 +48,11 @@ if (!function_exists('load_db_settings')) {
         global $dbConfig;
         $dbConfig = [];
         if ($propertyId === null && class_exists('AuthHelper')) {
-            $propertyId = AuthHelper::getPropertyId();
+            try {
+                $propertyId = AuthHelper::getPropertyId();
+            } catch (Exception $e) {
+                $propertyId = 1;
+            }
         }
         if ($propertyId === null) {
             $propertyId = 1;
@@ -151,6 +155,7 @@ if (!function_exists('load_db_settings')) {
 
         // Guest Portal Settings
         define_setting('GUEST_PORTAL_UPSELL_ENABLED', 'false');
+        define_setting('GUEST_PORTAL_POS_ENABLED', 'false');
         define_setting('GUEST_PORTAL_HOUSEKEEPING_ENABLED', 'false');
         define_setting('GUEST_PORTAL_SELF_CHECKOUT_ENABLED', 'false');
         define_setting('GUEST_PORTAL_EARLY_LATE_FEE', '0.00');

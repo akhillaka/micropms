@@ -48,6 +48,19 @@ class VoiceCommandController {
   }
 
   /**
+   * Set voice command language dynamically
+   */
+  setLanguage(lang) {
+    if (this.recognition) {
+      this.recognition.lang = lang;
+      if (this.isListening) {
+        this.stop();
+        this.start();
+      }
+    }
+  }
+
+  /**
    * Initialize speech recognition
    */
   _initRecognition() {
@@ -61,7 +74,7 @@ class VoiceCommandController {
     this.recognition = new SpeechRecognition();
     this.recognition.continuous = true;
     this.recognition.interimResults = false;
-    this.recognition.lang = 'en-IN'; // English (India) primary
+    this.recognition.lang = localStorage.getItem('pms_voice_lang') || 'en-IN';
     this.recognition.maxAlternatives = 3;
 
     this.recognition.onresult = (event) => {

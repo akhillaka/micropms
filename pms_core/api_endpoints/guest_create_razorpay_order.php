@@ -48,7 +48,11 @@ $receipt = 'gst_' . $bookingId . '_' . time();
 $result = $rz->createOrder(round($amount * 100), 'INR', $receipt);
 
 if ($result['success']) {
-    echo json_encode(['success' => true, 'order_id' => $result['order_id']]);
+    echo json_encode([
+        'success' => true,
+        'order_id' => $result['order_id'],
+        'key_id' => $result['key_id']
+    ]);
 } else {
     echo json_encode(['success' => false, 'message' => 'Failed to create order', 'details' => $result['error']]);
 }

@@ -195,8 +195,8 @@ if ($view === 'weekly') {
     </div>
     <div class="flex items-center gap-3">
         <div class="flex bg-slate-100 rounded-xl p-1">
-            <a href="?view=hourly&date=<?= $date ?>" class="px-4 py-2 text-xs font-bold rounded-lg transition-all <?= $view==='hourly'?'bg-white text-indigo-600 shadow-sm':'text-slate-600 hover:text-slate-900' ?>"><i class="ph ph-clock mr-1"></i>Hourly</a>
-            <a href="?view=weekly&date=<?= $date ?>" class="px-4 py-2 text-xs font-bold rounded-lg transition-all <?= $view==='weekly'?'bg-white text-indigo-600 shadow-sm':'text-slate-600 hover:text-slate-900' ?>"><i class="ph ph-calendar-blank mr-1"></i>Weekly</a>
+            <a href="?view=hourly&date=<?= htmlspecialchars((string)($date), ENT_QUOTES, 'UTF-8') ?>" class="px-4 py-2 text-xs font-bold rounded-lg transition-all <?= htmlspecialchars((string)($view==='hourly'?'bg-white text-indigo-600 shadow-sm':'text-slate-600 hover:text-slate-900'), ENT_QUOTES, 'UTF-8') ?>"><i class="ph ph-clock mr-1"></i>Hourly</a>
+            <a href="?view=weekly&date=<?= htmlspecialchars((string)($date), ENT_QUOTES, 'UTF-8') ?>" class="px-4 py-2 text-xs font-bold rounded-lg transition-all <?= htmlspecialchars((string)($view==='weekly'?'bg-white text-indigo-600 shadow-sm':'text-slate-600 hover:text-slate-900'), ENT_QUOTES, 'UTF-8') ?>"><i class="ph ph-calendar-blank mr-1"></i>Weekly</a>
         </div>
         <div class="flex items-center gap-1">
             <button onclick="nav(-1)" class="p-2 rounded-full hover:bg-slate-100 text-slate-600 transition-colors"><i class="ph ph-caret-left text-lg"></i></button>
@@ -348,7 +348,7 @@ if ($view === 'weekly') {
     };
 
     window.quickBook = function(roomId, date) {
-        window.location.href = '../index.php?prefill_room=' + roomId + '&prefill_date=' + date;
+        window.location.href = '/booking_wizard.php?prefill_room=' + roomId + '&prefill_date=' + encodeURIComponent(date);
     };
 
     /* ═══ BOOKING BLOCK ═══ */

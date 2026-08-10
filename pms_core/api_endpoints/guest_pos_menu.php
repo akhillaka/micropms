@@ -33,6 +33,13 @@ try {
         throw new Exception("Booking context not resolved.");
     }
 
+    $st = $db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'GUEST_PORTAL_POS_ENABLED'");
+    $st->execute([$propertyId]);
+    $posEnabled = ($st->fetchColumn() === 'true');
+    if (!$posEnabled) {
+        throw new Exception("POS feature is disabled for this property.");
+    }
+
     // Fetch outlets
     $oStmt = $db->prepare("SELECT * FROM pos_outlets WHERE property_id = ? ORDER BY name ASC");
     $oStmt->execute([$propertyId]);

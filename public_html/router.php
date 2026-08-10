@@ -27,10 +27,10 @@ if (str_ends_with(strtolower($request), '.php')) {
 }
 
 // ── API Router Interceptor ───────────────────────────────────────────────────
-if (str_starts_with($request, '/api/')) {
+if (str_starts_with($request, '/api/')) { file_put_contents(__DIR__ . '/debug_router.log', date('Y-m-d H:i:s') . " API REQ: " . $request . " URI: " . $_SERVER['REQUEST_URI'] . "\n", FILE_APPEND);
     $apiRoutes = require __DIR__ . '/../pms_core/api_routes.php';
     $originalFile = array_search($request, $apiRoutes);
-    if ($originalFile) {
+    if ($originalFile !== false) {
         require __DIR__ . '/../pms_core/api_endpoints/' . $originalFile;
         exit;
     }
@@ -47,7 +47,7 @@ if (!str_starts_with($request, '/setup') && !str_starts_with($request, '/saas-ad
         require_once __DIR__ . '/../pms_core/Database.php';
         $db = Database::getInstance()->getConnection();
         $setupDone = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'SETUP_COMPLETE'")->fetchColumn();
-        if ($setupDone !== false && $setupDone !== '1') {
+        if ($setupDone !== '1') {
             header('Location: /setup');
             exit;
         }
@@ -66,21 +66,24 @@ if (isset($_GET['hotelId'])) {
         require_once __DIR__ . '/../pms_core/AuthHelper.php';
         $db = Database::getInstance()->getConnection();
         
-        // 1. Check if user is directly assigned to target property
+        $isSuperAdmin = (($_SESSION['access_level'] ?? '') === 'superadmin' || ($_SESSION['role'] ?? '') === 'superadmin');
+        $primaryPropId = (int)($_SESSION['primary_property_id'] ?? 0);
+        
         $hasAccess = false;
-        try {
-            $stmt = $db->prepare("SELECT COUNT(*) FROM staff_properties WHERE staff_id = ? AND property_id = ?");
-            $stmt->execute([$_SESSION['user_id'], $targetId]);
-            $hasAccess = ((int)$stmt->fetchColumn() > 0);
-        } catch (\PDOException $e) {
-            // Table fallback for single-property installations
+        if ($isSuperAdmin || $primaryPropId === $targetId) {
+            $hasAccess = true;
+        } else {
+            try {
+                $stmt = $db->prepare("SELECT COUNT(*) FROM staff_properties WHERE staff_id = ? AND property_id = ?");
+                $stmt->execute([$_SESSION['user_id'], $targetId]);
+                $hasAccess = ((int)$stmt->fetchColumn() > 0);
+            } catch (\PDOException $e) {}
         }
 
-        // 2. Check if user belongs to the default property assignment
-        $userPropId = (int)($_SESSION['property_id'] ?? 1);
-        $isSuperAdmin = (($_SESSION['access_level'] ?? '') === 'superadmin' || ($_SESSION['role'] ?? '') === 'superadmin');
-
-        if ($hasAccess || $userPropId === $targetId || $isSuperAdmin) {
+        if ($hasAccess) {
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_regenerate_id(true);
+            }
             AuthHelper::setPropertyId($targetId);
         }
     }
@@ -117,6 +120,10 @@ switch ($request) {
 
     case '/guest-search':
         require __DIR__ . '/guest_search.php';
+        break;
+
+    case '/guest-login':
+        require __DIR__ . '/guest_login.php';
         break;
 
     case '/guest-portal':
@@ -160,6 +167,6 @@ switch ($request) {
 
         // 404 response
         http_response_code(404);
-        echo "404 - Page Not Found (" . htmlspecialchars($request) . ")";
+        echo "404 - Page Not Found (" . htmlspecialchars((string)($request)) . ")";
         break;
 }

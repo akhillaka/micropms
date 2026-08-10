@@ -16,7 +16,7 @@ $propertyName = $stmt->fetchColumn() ?: 'MicroPMS';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Find Reservation | <?= htmlspecialchars($propertyName) ?></title>
+    <title>Find Reservation | <?= htmlspecialchars((string)($propertyName)) ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -56,7 +56,7 @@ $propertyName = $stmt->fetchColumn() ?: 'MicroPMS';
             <div class="w-16 h-16 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center mx-auto shadow-sm mb-4">
                 <i class="ph ph-bell-ringing text-3xl text-indigo-600"></i>
             </div>
-            <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight"><?= htmlspecialchars($propertyName) ?></h1>
+            <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight"><?= htmlspecialchars((string)($propertyName)) ?></h1>
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Guest Digital Assistant</p>
         </div>
 

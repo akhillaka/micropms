@@ -102,7 +102,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
     <?= CsrfToken::meta() ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, ">
-    <title><?= $pageTitle ?></title>
+    <title><?= htmlspecialchars((string)($pageTitle), ENT_QUOTES, 'UTF-8') ?></title>
     <?php include __DIR__ . '/../../components/ui_head.php'; ?>
     <style>
         .settings-tab-btn {
@@ -189,7 +189,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
                             <div class="flex justify-between items-start mb-4">
                                 <div>
                                     <h3 class="text-lg font-semibold text-brand-900 flex items-center gap-2">
-                                        <i class="ph ph-lightning text-brutal-cyan"></i> <?= htmlspecialchars($eventData['event_name']) ?>
+                                        <i class="ph ph-lightning text-brutal-cyan"></i> <?= htmlspecialchars((string)($eventData['event_name'])) ?>
                                         <?php if(!$eventData['is_system']): ?>
                                             <span class="bg-brand-100 text-brand-900 text-[10px] uppercase font-bold px-2 py-0.5 rounded border border-brand-900">Custom</span>
                                         <?php endif; ?>
@@ -197,17 +197,17 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
                                     <?php if(!$eventData['is_system']): ?>
                                         <div class="mt-2 bg-brand-50 border border-brand-200 p-2 rounded-lg inline-block">
                                             <span class="text-[10px] font-bold text-brand-500 uppercase block mb-1">Webhook URL Trigger:</span>
-                                            <code class="text-[11px] font-mono text-brand-900 select-all">POST /api/trigger_automation.php {"event":"<?= $eventKey ?>","booking_id":123}</code>
+                                            <code class="text-[11px] font-mono text-brand-900 select-all">POST /api/trigger_automation.php {"event":"<?= htmlspecialchars((string)($eventKey), ENT_QUOTES, 'UTF-8') ?>","booking_id":123}</code>
                                         </div>
                                     <?php endif; ?>
                                 </div>
                                 <div class="flex items-center gap-4">
                                     <label class="text-xs font-bold flex items-center gap-2 cursor-pointer uppercase tracking-wide">
                                         Active
-                                        <input type="checkbox" id="status_<?= $eventKey ?>" <?= ($curAuto && $curAuto['status'] === 'active') ? 'checked' : '' ?> class="w-4 h-4 accent-brutal-green cursor-pointer">
+                                        <input type="checkbox" id="status_<?= htmlspecialchars((string)($eventKey), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)(($curAuto && $curAuto['status'] === 'active') ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-4 h-4 accent-brutal-green cursor-pointer">
                                     </label>
                                     <?php if(!$eventData['is_system']): ?>
-                                    <button onclick="deleteEvent(<?= $eventData['id'] ?>)" class="text-error-500 hover:text-error-700 transition-colors" title="Delete Custom Event">
+                                    <button onclick="deleteEvent(<?= htmlspecialchars((string)($eventData['id']), ENT_QUOTES, 'UTF-8') ?>)" class="text-error-500 hover:text-error-700 transition-colors" title="Delete Custom Event">
                                         <i class="ph ph-trash text-lg"></i>
                                     </button>
                                     <?php endif; ?>
@@ -217,19 +217,19 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
                             <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Map to Template</label>
-                                    <select id="template_<?= $eventKey ?>" onchange="renderMapper('<?= $eventKey ?>')" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl font-medium outline-none text-sm focus:bg-white focus:shadow-minimal transition-all">
+                                    <select id="template_<?= htmlspecialchars((string)($eventKey), ENT_QUOTES, 'UTF-8') ?>" onchange="renderMapper('<?= htmlspecialchars((string)($eventKey), ENT_QUOTES, 'UTF-8') ?>')" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl font-medium outline-none text-sm focus:bg-white focus:shadow-minimal transition-all">
                                         <option value="">-- Do Not Send --</option>
                                         <?php foreach($templateJs as $t): ?>
-                                            <option value="<?= $t['id'] ?>" <?= ($curAuto && $curAuto['template_id'] == $t['id']) ? 'selected' : '' ?>><?= htmlspecialchars($t['name']) ?> (<?= $t['language'] ?>)</option>
+                                            <option value="<?= htmlspecialchars((string)($t['id']), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)(($curAuto && $curAuto['template_id'] == $t['id']) ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>><?= htmlspecialchars((string)($t['name'])) ?> (<?= htmlspecialchars((string)($t['language']), ENT_QUOTES, 'UTF-8') ?>)</option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
-                                <div id="mapping_area_<?= $eventKey ?>" class="space-y-2 bg-brand-50 p-3 rounded-xl border border-brand-200 min-h-[60px] flex flex-col justify-center">
+                                <div id="mapping_area_<?= htmlspecialchars((string)($eventKey), ENT_QUOTES, 'UTF-8') ?>" class="space-y-2 bg-brand-50 p-3 rounded-xl border border-brand-200 min-h-[60px] flex flex-col justify-center">
                                     <p class="text-xs text-brand-500 text-center font-medium">Select a template to map variables.</p>
                                 </div>
                             </div>
                             <div class="mt-4 flex justify-end">
-                                <button onclick="saveAutomation('<?= $eventKey ?>')" class="bg-brand-900 text-white font-bold px-5 py-2 rounded-xl hover:-translate-y-0.5 transition-all text-xs">
+                                <button onclick="saveAutomation('<?= htmlspecialchars((string)($eventKey), ENT_QUOTES, 'UTF-8') ?>')" class="bg-brand-900 text-white font-bold px-5 py-2 rounded-xl hover:-translate-y-0.5 transition-all text-xs">
                                     Save Setup
                                 </button>
                             </div>
@@ -244,16 +244,16 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
                     <form id="api-form" class="space-y-4" onsubmit="saveApiSettings(event)">
                         <div>
                             <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">XpressBot API Key</label>
-                            <input type="text" name="WHATSAPP_TOKEN" value="<?= htmlspecialchars(defined('WHATSAPP_TOKEN') ? WHATSAPP_TOKEN : '') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3.5 rounded-xl text-sm outline-none focus:bg-white focus:shadow-minimal transition-all font-mono">
+                            <input type="text" name="WHATSAPP_TOKEN" value="<?= htmlspecialchars((string)(defined('WHATSAPP_TOKEN') ? WHATSAPP_TOKEN : '')) ?>" required class="w-full bg-brand-50 border border-brand-200 p-3.5 rounded-xl text-sm outline-none focus:bg-white focus:shadow-minimal transition-all font-mono">
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">XpressBot Channel ID</label>
-                                <input type="text" name="WHATSAPP_PHONE_NUMBER_ID" value="<?= htmlspecialchars(defined('WHATSAPP_PHONE_NUMBER_ID') ? WHATSAPP_PHONE_NUMBER_ID : '') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3.5 rounded-xl text-sm outline-none focus:bg-white focus:shadow-minimal transition-all font-mono">
+                                <input type="text" name="WHATSAPP_PHONE_NUMBER_ID" value="<?= htmlspecialchars((string)(defined('WHATSAPP_PHONE_NUMBER_ID') ? WHATSAPP_PHONE_NUMBER_ID : '')) ?>" required class="w-full bg-brand-50 border border-brand-200 p-3.5 rounded-xl text-sm outline-none focus:bg-white focus:shadow-minimal transition-all font-mono">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">XpressBot API Base URL</label>
-                                <input type="text" name="WHATSAPP_WABA_ID" value="<?= htmlspecialchars(defined('WHATSAPP_WABA_ID') ? (WHATSAPP_WABA_ID ?: 'https://one.xpressbot.org/api/workspace/v1') : 'https://one.xpressbot.org/api/workspace/v1') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3.5 rounded-xl text-sm outline-none focus:bg-white focus:shadow-minimal transition-all font-mono">
+                                <input type="text" name="WHATSAPP_WABA_ID" value="<?= htmlspecialchars((string)(defined('WHATSAPP_WABA_ID') ? (WHATSAPP_WABA_ID ?: 'https://one.xpressbot.org/api/workspace/v1') : 'https://one.xpressbot.org/api/workspace/v1')) ?>" required class="w-full bg-brand-50 border border-brand-200 p-3.5 rounded-xl text-sm outline-none focus:bg-white focus:shadow-minimal transition-all font-mono">
                             </div>
                         </div>
 
@@ -275,7 +275,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
                             <div>
                                 <label class="block text-[10px] font-bold text-brand-500 uppercase">Callback URL</label>
                                 <div class="flex gap-2 items-center mt-1">
-                                    <input type="text" readonly id="webhook-url" value="<?= (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'yourdomain.com') . '/api/whatsapp_webhook.php' ?>" class="flex-1 bg-white border border-brand-200 p-2.5 rounded-xl text-xs font-mono outline-none text-brand-900">
+                                    <input type="text" readonly id="webhook-url" value="<?= htmlspecialchars((string)((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'yourdomain.com') . '/api/whatsapp_webhook.php'), ENT_QUOTES, 'UTF-8') ?>" class="flex-1 bg-white border border-brand-200 p-2.5 rounded-xl text-xs font-mono outline-none text-brand-900">
                                     <button onclick="copyField('webhook-url')" class="bg-white hover:bg-brand-100 border border-brand-200 p-2.5 rounded-xl text-xs font-bold transition-all">Copy</button>
                                 </div>
                             </div>
@@ -319,13 +319,13 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
                                 <div class="card-minimal p-4 flex flex-col justify-between">
                                     <div>
                                         <div class="flex justify-between items-start mb-2">
-                                            <span class="font-bold text-brand-900 truncate pr-2" title="<?= htmlspecialchars($t['name']) ?>"><?= htmlspecialchars($t['name']) ?></span>
-                                            <span class="px-2 py-0.5 text-[9px] font-bold uppercase rounded border bg-brand-100 text-brand-900 border-brand-200"><?= htmlspecialchars($t['language']) ?></span>
+                                            <span class="font-bold text-brand-900 truncate pr-2" title="<?= htmlspecialchars((string)($t['name'])) ?>"><?= htmlspecialchars((string)($t['name'])) ?></span>
+                                            <span class="px-2 py-0.5 text-[9px] font-bold uppercase rounded border bg-brand-100 text-brand-900 border-brand-200"><?= htmlspecialchars((string)($t['language'])) ?></span>
                                         </div>
-                                        <p class="text-xs text-brand-900/70 font-mono bg-brand-50 p-2.5 rounded-lg border border-brand-200 whitespace-pre-wrap min-h-[60px]"><?= htmlspecialchars($body) ?></p>
+                                        <p class="text-xs text-brand-900/70 font-mono bg-brand-50 p-2.5 rounded-lg border border-brand-200 whitespace-pre-wrap min-h-[60px]"><?= htmlspecialchars((string)($body)) ?></p>
                                     </div>
                                     <div class="mt-3 flex justify-between items-center">
-                                        <span class="text-[9px] font-bold uppercase px-2 py-0.5 rounded border <?= $t['status'] === 'APPROVED' ? 'bg-success-100 text-success-700 border-success-200' : 'bg-rose-100 text-rose-700 border-rose-200' ?>"><?= htmlspecialchars($t['status']) ?></span>
+                                        <span class="text-[9px] font-bold uppercase px-2 py-0.5 rounded border <?= htmlspecialchars((string)($t['status'] === 'APPROVED' ? 'bg-success-100 text-success-700 border-success-200' : 'bg-rose-100 text-rose-700 border-rose-200'), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($t['status'])) ?></span>
                                     </div>
                                 </div>
                             <?php endforeach; ?>

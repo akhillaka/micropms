@@ -6,6 +6,8 @@ require_once __DIR__ . '/ApiResponse.php';
 require_once __DIR__ . '/AuthHelper.php';
 require_once __DIR__ . '/CsrfToken.php';
 require_once __DIR__ . '/ErrorTracker.php';
+require_once __DIR__ . '/SaaSMiddleware.php';
+require_once __DIR__ . '/ApiSuccessException.php';
 
 class ApiHandler {
     
@@ -30,7 +32,7 @@ class ApiHandler {
         if (!isset($data[$key])) {
             return $default;
         }
-        return trim(strip_tags((string)$data[$key]));
+        return trim((string)$data[$key]);
     }
 
     public static function validateParams(array $data, array $rules): array {
@@ -47,7 +49,7 @@ class ApiHandler {
                     $validated[$key] = (float)$data[$key];
                     break;
                 case 'string':
-                    $validated[$key] = trim(strip_tags((string)$data[$key]));
+                    $validated[$key] = trim((string)$data[$key]);
                     break;
                 case 'array':
                     if (!is_array($data[$key])) {
@@ -92,26 +94,32 @@ class ApiHandler {
             }
 
             $db = Database::getInstance()->getConnection();
+            SaaSMiddleware::resolveAndGuardTenant($db);
 
             if ($useTransaction) {
                 $db->beginTransaction();
-
-                // Commit on exit() so ApiResponse::success()'s exit() doesn't skip it.
-                register_shutdown_function(static function () use ($db): void {
-                    if ($db->inTransaction()) {
-                        $db->commit();
-                    }
-                });
             }
 
-            // Execute the endpoint logic. May call ApiResponse::success() → exit().
+            // Execute the endpoint logic. May call ApiResponse::success() -> throws ApiSuccessException
             $callback($db);
 
-            // Fallback commit for endpoints that return normally instead of exit()-ing.
+            // Fallback commit for endpoints that return normally
             if ($useTransaction && $db->inTransaction()) {
                 $db->commit();
             }
 
+        } catch (ApiSuccessException $e) {
+            if ($useTransaction && isset($db) && $db->inTransaction()) {
+                $db->commit();
+            }
+            
+            http_response_code($e->getStatusCode());
+            $response = ['success' => true];
+            if (!empty($e->getData())) {
+                $response = array_merge($response, $e->getData());
+            }
+            echo json_encode($response, JSON_THROW_ON_ERROR);
+            exit;
         } catch (\Throwable $e) {
             if (isset($db) && $db->inTransaction()) {
                 $db->rollBack();

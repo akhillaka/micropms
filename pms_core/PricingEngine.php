@@ -13,7 +13,7 @@ class PricingEngine {
             $fallback = self::getRateDataForHours($categoryId, 1, $ratePlanName);
             $baseDailyRate = $fallback['price'];
             if ($baseDailyRate <= 0.0) {
-                return 0.0;
+                throw new \Exception("No rates configured for category ID {$categoryId}.");
             }
         }
 
@@ -92,6 +92,13 @@ class PricingEngine {
     public static function getCostBreakdown(int $categoryId, string $checkInStr, string $checkOutStr, ?string $ratePlanName = null): array {
         $baseRateData = self::getRateDataForHours($categoryId, 24, $ratePlanName);
         $baseDailyRate = $baseRateData['price'];
+        if ($baseDailyRate <= 0.0) {
+            $fallback = self::getRateDataForHours($categoryId, 1, $ratePlanName);
+            $baseDailyRate = $fallback['price'];
+            if ($baseDailyRate <= 0.0) {
+                throw new \Exception("No rates configured for category ID {$categoryId}.");
+            }
+        }
         
         try {
             $checkIn = new \DateTime($checkInStr);

@@ -187,7 +187,40 @@ class NightAudit {
             $checkoutTime = strtotime($booking['check_out']);
             $hoursPast = (time() - $checkoutTime) / 3600;
             
-            if ($autoCheckout && $hoursPast >= $graceHours) {
+            // Calculate balance
+            $balStmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM folio_ledger WHERE booking_id = :id");
+            $balStmt->execute(['id' => $booking['id']]);
+            $balance = round((float)$balStmt->fetchColumn(), 2);
+            
+            $issueType = null;
+            $description = null;
+            
+            if ($balance > 0) {
+                $issueType = 'overstay_with_dues';
+                $description = "Guest has pending dues of ₹" . number_format($balance, 2);
+            } elseif ($balance < 0) {
+                $issueType = 'overstay_refund_due';
+                $description = "Guest is owed a refund of ₹" . number_format(abs($balance), 2);
+            } elseif (!$autoCheckout) {
+                $issueType = 'overstay_zero_balance';
+                $description = "Guest has not checked out. Auto-checkout is disabled.";
+            }
+            
+            if ($issueType) {
+                // Check if an action already exists
+                $actCheck = $this->db->prepare("SELECT id FROM night_audit_actions WHERE booking_id = ? AND issue_type = ? AND status = 'pending'");
+                $actCheck->execute([$booking['id'], $issueType]);
+                if (!$actCheck->fetch()) {
+                    $actInsert = $this->db->prepare("INSERT INTO night_audit_actions (property_id, booking_id, issue_type, amount, description) VALUES (?, ?, ?, ?, ?)");
+                    $actInsert->execute([$this->propertyId, $booking['id'], $issueType, $balance, $description]);
+                    $this->actions[] = "Flagged Room {$booking['room_number']} for {$issueType}";
+                }
+                
+                // Do NOT auto-checkout, just notify
+                $this->notifyOverdue($booking, $hoursPast, false);
+                
+            } else if ($autoCheckout && $hoursPast >= $graceHours) {
+                // Balance is 0 and auto-checkout is enabled
                 // Auto-checkout
                 $this->db->prepare("
                     UPDATE bookings SET booking_status = 'checked_out' WHERE id = ?
@@ -214,7 +247,7 @@ class NightAudit {
                 $this->notifyOverdue($booking, $hoursPast, true);
                 
             } else {
-                // Just notify (overdue but within grace period, or auto-checkout disabled)
+                // Just notify (balance is 0, auto-checkout enabled but within grace period)
                 $this->notifyOverdue($booking, $hoursPast, false);
             }
         }

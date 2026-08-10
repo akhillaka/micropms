@@ -10,13 +10,11 @@ ApiHandler::run(function(\PDO $db) {
     $twoHoursLater = date('Y-m-d H:i:s', strtotime('+2 hours'));
     $propertyId = AuthHelper::getPropertyId();
 
-    try {
-        // ═══════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════
         // SUMMARY QUERIES — All scoped to current property_id
         // ═══════════════════════════════════════════════════════
         
         // Total rooms
-        $totalRooms = (int)$db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ?")->execute([$propertyId]) ? $db->query("SELECT COUNT(*) FROM rooms WHERE property_id = {$propertyId}")->fetchColumn() : 0;
         $s = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ?"); $s->execute([$propertyId]); $totalRooms = (int)$s->fetchColumn();
         
         // Dirty rooms
@@ -61,15 +59,6 @@ ApiHandler::run(function(\PDO $db) {
         $s->execute([$propertyId]); $departures = (int)$s->fetchColumn();
         
         // Pending payments (bookings with positive balance)
-        $pendingPayments = (int)$db->prepare("
-            SELECT COUNT(DISTINCT b.id) FROM bookings b 
-            LEFT JOIN folio_ledger fl ON b.id = fl.booking_id 
-            WHERE b.booking_status IN ('booked', 'checked_in') 
-            AND b.payment_status != 'cancelled'
-            AND b.property_id = ?
-            GROUP BY b.id 
-            HAVING COALESCE(SUM(fl.amount), 0) > 0
-        ")->execute([$propertyId]) ? 0 : 0; // placeholder
         $sp = $db->prepare("
             SELECT COUNT(DISTINCT sub.id) FROM (
                 SELECT b.id FROM bookings b LEFT JOIN folio_ledger fl ON b.id = fl.booking_id
@@ -126,19 +115,22 @@ ApiHandler::run(function(\PDO $db) {
             g.phone as guest_phone,
             g.id_proof_front,
             g.id_proof_back,
-            COALESCE(SUM(fl.amount), 0) as balance
+            COALESCE(fl_agg.balance, 0) as balance
         FROM bookings b
         JOIN rooms r ON b.room_id = r.id
         JOIN room_categories c ON r.category_id = c.id
         LEFT JOIN guests g ON b.guest_id = g.id
-        LEFT JOIN folio_ledger fl ON b.id = fl.booking_id
+        LEFT JOIN (
+            SELECT booking_id, SUM(amount) as balance
+            FROM folio_ledger
+            GROUP BY booking_id
+        ) fl_agg ON b.id = fl_agg.booking_id
         WHERE b.payment_status != 'cancelled'
           AND b.property_id = :property_id
           AND (
               (b.booking_status = 'checked_in')
               OR (b.booking_status = 'booked' AND DATE(b.check_in) <= :today)
           )
-        GROUP BY b.id
         ORDER BY b.check_out ASC
         LIMIT 50
     ");
@@ -320,13 +312,5 @@ ApiHandler::run(function(\PDO $db) {
         'alerts' => $alerts,
         'payment_methods' => $methods
     ]);
-
-    } catch (\PDOException $e) {
-        error_log('Dashboard API Error: ' . $e->getMessage());
-        ApiResponse::error('Database error: ' . $e->getMessage());
-    } catch (\Exception $e) {
-        error_log('Dashboard API Error: ' . $e->getMessage());
-        ApiResponse::error('Error: ' . $e->getMessage());
-    }
 
 }, false, false, false);

@@ -111,7 +111,6 @@ ApiHandler::run(function(\PDO $db) {
                 'id' => $booking['id'],
                 'amount' => $newTotal,
                 'desc' => "Room Charges - {$newRoom['category_name']}",
-                'ref' => 'MANUAL',
                 'prop_id' => $propertyId
             ]);
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');

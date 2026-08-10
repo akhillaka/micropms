@@ -435,7 +435,7 @@ assertEqual("9.1 Atomic rollback: room 901 NOT booked after group failure", 0, $
 echo "\n====== MODULE 10: SECURITY & API AUDIT ======\n";
 
 // 10.1 All admin/* API files should have auth
-$apiFiles = glob(__DIR__ . '/public_html/api/*.php');
+$apiFiles = glob(dirname(__DIR__) . '/pms_core/api_endpoints/*.php');
 $publicApis = ['admin_login.php', 'guest_invoice.php', 'view_invoice.php', 'create_hold.php', 'check_availability.php', 'whatsapp_webhook.php', 'wa_sync_status.php', 'trigger_automation.php'];
 $unprotected = [];
 
@@ -457,15 +457,15 @@ if (empty($unprotected)) {
 }
 
 // 10.2 search_guests.php must have auth
-$sgContent = file_get_contents(__DIR__ . '/public_html/api/search_guests.php');
+$sgContent = file_get_contents(dirname(__DIR__) . '/pms_core/api_endpoints/search_guests.php');
 assertTrue("10.2 search_guests.php has AuthHelper", str_contains($sgContent, 'AuthHelper::require') || str_contains($sgContent, 'true, false, true'));
 
 // 10.3 create_hold.php has PDO transaction wrapping
-$chContent = file_get_contents(__DIR__ . '/public_html/api/create_hold.php');
+$chContent = file_get_contents(dirname(__DIR__) . '/pms_core/api_endpoints/create_hold.php');
 assertTrue("10.3 create_hold.php has beginTransaction", str_contains($chContent, 'beginTransaction'));
 
 // 10.4 admin_record_payment.php allows negative amounts now
-$rpContent = file_get_contents(__DIR__ . '/public_html/api/admin_record_payment.php');
+$rpContent = file_get_contents(dirname(__DIR__) . '/pms_core/api_endpoints/admin_record_payment.php');
 $stillBlocking = str_contains($rpContent, '$amount <= 0');
 assertTrue("10.4 admin_record_payment.php allows negative amounts (refunds)", !$stillBlocking);
 

@@ -11,11 +11,14 @@ require_once __DIR__ . '/../PhoneHelper.php';
 class NotificationService {
 
     /**
-     * Send booking confirmation notifications (Telegram + WhatsApp automation).
+     * Send booking confirmation notifications (Telegram + WhatsApp automation + In-App).
      */
     public static function notifyBookingCreated(\PDO $db, int $bookingId): void {
         $booking = self::getBookingContext($db, $bookingId);
         if (!$booking) return;
+
+        // In-App Notification
+        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "New Booking Confirmed", "Room {$booking['room_number']} booked for {$booking['guest_name']} (₹{$booking['total_amount']})", 'booking_confirmed');
 
         // Telegram
         $tgMsg = "New Booking: Room {$booking['room_number']}, Guest: {$booking['guest_name']}, Amount: ₹{$booking['total_amount']}";
@@ -34,6 +37,9 @@ class NotificationService {
     public static function notifyCheckIn(\PDO $db, int $bookingId): void {
         $booking = self::getBookingContext($db, $bookingId);
         if (!$booking) return;
+
+        // In-App Notification
+        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Guest Checked In", "{$booking['guest_name']} checked into Room {$booking['room_number']}", 'check_in');
 
         $tgMsg = "Guest Checked In: {$booking['guest_name']} → Room {$booking['room_number']}";
         NotificationRelay::sendTelegram($tgMsg, 'check_in', $booking);
@@ -54,6 +60,9 @@ class NotificationService {
         // Mark room dirty
         $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?")->execute([$booking['room_id']]);
 
+        // In-App Notification
+        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Guest Checked Out", "{$booking['guest_name']} checked out of Room {$booking['room_number']}", 'check_out');
+
         $tgMsg = "Guest Checked Out: {$booking['guest_name']} from Room {$booking['room_number']}, Total Paid: ₹{$booking['paid_amount']}";
         NotificationRelay::sendTelegram($tgMsg, 'check_out', $booking);
 
@@ -73,6 +82,9 @@ class NotificationService {
         $booking['amount'] = number_format($amount, 2);
         $booking['method'] = $method;
 
+        // In-App Notification
+        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Payment Received", "₹{$booking['amount']} received via {$method} for Room {$booking['room_number']}", 'payment_received');
+
         $tgMsg = "Payment Received: ₹{$booking['amount']} ({$method}) for Room {$booking['room_number']}, Guest: {$booking['guest_name']}";
         NotificationRelay::sendTelegram($tgMsg, 'payment_received', $booking);
     }
@@ -84,6 +96,9 @@ class NotificationService {
         $booking = self::getBookingContext($db, $bookingId);
         if (!$booking) return;
 
+        // In-App Notification
+        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Overstay Alert", "{$booking['guest_name']} in Room {$booking['room_number']} has overstayed", 'overstay');
+
         $tgMsg = "Overstay Alert: {$booking['guest_name']} in Room {$booking['room_number']}, Checkout was: {$booking['check_out']}";
         NotificationRelay::sendTelegram($tgMsg, 'overstay', $booking);
     }
@@ -93,7 +108,7 @@ class NotificationService {
      */
     private static function getBookingContext(\PDO $db, int $bookingId): ?array {
         $stmt = $db->prepare("
-            SELECT b.id as booking_id, b.check_in, b.check_out, b.total_amount, b.room_id,
+            SELECT b.id as booking_id, b.check_in, b.check_out, b.total_amount, b.room_id, b.property_id,
                    r.room_number, c.name as room_type,
                    g.name as guest_name, g.phone as guest_phone
             FROM bookings b

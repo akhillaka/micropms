@@ -6,7 +6,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 if (!isset($_SESSION['saas_admin_id'])) {
-    header('Location: login.php');
+    header('Location: /saas-admin/login');
     exit;
 }
 
@@ -91,32 +91,8 @@ try {
         }
     } catch (\Exception $e) {}
 
-        // Seed default property from system settings if empty
-        $pCount = (int)$db->query("SELECT COUNT(*) FROM properties")->fetchColumn();
-        if ($pCount === 0) {
-            $pName = defined('PROPERTY_NAME') && !empty(PROPERTY_NAME) ? PROPERTY_NAME : 'Primary Hotel Property';
-            $pAddr = defined('PROPERTY_ADDRESS') ? PROPERTY_ADDRESS : '';
-            $pPhone = defined('PROPERTY_PHONE') ? PROPERTY_PHONE : '';
-            $pEmail = defined('PROPERTY_EMAIL') ? PROPERTY_EMAIL : '';
-            
-            $stmtSeed = $db->prepare("INSERT INTO properties (id, property_code, name, address, phone, email, is_active) VALUES (1, 'PROP-DEFAULT', ?, ?, ?, ?, 1)");
-            $stmtSeed->execute([$pName, $pAddr, $pPhone, $pEmail]);
-            
-            // Link any unassigned rooms & bookings to default property 1
-            $db->exec("UPDATE rooms SET property_id = 1 WHERE property_id IS NULL OR property_id = 0;");
-            $db->exec("UPDATE bookings SET property_id = 1 WHERE property_id IS NULL OR property_id = 0;");
-        }
-
-        // Seed default owner staff user if missing
-        $userCount = (int)$db->query("SELECT COUNT(*) FROM staff_users WHERE access_level = 'owner'")->fetchColumn();
-        if ($userCount === 0) {
-            $rawPass = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'), 0, 12);
-            $rawPin = (string)rand(1000, 9999);
-            $defPassHash = password_hash($rawPass, PASSWORD_BCRYPT);
-            $defPinHash = password_hash($rawPin, PASSWORD_BCRYPT);
-            $db->exec("INSERT INTO staff_users (username, password_hash, pin_hash, access_level, role, property_id, is_active) VALUES ('admin', '{$defPassHash}', '{$defPinHash}', 'owner', 'Owner', 1, 1)");
-            error_log("CRITICAL: Initial admin user created. Username: admin, Password: {$rawPass}, PIN: {$rawPin}");
-        }
+        // Note: Legacy initializeSaaSDB removed seed property 1 and seed admin user
+        // Properties will only be created manually via the SaaS admin UI.
     } catch (\Exception $ex) {
         // Suppress schema guard errors
     }
@@ -264,7 +240,6 @@ try {
         }
 
         if ($action === 'create_property') {
-            $pCode = strtoupper(trim($_POST['property_code'] ?? ''));
             $name = trim($_POST['name'] ?? '');
             $city = trim($_POST['city'] ?? '');
             $state = trim($_POST['state'] ?? '');
@@ -281,7 +256,7 @@ try {
             // Admin user inputs or auto-generations
             $adminUser = trim($_POST['admin_username'] ?? '');
             if (empty($adminUser)) {
-                $adminUser = 'admin_' . strtolower(preg_replace('/[^A-Za-z0-9]/', '', $pCode));
+                $adminUser = 'admin_' . strtolower(preg_replace('/[^A-Za-z0-9]/', '', $name));
             }
             
             $rawPass = trim($_POST['admin_password'] ?? '');
@@ -294,17 +269,15 @@ try {
                 $rawPin = (string)rand(1000, 9999);
             }
 
-            if (empty($pCode) || empty($name)) {
-                $error = 'Property code and name are required.';
-            } elseif (!preg_match('/^\d{4}$/', $pCode)) {
-                $error = 'Property code must be a 4-digit number (e.g. 1001).';
+            if ($name === '' || $adminUser === '') {
+                $error = 'Property name and Admin Username are required.';
             } else {
                 try {
                     $db->beginTransaction();
 
-                    $stmt = $db->prepare("INSERT INTO properties (property_code, name, city, state, phone, email, gstin, plan, max_rooms, max_staff, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)");
-                    $stmt->execute([$pCode, $name, $city, $state, $phone, $email, $gstin, $plan, $maxRooms, $maxStaff]);
-                    $propId = (int)$db->lastInsertId();
+                    $stmt = $db->prepare("INSERT INTO properties (name, city, state, phone, email, gstin, plan, max_rooms, max_staff, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)");
+                    $stmt->execute([$name, $city, $state, $phone, $email, $gstin, $plan, $maxRooms, $maxStaff]);
+                    $propId = $db->lastInsertId();
 
                     // Create Admin Staff User for the new property
                     $passHash = password_hash($rawPass, PASSWORD_BCRYPT);
@@ -312,13 +285,25 @@ try {
 
                     $userStmt = $db->prepare("INSERT INTO staff_users (username, password_hash, pin_hash, access_level, role, property_id, is_active) VALUES (?, ?, ?, 'owner', 'Property Admin', ?, 1)");
                     $userStmt->execute([$adminUser, $passHash, $pinHash, $propId]);
+                    $userId = (int)$db->lastInsertId();
+
+                    require_once __DIR__ . '/../pms_core/AuthHelper.php';
+                    AuthHelper::seedRolesForProperty($db, $propId);
+
+                    // Grant Owner Role to the newly created owner staff user
+                    $roleStmt = $db->prepare("SELECT id FROM roles WHERE property_id = ? AND name = 'owner'");
+                    $roleStmt->execute([$propId]);
+                    $roleId = $roleStmt->fetchColumn();
+
+                    $spStmt = $db->prepare("INSERT INTO staff_properties (staff_id, property_id, role_id) VALUES (?, ?, ?)");
+                    $spStmt->execute([$userId, $propId, $roleId]);
 
                     $db->commit();
 
                     $message = "Property '{$name}' registered successfully under '{$plan}' plan!";
                     $createdCredentials = [
                         'property_name' => $name,
-                        'property_code' => $pCode,
+                        'id' => $propId,
                         'username' => $adminUser,
                         'password' => $rawPass,
                         'pin' => $rawPin
@@ -330,7 +315,6 @@ try {
             }
         } elseif ($action === 'edit_property') {
             $pId = (int)($_POST['property_id'] ?? 0);
-            $pCode = strtoupper(trim($_POST['property_code'] ?? ''));
             $name = trim($_POST['name'] ?? '');
             $address = trim($_POST['address'] ?? '');
             $city = trim($_POST['city'] ?? '');
@@ -341,9 +325,7 @@ try {
             $plan = trim($_POST['plan'] ?? 'starter');
             $maxRooms = (int)($_POST['max_rooms'] ?? 25);
 
-            if (!preg_match('/^\d{4}$/', $pCode)) {
-                $error = 'Property code must be a 4-digit number (e.g. 1001).';
-            } elseif ($pId > 0 && !empty($pCode) && !empty($name)) {
+            if ($pId > 0 && !empty($name)) {
                 try {
                     $features = [
                         'ocr_google_vision' => isset($_POST['feat_ocr_google_vision']) && $_POST['feat_ocr_google_vision'] === '1',
@@ -351,8 +333,8 @@ try {
                     ];
                     $featuresJson = json_encode($features);
 
-                    $stmt = $db->prepare("UPDATE properties SET property_code = ?, name = ?, address = ?, city = ?, state = ?, phone = ?, email = ?, gstin = ?, plan = ?, max_rooms = ?, features_json = ? WHERE id = ?");
-                    $stmt->execute([$pCode, $name, $address, $city, $state, $phone, $email, $gstin, $plan, $maxRooms, $featuresJson, $pId]);
+                    $stmt = $db->prepare("UPDATE properties SET name = ?, address = ?, city = ?, state = ?, phone = ?, email = ?, gstin = ?, plan = ?, max_rooms = ?, features_json = ? WHERE id = ?");
+                    $stmt->execute([$name, $address, $city, $state, $phone, $email, $gstin, $plan, $maxRooms, $featuresJson, $pId]);
                     $message = "Property '{$name}' updated successfully!";
                 } catch (\Exception $e) {
                     $error = 'Failed to update property: ' . $e->getMessage();
@@ -695,7 +677,7 @@ try {
             <div class="flex items-center gap-3">
                 <span class="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-xl text-xs font-semibold text-slate-600">
                     <i class="ph ph-user-circle text-sm text-blue-700"></i>
-                    <?= htmlspecialchars($_SESSION['saas_admin_username'] ?? 'superadmin') ?>
+                    <?= htmlspecialchars((string)($_SESSION['saas_admin_username'] ?? 'superadmin')) ?>
                     <span class="text-[9px] uppercase tracking-wider font-bold bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-md">Super</span>
                 </span>
                 <a href="logout.php" class="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl text-sm transition border border-red-200 cursor-pointer">
@@ -707,14 +689,14 @@ try {
         <?php if (!empty($message)): ?>
             <div class="flex items-center gap-3 mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl font-semibold text-sm">
                 <i class="ph ph-check-circle text-xl flex-shrink-0 text-emerald-600"></i>
-                <?= htmlspecialchars($message) ?>
+                <?= htmlspecialchars((string)($message)) ?>
             </div>
         <?php endif; ?>
 
         <?php if (!empty($error)): ?>
             <div class="flex items-center gap-3 mb-6 p-4 bg-red-50 border border-red-200 text-red-800 rounded-xl font-semibold text-sm">
                 <i class="ph ph-warning-circle text-xl flex-shrink-0 text-red-600"></i>
-                <?= htmlspecialchars($error) ?>
+                <?= htmlspecialchars((string)($error)) ?>
             </div>
         <?php endif; ?>
 
@@ -729,20 +711,20 @@ try {
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                     <div class="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
                         <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Property</div>
-                        <div class="font-extrabold text-slate-900"><?= htmlspecialchars($createdCredentials['property_name']) ?></div>
-                        <div class="text-xs font-mono text-blue-600 mt-0.5"><?= htmlspecialchars($createdCredentials['property_code']) ?></div>
+                        <div class="font-extrabold text-slate-900"><?= htmlspecialchars((string)($createdCredentials['property_name'])) ?></div>
+                        <div class="text-xs font-mono text-blue-600 mt-0.5">ID: <?= htmlspecialchars((string)($createdCredentials['id'])) ?></div>
                     </div>
                     <div class="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
                         <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Username</div>
-                        <div class="font-bold text-emerald-700 font-mono text-base"><?= htmlspecialchars($createdCredentials['username']) ?></div>
+                        <div class="font-bold text-emerald-700 font-mono text-base"><?= htmlspecialchars((string)($createdCredentials['username'])) ?></div>
                     </div>
                     <div class="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
                         <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Password</div>
-                        <div class="font-bold text-amber-700 font-mono text-base"><?= htmlspecialchars($createdCredentials['password']) ?></div>
+                        <div class="font-bold text-amber-700 font-mono text-base"><?= htmlspecialchars((string)($createdCredentials['password'])) ?></div>
                     </div>
                     <div class="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
                         <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">PWA PIN</div>
-                        <div class="font-bold text-purple-700 font-mono text-base"><?= htmlspecialchars($createdCredentials['pin']) ?></div>
+                        <div class="font-bold text-purple-700 font-mono text-base"><?= htmlspecialchars((string)($createdCredentials['pin'])) ?></div>
                     </div>
                 </div>
             </div>
@@ -753,7 +735,7 @@ try {
             <div class="saas-kpi kpi-blue">
                 <div>
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Active Tenants</p>
-                    <p class="text-3xl font-extrabold text-slate-900 mt-1"><?= $metrics['active_tenants'] ?> <span class="text-sm font-semibold text-slate-400">/ <?= count($properties) ?></span></p>
+                    <p class="text-3xl font-extrabold text-slate-900 mt-1"><?= htmlspecialchars((string)($metrics['active_tenants']), ENT_QUOTES, 'UTF-8') ?> <span class="text-sm font-semibold text-slate-400">/ <?= htmlspecialchars((string)(count($properties)), ENT_QUOTES, 'UTF-8') ?></span></p>
                     <p class="text-xs text-slate-400 mt-1 font-medium">properties running</p>
                 </div>
                 <div class="w-12 h-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">
@@ -763,7 +745,7 @@ try {
             <div class="saas-kpi kpi-green">
                 <div>
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Rooms</p>
-                    <p class="text-3xl font-extrabold text-emerald-700 mt-1"><?= $metrics['total_rooms'] ?></p>
+                    <p class="text-3xl font-extrabold text-emerald-700 mt-1"><?= htmlspecialchars((string)($metrics['total_rooms']), ENT_QUOTES, 'UTF-8') ?></p>
                     <p class="text-xs text-slate-400 mt-1 font-medium">across all properties</p>
                 </div>
                 <div class="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
@@ -773,7 +755,7 @@ try {
             <div class="saas-kpi kpi-amber">
                 <div>
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Staff Seats</p>
-                    <p class="text-3xl font-extrabold text-amber-700 mt-1"><?= $metrics['active_staff'] ?></p>
+                    <p class="text-3xl font-extrabold text-amber-700 mt-1"><?= htmlspecialchars((string)($metrics['active_staff']), ENT_QUOTES, 'UTF-8') ?></p>
                     <p class="text-xs text-slate-400 mt-1 font-medium">active staff users</p>
                 </div>
                 <div class="w-12 h-12 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center flex-shrink-0">
@@ -783,7 +765,7 @@ try {
             <div class="saas-kpi kpi-indigo">
                 <div>
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Projected MRR</p>
-                    <p class="text-2xl font-extrabold text-indigo-700 mt-1">₹<?= number_format($metrics['estimated_mrr'], 0) ?></p>
+                    <p class="text-2xl font-extrabold text-indigo-700 mt-1">₹<?= htmlspecialchars((string)(number_format($metrics['estimated_mrr'], 0)), ENT_QUOTES, 'UTF-8') ?></p>
                     <p class="text-xs text-slate-400 mt-1 font-medium">monthly recurring</p>
                 </div>
                 <div class="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
@@ -818,7 +800,7 @@ try {
                     <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
                         <i class="ph ph-buildings text-blue-700"></i> Registered Properties
                     </h2>
-                    <span class="text-xs font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full"><?= count($properties) ?> total</span>
+                    <span class="text-xs font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full"><?= htmlspecialchars((string)(count($properties)), ENT_QUOTES, 'UTF-8') ?> total</span>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="saas-table">
@@ -836,19 +818,19 @@ try {
                             <?php foreach ($properties as $p): ?>
                                 <tr>
                                     <td>
-                                        <div class="font-bold text-slate-900"><?= htmlspecialchars($p['name']) ?></div>
-                                        <div class="text-xs text-blue-600 font-mono mt-0.5"><?= htmlspecialchars($p['property_code']) ?></div>
+                                        <div class="font-bold text-slate-900"><?= htmlspecialchars((string)($p['name'])) ?></div>
+                                        <div class="text-xs text-blue-600 font-mono mt-0.5">ID: <?= htmlspecialchars((string)($p['id'])) ?></div>
                                     </td>
                                     <td>
                                         <?php if (!empty($p['custom_domain'])): ?>
                                             <div class="space-y-1">
                                                 <div class="text-xs font-mono text-emerald-700 flex items-center gap-1.5">
                                                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
-                                                    <?= htmlspecialchars($p['custom_domain']) ?>
+                                                    <?= htmlspecialchars((string)($p['custom_domain'])) ?>
                                                 </div>
                                                 <form method="POST" class="inline">
                                                     <input type="hidden" name="action" value="verify_dns">
-                                                    <input type="hidden" name="custom_domain" value="<?= htmlspecialchars($p['custom_domain']) ?>">
+                                                    <input type="hidden" name="custom_domain" value="<?= htmlspecialchars((string)($p['custom_domain'])) ?>">
                                                     <button type="submit" class="text-[10px] text-slate-400 hover:text-blue-700 flex items-center gap-1 font-semibold transition">
                                                         <i class="ph ph-magnifying-glass"></i> Check DNS
                                                     </button>
@@ -867,8 +849,8 @@ try {
                                                 default      => 'bg-slate-100 text-slate-600 border border-slate-200',
                                             };
                                         ?>
-                                        <span class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase <?= $planClass ?>">
-                                            <?= htmlspecialchars(ucfirst($plan)) ?>
+                                        <span class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase <?= htmlspecialchars((string)($planClass), ENT_QUOTES, 'UTF-8') ?>">
+                                            <?= htmlspecialchars((string)(ucfirst($plan))) ?>
                                         </span>
                                     </td>
                                     <td>
@@ -877,17 +859,17 @@ try {
                                             $pct = $maxVal > 0 ? min(100, round(($p['room_count'] / $maxVal) * 100)) : 0;
                                             $barColor = $pct >= 90 ? '#EF4444' : ($pct >= 70 ? '#F59E0B' : '#1E3A8A');
                                         ?>
-                                        <div class="font-bold text-slate-900 text-sm"><?= $p['room_count'] ?> <span class="font-medium text-slate-400">/ <?= ($p['max_rooms'] ?? 25) >= 999 ? '∞' : ($p['max_rooms'] ?? 25) ?></span></div>
+                                        <div class="font-bold text-slate-900 text-sm"><?= htmlspecialchars((string)($p['room_count']), ENT_QUOTES, 'UTF-8') ?> <span class="font-medium text-slate-400">/ <?= htmlspecialchars((string)(($p['max_rooms'] ?? 25) >= 999 ? '∞' : ($p['max_rooms'] ?? 25)), ENT_QUOTES, 'UTF-8') ?></span></div>
                                         <div class="w-24 bg-slate-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
-                                            <div class="h-full rounded-full" style="width:<?= $pct ?>%; background:<?= $barColor ?>;"></div>
+                                            <div class="h-full rounded-full" style="width:<?= htmlspecialchars((string)($pct), ENT_QUOTES, 'UTF-8') ?>%; background:<?= htmlspecialchars((string)($barColor), ENT_QUOTES, 'UTF-8') ?>;"></div>
                                         </div>
                                     </td>
                                     <td>
                                         <form method="POST" class="inline">
                                             <input type="hidden" name="action" value="toggle_status">
-                                            <input type="hidden" name="property_id" value="<?= $p['id'] ?>">
-                                            <button type="submit" class="cursor-pointer px-3 py-1 rounded-full text-xs font-bold border transition <?= (int)$p['is_active'] === 1 ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100' : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100' ?>">
-                                                <?= (int)$p['is_active'] === 1 ? 'Active' : 'Disabled' ?>
+                                            <input type="hidden" name="property_id" value="<?= htmlspecialchars((string)($p['id']), ENT_QUOTES, 'UTF-8') ?>">
+                                            <button type="submit" class="cursor-pointer px-3 py-1 rounded-full text-xs font-bold border transition <?= htmlspecialchars((string)((int)$p['is_active'] === 1 ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100' : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'), ENT_QUOTES, 'UTF-8') ?>">
+                                                <?= htmlspecialchars((string)((int)$p['is_active'] === 1 ? 'Active' : 'Disabled'), ENT_QUOTES, 'UTF-8') ?>
                                             </button>
                                         </form>
                                     </td>
@@ -895,21 +877,21 @@ try {
                                         <div class="flex items-center justify-end gap-1.5">
                                             <form method="POST" class="inline">
                                                 <input type="hidden" name="action" value="switch_context">
-                                                <input type="hidden" name="property_id" value="<?= $p['id'] ?>">
+                                                <input type="hidden" name="property_id" value="<?= htmlspecialchars((string)($p['id']), ENT_QUOTES, 'UTF-8') ?>">
                                                 <button type="submit" title="Switch context" class="cursor-pointer btn-success-saas">
                                                     <i class="ph ph-arrows-left-right"></i> Switch
                                                 </button>
                                             </form>
-                                            <button onclick="openEditModal(<?= htmlspecialchars(json_encode($p)) ?>)" class="btn-ghost-saas">
+                                            <button onclick="openEditModal(<?= htmlspecialchars((string)(json_encode($p))) ?>)" class="btn-ghost-saas">
                                                 <i class="ph ph-pencil-simple"></i> Edit
                                             </button>
-                                            <button onclick="openStaffModal(<?= $p['id'] ?>, '<?= htmlspecialchars(addslashes($p['name'])) ?>')" class="btn-ghost-saas">
+                                            <button onclick="openStaffModal(<?= htmlspecialchars((string)($p['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($p['name']))) ?>')" class="btn-ghost-saas">
                                                 <i class="ph ph-users"></i> Staff
                                             </button>
                                             <?php if ((int)$p['id'] !== 1): ?>
                                             <form method="POST" class="inline">
                                                 <input type="hidden" name="action" value="delete_property">
-                                                <input type="hidden" name="property_id" value="<?= $p['id'] ?>">
+                                                <input type="hidden" name="property_id" value="<?= htmlspecialchars((string)($p['id']), ENT_QUOTES, 'UTF-8') ?>">
                                                 <button type="submit" class="cursor-pointer btn-danger-saas px-2.5" title="Delete Property"
                                                     onclick="return confirm('PERMANENT DELETE: All bookings, rooms, and staff will be lost. Continue?')">
                                                     <i class="ph ph-trash"></i>
@@ -941,11 +923,7 @@ try {
                 <form method="POST" class="p-6 space-y-5">
                     <input type="hidden" name="action" value="create_property">
 
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Property Code <span class="text-red-500">*</span> (4 Digits)</label>
-                            <input type="text" name="property_code" id="onboard-property-code" placeholder="1001" pattern="\d{4}" minlength="4" maxlength="4" required class="w-full text-sm">
-                        </div>
+                    <div class="grid grid-cols-1 gap-4">
                         <div>
                             <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Hotel / Property Name <span class="text-red-500">*</span></label>
                             <input type="text" name="name" id="onboard-property-name" placeholder="Grand Transit Hotel" required class="w-full text-sm">
@@ -990,7 +968,7 @@ try {
                             <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Subscription Plan</label>
                             <select name="plan" class="w-full text-sm">
                                 <?php foreach ($saasPlans as $planId => $planData): ?>
-                                    <option value="<?= htmlspecialchars($planId) ?>"><?= htmlspecialchars($planData['name']) ?> (Max <?= $planData['max_rooms'] >= 999 ? '∞' : $planData['max_rooms'] ?> Rooms)</option>
+                                    <option value="<?= htmlspecialchars((string)($planId)) ?>"><?= htmlspecialchars((string)($planData['name'])) ?> (Max <?= htmlspecialchars((string)($planData['max_rooms'] >= 999 ? '∞' : $planData['max_rooms']), ENT_QUOTES, 'UTF-8') ?> Rooms)</option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -1037,24 +1015,24 @@ try {
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Platform Name</label>
-                            <input type="text" name="SAAS_PLATFORM_NAME" value="<?= htmlspecialchars($settings['SAAS_PLATFORM_NAME'] ?? 'MicroPMS') ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                            <input type="text" name="SAAS_PLATFORM_NAME" value="<?= htmlspecialchars((string)($settings['SAAS_PLATFORM_NAME'] ?? 'MicroPMS')) ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Support Email</label>
-                            <input type="email" name="SAAS_SUPPORT_EMAIL" value="<?= htmlspecialchars($settings['SAAS_SUPPORT_EMAIL'] ?? '') ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                            <input type="email" name="SAAS_SUPPORT_EMAIL" value="<?= htmlspecialchars((string)($settings['SAAS_SUPPORT_EMAIL'] ?? '')) ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Designated SaaS Domain</label>
-                            <input type="text" name="SAAS_PORTAL_SUBDOMAIN" value="<?= htmlspecialchars($settings['SAAS_PORTAL_SUBDOMAIN'] ?? '') ?>" placeholder="saas.yourdomain.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono">
+                            <input type="text" name="SAAS_PORTAL_SUBDOMAIN" value="<?= htmlspecialchars((string)($settings['SAAS_PORTAL_SUBDOMAIN'] ?? '')) ?>" placeholder="saas.yourdomain.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono">
                         </div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Trial Days</label>
-                                <input type="number" name="SAAS_TRIAL_DAYS" value="<?= htmlspecialchars($settings['SAAS_TRIAL_DAYS'] ?? '30') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                                <input type="number" name="SAAS_TRIAL_DAYS" value="<?= htmlspecialchars((string)($settings['SAAS_TRIAL_DAYS'] ?? '30')) ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Currency</label>
-                                <input type="text" name="SAAS_DEFAULT_CURRENCY" value="<?= htmlspecialchars($settings['SAAS_DEFAULT_CURRENCY'] ?? 'INR') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                                <input type="text" name="SAAS_DEFAULT_CURRENCY" value="<?= htmlspecialchars((string)($settings['SAAS_DEFAULT_CURRENCY'] ?? 'INR')) ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                         </div>
                     </div>
@@ -1069,18 +1047,18 @@ try {
                     <div class="p-6 grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Logo URL</label>
-                            <input type="url" name="SAAS_LOGO_URL" value="<?= htmlspecialchars($settings['SAAS_LOGO_URL'] ?? '') ?>" placeholder="https://..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                            <input type="url" name="SAAS_LOGO_URL" value="<?= htmlspecialchars((string)($settings['SAAS_LOGO_URL'] ?? '')) ?>" placeholder="https://..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Primary Color (Hex)</label>
                             <div class="flex items-center gap-2">
-                                <input type="color" name="SAAS_PRIMARY_COLOR" value="<?= htmlspecialchars($settings['SAAS_PRIMARY_COLOR'] ?? '#0ea5e9') ?>" class="h-10 w-12 rounded bg-transparent border-0 cursor-pointer">
-                                <input type="text" name="SAAS_PRIMARY_COLOR" value="<?= htmlspecialchars($settings['SAAS_PRIMARY_COLOR'] ?? '#0ea5e9') ?>" placeholder="#0ea5e9" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono">
+                                <input type="color" name="SAAS_PRIMARY_COLOR" value="<?= htmlspecialchars((string)($settings['SAAS_PRIMARY_COLOR'] ?? '#0ea5e9')) ?>" class="h-10 w-12 rounded bg-transparent border-0 cursor-pointer">
+                                <input type="text" name="SAAS_PRIMARY_COLOR" value="<?= htmlspecialchars((string)($settings['SAAS_PRIMARY_COLOR'] ?? '#0ea5e9')) ?>" placeholder="#0ea5e9" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono">
                             </div>
                         </div>
                         <div class="col-span-2">
                             <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Custom CSS</label>
-                            <textarea name="SAAS_CUSTOM_CSS" rows="3" placeholder="/* Inject CSS into tenant pages */" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono"><?= htmlspecialchars($settings['SAAS_CUSTOM_CSS'] ?? '') ?></textarea>
+                            <textarea name="SAAS_CUSTOM_CSS" rows="3" placeholder="/* Inject CSS into tenant pages */" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono"><?= htmlspecialchars((string)($settings['SAAS_CUSTOM_CSS'] ?? '')) ?></textarea>
                         </div>
                     </div>
                 </div>
@@ -1095,28 +1073,28 @@ try {
                         <div class="space-y-3">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">SMTP Host</label>
-                                <input type="text" name="SAAS_SMTP_HOST" value="<?= htmlspecialchars($settings['SAAS_SMTP_HOST'] ?? '') ?>" placeholder="smtp.mailgun.org" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                                <input type="text" name="SAAS_SMTP_HOST" value="<?= htmlspecialchars((string)($settings['SAAS_SMTP_HOST'] ?? '')) ?>" placeholder="smtp.mailgun.org" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Port</label>
-                                    <input type="text" name="SAAS_SMTP_PORT" value="<?= htmlspecialchars($settings['SAAS_SMTP_PORT'] ?? '') ?>" placeholder="587" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                                    <input type="text" name="SAAS_SMTP_PORT" value="<?= htmlspecialchars((string)($settings['SAAS_SMTP_PORT'] ?? '')) ?>" placeholder="587" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Security</label>
                                     <select name="SAAS_SMTP_SECURE" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
-                                        <option value="tls" <?= ($settings['SAAS_SMTP_SECURE'] ?? '') === 'tls' ? 'selected' : '' ?>>TLS</option>
-                                        <option value="ssl" <?= ($settings['SAAS_SMTP_SECURE'] ?? '') === 'ssl' ? 'selected' : '' ?>>SSL</option>
+                                        <option value="tls" <?= htmlspecialchars((string)(($settings['SAAS_SMTP_SECURE'] ?? '') === 'tls' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>TLS</option>
+                                        <option value="ssl" <?= htmlspecialchars((string)(($settings['SAAS_SMTP_SECURE'] ?? '') === 'ssl' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>SSL</option>
                                     </select>
                                 </div>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">SMTP User</label>
-                                <input type="text" name="SAAS_SMTP_USER" value="<?= htmlspecialchars($settings['SAAS_SMTP_USER'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                                <input type="text" name="SAAS_SMTP_USER" value="<?= htmlspecialchars((string)($settings['SAAS_SMTP_USER'] ?? '')) ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">SMTP Password</label>
-                                <input type="password" name="SAAS_SMTP_PASS" value="<?= htmlspecialchars($settings['SAAS_SMTP_PASS'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                                <input type="password" name="SAAS_SMTP_PASS" value="<?= htmlspecialchars((string)($settings['SAAS_SMTP_PASS'] ?? '')) ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                         </div>
                         </div>
@@ -1133,18 +1111,18 @@ try {
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Gateway</label>
                                     <select name="SAAS_PAYMENT_GATEWAY" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
-                                        <option value="razorpay" <?= ($settings['SAAS_PAYMENT_GATEWAY'] ?? '') === 'razorpay' ? 'selected' : '' ?>>Razorpay</option>
-                                        <option value="phonepe" <?= ($settings['SAAS_PAYMENT_GATEWAY'] ?? '') === 'phonepe' ? 'selected' : '' ?>>PhonePe</option>
-                                        <option value="stripe" <?= ($settings['SAAS_PAYMENT_GATEWAY'] ?? '') === 'stripe' ? 'selected' : '' ?>>Stripe</option>
+                                        <option value="razorpay" <?= htmlspecialchars((string)(($settings['SAAS_PAYMENT_GATEWAY'] ?? '') === 'razorpay' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Razorpay</option>
+                                        <option value="phonepe" <?= htmlspecialchars((string)(($settings['SAAS_PAYMENT_GATEWAY'] ?? '') === 'phonepe' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>PhonePe</option>
+                                        <option value="stripe" <?= htmlspecialchars((string)(($settings['SAAS_PAYMENT_GATEWAY'] ?? '') === 'stripe' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Stripe</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Key ID</label>
-                                    <input type="text" name="SAAS_PG_KEY_ID" value="<?= htmlspecialchars($settings['SAAS_PG_KEY_ID'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                                    <input type="text" name="SAAS_PG_KEY_ID" value="<?= htmlspecialchars((string)($settings['SAAS_PG_KEY_ID'] ?? '')) ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Key Secret</label>
-                                    <input type="password" name="SAAS_PG_SECRET" value="<?= htmlspecialchars($settings['SAAS_PG_SECRET'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                                    <input type="password" name="SAAS_PG_SECRET" value="<?= htmlspecialchars((string)($settings['SAAS_PG_SECRET'] ?? '')) ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                             </div>
                             </div>
@@ -1157,17 +1135,17 @@ try {
                             <div class="p-5 space-y-3">
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">TOS URL</label>
-                                    <input type="url" name="SAAS_TOS_URL" value="<?= htmlspecialchars($settings['SAAS_TOS_URL'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                                    <input type="url" name="SAAS_TOS_URL" value="<?= htmlspecialchars((string)($settings['SAAS_TOS_URL'] ?? '')) ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Privacy Policy URL</label>
-                                    <input type="url" name="SAAS_PRIVACY_URL" value="<?= htmlspecialchars($settings['SAAS_PRIVACY_URL'] ?? '') ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
+                                    <input type="url" name="SAAS_PRIVACY_URL" value="<?= htmlspecialchars((string)($settings['SAAS_PRIVACY_URL'] ?? '')) ?>" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none">
                                 </div>
                                 <div class="flex items-center justify-between pt-2">
                                     <span class="text-sm text-slate-700 font-semibold">Enable Public Registration</span>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="hidden" name="SAAS_PUBLIC_REGISTRATION" value="0">
-                                        <input type="checkbox" name="SAAS_PUBLIC_REGISTRATION" value="1" <?= ($settings['SAAS_PUBLIC_REGISTRATION'] ?? '0') === '1' ? 'checked' : '' ?> class="sr-only peer">
+                                        <input type="checkbox" name="SAAS_PUBLIC_REGISTRATION" value="1" <?= htmlspecialchars((string)(($settings['SAAS_PUBLIC_REGISTRATION'] ?? '0') === '1' ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="sr-only peer">
                                         <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
                                     </label>
                                 </div>
@@ -1175,7 +1153,7 @@ try {
                                     <span class="text-sm text-slate-700 font-semibold">Maintenance Mode</span>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="hidden" name="SAAS_MAINTENANCE_MODE" value="0">
-                                        <input type="checkbox" name="SAAS_MAINTENANCE_MODE" value="1" <?= ($settings['SAAS_MAINTENANCE_MODE'] ?? '0') === '1' ? 'checked' : '' ?> class="sr-only peer">
+                                        <input type="checkbox" name="SAAS_MAINTENANCE_MODE" value="1" <?= htmlspecialchars((string)(($settings['SAAS_MAINTENANCE_MODE'] ?? '0') === '1' ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="sr-only peer">
                                         <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
                                     </label>
                                 </div>
@@ -1206,20 +1184,20 @@ try {
                     <?php foreach ($saasPlans as $key => $plan): ?>
                         <div class="border-b border-slate-100 pb-5 mb-5 last:border-0 last:pb-0 last:mb-0 space-y-4">
                             <div class="flex justify-between items-center">
-                                <h3 class="text-sm font-extrabold text-blue-700 uppercase tracking-wider"><?= htmlspecialchars($plan['name']) ?> Tier</h3>
+                                <h3 class="text-sm font-extrabold text-blue-700 uppercase tracking-wider"><?= htmlspecialchars((string)($plan['name'])) ?> Tier</h3>
                             </div>
                             <div class="grid grid-cols-3 gap-3">
                                 <div>
                                     <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Pricing (Monthly)</label>
-                                    <input type="number" name="plan_<?= $key ?>_price" value="<?= $plan['price'] ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-indigo-500 focus:outline-none font-bold">
+                                    <input type="number" name="plan_<?= htmlspecialchars((string)($key), ENT_QUOTES, 'UTF-8') ?>_price" value="<?= htmlspecialchars((string)($plan['price']), ENT_QUOTES, 'UTF-8') ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-indigo-500 focus:outline-none font-bold">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Max Rooms Limit</label>
-                                    <input type="number" name="plan_<?= $key ?>_max_rooms" value="<?= $plan['max_rooms'] ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-indigo-500 focus:outline-none font-bold">
+                                    <input type="number" name="plan_<?= htmlspecialchars((string)($key), ENT_QUOTES, 'UTF-8') ?>_max_rooms" value="<?= htmlspecialchars((string)($plan['max_rooms']), ENT_QUOTES, 'UTF-8') ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-indigo-500 focus:outline-none font-bold">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold text-slate-400 uppercase mb-1">Max Staff Seats</label>
-                                    <input type="number" name="plan_<?= $key ?>_max_staff" value="<?= $plan['max_staff'] ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-indigo-500 focus:outline-none font-bold">
+                                    <input type="number" name="plan_<?= htmlspecialchars((string)($key), ENT_QUOTES, 'UTF-8') ?>_max_staff" value="<?= htmlspecialchars((string)($plan['max_staff']), ENT_QUOTES, 'UTF-8') ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:border-indigo-500 focus:outline-none font-bold">
                                 </div>
                             </div>
                             <div class="space-y-2">
@@ -1227,9 +1205,9 @@ try {
                                 <div class="flex flex-wrap gap-4 text-xs">
                                     <?php foreach ($plan['features'] as $fKey => $fVal): ?>
                                         <label class="flex items-center gap-2 cursor-pointer text-slate-600 hover:text-slate-900 font-medium">
-                                            <input type="hidden" name="plan_<?= $key ?>_feat_<?= $fKey ?>" value="0">
-                                            <input type="checkbox" name="plan_<?= $key ?>_feat_<?= $fKey ?>" value="1" <?= $fVal ? 'checked' : '' ?> class="accent-blue-700 rounded">
-                                            <?= htmlspecialchars(str_replace('_', ' ', $fKey)) ?>
+                                            <input type="hidden" name="plan_<?= htmlspecialchars((string)($key), ENT_QUOTES, 'UTF-8') ?>_feat_<?= htmlspecialchars((string)($fKey), ENT_QUOTES, 'UTF-8') ?>" value="0">
+                                            <input type="checkbox" name="plan_<?= htmlspecialchars((string)($key), ENT_QUOTES, 'UTF-8') ?>_feat_<?= htmlspecialchars((string)($fKey), ENT_QUOTES, 'UTF-8') ?>" value="1" <?= htmlspecialchars((string)($fVal ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="accent-blue-700 rounded">
+                                            <?= htmlspecialchars((string)(str_replace('_', ' ', $fKey))) ?>
                                         </label>
                                     <?php endforeach; ?>
                                 </div>
@@ -1256,7 +1234,7 @@ try {
                         <select id="logFilterProperty" onchange="loadSystemLogs()" class="text-xs w-48">
                             <option value="">All Properties (Global)</option>
                             <?php foreach ($properties as $p): ?>
-                                <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['property_code']) ?>)</option>
+                                <option value="<?= htmlspecialchars((string)($p['id']), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($p['name'])) ?> (ID: <?= htmlspecialchars((string)($p['id'])) ?>)</option>
                             <?php endforeach; ?>
                         </select>
                         <button onclick="loadSystemLogs()" class="btn-ghost-saas">
@@ -1355,11 +1333,6 @@ try {
                 <input type="hidden" name="property_id" id="edit_property_id">
 
                 <div>
-                    <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Property Code <span class="text-red-500">*</span></label>
-                    <input type="text" name="property_code" id="edit_property_code" pattern="\d{4}" minlength="4" maxlength="4" required class="w-full text-sm">
-                </div>
-
-                <div>
                     <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Hotel / Property Name <span class="text-red-500">*</span></label>
                     <input type="text" name="name" id="edit_name" required class="w-full text-sm">
                 </div>
@@ -1369,7 +1342,7 @@ try {
                         <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">SaaS Plan</label>
                         <select name="plan" id="edit_plan" class="w-full text-sm">
                             <?php foreach ($saasPlans as $planId => $planData): ?>
-                                <option value="<?= htmlspecialchars($planId) ?>"><?= htmlspecialchars($planData['name']) ?></option>
+                                <option value="<?= htmlspecialchars((string)($planId)) ?>"><?= htmlspecialchars((string)($planData['name'])) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -1449,7 +1422,6 @@ try {
 
         function openEditModal(p) {
             document.getElementById('edit_property_id').value = p.id || '';
-            document.getElementById('edit_property_code').value = p.property_code || '';
             document.getElementById('edit_name').value = p.name || '';
             document.getElementById('edit_address').value = p.address || '';
             document.getElementById('edit_city').value = p.city || '';

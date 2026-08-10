@@ -547,11 +547,21 @@ class BookingAssistant {
         document.getElementById('stat-pending-ids').textContent = res.summary.pending_id_verification;
         document.getElementById('stat-pending-payments').textContent = res.summary.pending_payments;
 
+        // Populate new visual stat tiles
+        const setTile = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        setTile('db-stat-occupied', res.summary.occupied_rooms ?? '—');
+        setTile('db-stat-available', res.summary.available_rooms ?? '—');
+        setTile('db-stat-cleaning', res.summary.cleaning_rooms ?? '—');
+
         // Hidden stats used by voice commands
+        const todayArrivals = res.summary.today_check_in ?? res.summary.arrivals ?? 0;
+        const todayDepartures = res.summary.today_check_out ?? res.summary.departures ?? 0;
         const arrEl = document.getElementById('stat-arrivals');
-        if (arrEl) arrEl.textContent = res.summary.today_check_in ?? res.summary.arrivals ?? 0;
+        if (arrEl) arrEl.textContent = todayArrivals;
         const depEl = document.getElementById('stat-departures');
-        if (depEl) depEl.textContent = res.summary.today_check_out ?? res.summary.departures ?? 0;
+        if (depEl) depEl.textContent = todayDepartures;
+        setTile('db-stat-arrivals', todayArrivals);
+        setTile('db-stat-departures', todayDepartures);
 
         if (res.payment_methods) {
           this.paymentMethods = res.payment_methods;
@@ -584,23 +594,32 @@ class BookingAssistant {
             const alertClass = (alert.severity === 'critical' || alert.severity === 'danger') ? 'danger' : (alert.severity === 'warning' ? 'warning' : 'info');
             const card = document.createElement('div');
             card.className = `alert-box alert-box-${alertClass}`;
+            card.style.cssText = 'display:flex;align-items:center;gap:12px;padding:14px;border-radius:14px;cursor:pointer;margin-bottom:8px;';
             card.onclick = () => this.handleAlertClick(alert);
             
-            let emoji = 'ℹ️';
-            if (alert.type === 'dirty_room') emoji = '🧹';
-            else if (alert.type === 'today_arrival') emoji = '📥';
-            else if (alert.type === 'today_departure') emoji = '📤';
-            else if (alert.type === 'missing_id') emoji = '🆔';
-            else if (alert.type === 'pending_payment') emoji = '💵';
-            else if (alert.type === 'overdue_checkout') emoji = '🚨';
-            else if (alert.type === 'upcoming_checkout') emoji = '⏰';
-            else if (alert.type === 'overdue_checkin') emoji = '⚠️';
-            else if (alert.type === 'booking_hold') emoji = '⏳';
-
+            // Color-coded SVG icon per alert type
+            const iconMap = {
+              dirty_room:        ['#f59e0b', '<path d="M243.31,115.48,208,80.18V48a8,8,0,0,0-8-8H56a8,8,0,0,0-8,8V80.18l-35.32,35.3A8,8,0,0,0,24,128H40v80a8,8,0,0,0,8,8H208a8,8,0,0,0,8-8V128h16a8,8,0,0,0,5.66-13.52Z"/>'],
+              today_arrival:     ['#10b981', '<path d="M141.66,133.66l-40,40a8,8,0,0,1-11.32-11.32L116.69,136H24a8,8,0,0,1,0-16h92.69L90.34,93.66a8,8,0,0,1,11.32-11.32l40,40A8,8,0,0,1,141.66,133.66ZM192,32H160a8,8,0,0,0,0,16h32V208H160a8,8,0,0,0,0,16h32a16,16,0,0,0,16-16V48A16,16,0,0,0,192,32Z"/>'],
+              today_departure:   ['#ef4444', '<path d="M114.34,122.34a8,8,0,0,1,11.32,0l40,40a8,8,0,0,1-11.32,11.32L128,147.31V240a8,8,0,0,1-16,0V147.31L85.66,173.66a8,8,0,0,1-11.32-11.32ZM192,32H96a16,16,0,0,0-16,16V80a8,8,0,0,0,16,0V48h96V208H96V176a8,8,0,0,0-16,0v32a16,16,0,0,0,16,16h96a16,16,0,0,0,16-16V48A16,16,0,0,0,192,32Z"/>'],
+              missing_id:        ['#6366f1', '<path d="M72,88a32,32,0,1,1,32,32A32,32,0,0,1,72,88Zm152,88H200V160a8,8,0,0,0-16,0v16H152a8,8,0,0,0,0,16h32v16a8,8,0,0,0,16,0V192h32a8,8,0,0,0,0-16Z"/>'],
+              pending_payment:   ['#16a34a', '<path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48Zm0,144H32V64H224Z"/>'],
+              overdue_checkout:  ['#dc2626', '<path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM120,104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm8,88a12,12,0,1,1,12-12A12,12,0,0,1,128,192Z"/>'],
+              upcoming_checkout: ['#d97706', '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/>'],
+              overdue_checkin:   ['#ea580c', '<path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09Z"/>'],
+              booking_hold:      ['#64748b', '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Z"/>'],
+            };
+            const [iconColor, iconPath] = iconMap[alert.type] || ['#64748b', '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Z"/>'];
+            
             card.innerHTML = `
-              <span style="font-size:1.85rem; line-height:1; flex-shrink:0;">${emoji}</span>
-              <div style="flex:1; font-weight:700; font-size:0.95rem; margin-left:8px;">${alert.message}</div>
-              <span style="font-size:1.2rem; margin-left:auto; font-weight:900;">👉</span>
+              <div style="width:44px;height:44px;border-radius:12px;background:${iconColor}20;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" style="width:22px;height:22px;fill:${iconColor};">${iconPath}</svg>
+              </div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:700;font-size:0.9rem;line-height:1.3;">${alert.message}</div>
+                ${alert.room_number ? `<div style="font-size:0.75rem;font-weight:600;color:var(--color-text-secondary);margin-top:2px;">Room ${alert.room_number}</div>` : ''}
+              </div>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" style="width:18px;height:18px;fill:var(--color-text-muted);flex-shrink:0;"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>
             `;
             alertsList.appendChild(card);
           });
@@ -636,6 +655,10 @@ class BookingAssistant {
       document.getElementById('stat-cleaning').textContent = '-';
       document.getElementById('stat-pending-ids').textContent = '-';
       document.getElementById('stat-pending-payments').textContent = '-';
+      // Also clear visible tiles
+      const setTile = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      setTile('db-stat-occupied', '—'); setTile('db-stat-available', '—');
+      setTile('db-stat-cleaning', '—'); setTile('db-stat-arrivals', '—'); setTile('db-stat-departures', '—');
       // Show toast with error
       this.showToast('Dashboard load failed: ' + (e.message || 'Unknown error'), 'danger');
     }
@@ -739,6 +762,11 @@ class BookingAssistant {
     const progressPercent = Math.round(((stepNum - 1) / 10) * 100);
     document.getElementById('wizard-progress-bar').style.width = `${progressPercent}%`;
     document.getElementById('wizard-percent-label').textContent = `${progressPercent}%`;
+    // Update segmented visual bar
+    const segs = document.querySelectorAll('#wizard-progress-segments .wp-seg');
+    segs.forEach((seg, idx) => {
+      seg.style.background = idx < stepNum ? 'var(--color-brand)' : 'var(--color-border)';
+    });
 
     // Initialize defaults or loaders for specific steps
     if (stepNum === 1) {
@@ -2113,8 +2141,23 @@ class BookingAssistant {
     });
   }
 
-  checkoutGenerateBill() {
-    window.open(`/guest_invoice.php?id=${this.activeCheckoutData.booking.id}`, '_blank');
+  async checkoutGenerateBill() {
+    if (!this.activeCheckoutData || !this.activeCheckoutData.booking) return;
+    const booking = this.activeCheckoutData.booking;
+    
+    this.showLoading('Generating secure receipt...');
+    try {
+      const res = await this.apiCall(`api/bookings.php?action=invoice_link&booking_id=${booking.id}`);
+      this.hideLoading();
+      if (res && res.success && res.invoice_link) {
+        window.open(res.invoice_link, '_blank');
+      } else {
+        this.showToast('Failed to generate secure receipt link', 'danger');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.showToast('Error generating receipt link', 'danger');
+    }
   }
 
   checkoutSendInvoiceWhatsApp() {

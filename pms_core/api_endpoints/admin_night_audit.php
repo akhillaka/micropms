@@ -16,14 +16,15 @@ ApiHandler::run(function(\PDO $db) {
         $username = $_SESSION['username'] ?? 'admin';
         
         // Push job to queue for async processing to ensure scalability
+        $propertyId = AuthHelper::getPropertyId(); // ensure multi-tenancy context
         $payload = json_encode([
             'job_type' => 'night_audit',
             'run_by' => $username,
-            'property_id' => AuthHelper::getPropertyId() // ensure multi-tenancy context
+            'property_id' => $propertyId
         ]);
         
-        $stmt = $db->prepare("INSERT INTO jobs_queue (queue_name, payload_json) VALUES ('night_audit', ?)");
-        $stmt->execute([$payload]);
+        $stmt = $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('night_audit', ?, ?)");
+        $stmt->execute([$propertyId, $payload]);
         
         ApiResponse::success([
             'message' => 'Night audit has been queued and will be processed shortly.',

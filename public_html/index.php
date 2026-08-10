@@ -11,7 +11,7 @@ if ($requestPath === '/' || $requestPath === '/index.php' || $requestPath === ''
     if (isset($_SESSION['user_id'])) {
         header('Location: /admin/index.php');
     } else {
-        header('Location: /admin/login.php');
+        header('Location: /login');
     }
     exit;
 }

@@ -35,14 +35,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $id = $_GET['id'] ?? null;
 if (!$id) render_error_page('Missing Booking ID', 'A booking ID is required to view the folio.', 400);
 
-$stmt = $db->prepare("SELECT b.*, r.room_number, c.name as category_name, c.id as category_id, g.name as guest_name, g.phone as guest_phone, g.age, g.city, g.state, g.country, g.pincode, g.id_proof_front, g.id_proof_back, g.photo as guest_photo FROM bookings b JOIN rooms r ON b.room_id = r.id JOIN room_categories c ON r.category_id = c.id LEFT JOIN guests g ON b.guest_id = g.id WHERE b.id = :id");
-$stmt->execute(['id' => $id]);
+$activePropId = AuthHelper::getPropertyId();
+$stmt = $db->prepare("SELECT b.*, r.room_number, c.name as category_name, c.id as category_id, g.name as guest_name, g.phone as guest_phone, g.age, g.city, g.state, g.country, g.pincode, g.id_proof_front, g.id_proof_back, g.photo as guest_photo FROM bookings b JOIN rooms r ON b.room_id = r.id JOIN room_categories c ON r.category_id = c.id LEFT JOIN guests g ON b.guest_id = g.id WHERE b.id = :id AND b.property_id = :prop_id");
+$stmt->execute(['id' => $id, 'prop_id' => $activePropId]);
 $booking = $stmt->fetch();
 
 if (!$booking) render_error_page('Booking Not Found', 'The requested booking does not exist or has been deleted.', 404);
 
 $propertyId = (int)$booking['property_id'];
-$pmStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods'");
+$pmStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = " . (int)$activePropId);
 $pmJson = $pmStmt->fetchColumn();
 $paymentMethods = $pmJson ? json_decode($pmJson, true) : [];
 if (empty($paymentMethods)) {
@@ -143,7 +144,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
     <?= CsrfToken::meta() ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, ">
-    <title>Booking #<?= $booking['display_id'] ?? $id ?> | MicroPMS</title>
+    <title>Booking #<?= htmlspecialchars((string)($booking['display_id'] ?? $id), ENT_QUOTES, 'UTF-8') ?> | MicroPMS</title>
     
     <?php include __DIR__ . '/components/mobile_nav.php'; ?>
     <?php include __DIR__ . '/components/ui_head.php'; ?>
@@ -231,15 +232,15 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                 <div class="space-y-4 flex-1">
                     <!-- Guest Title & Status Row -->
                     <div class="flex flex-wrap items-center gap-3">
-                        <h2 class="text-2xl font-extrabold text-slate-900 tracking-tight font-display"><?= htmlspecialchars($booking['guest_name']) ?></h2>
-                        <span class="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-0.5 rounded-md">Booking ID: <?= htmlspecialchars($booking['display_id'] ?? $id) ?></span>
+                        <h2 class="text-2xl font-extrabold text-slate-900 tracking-tight font-display"><?= htmlspecialchars((string)($booking['guest_name'])) ?></h2>
+                        <span class="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-0.5 rounded-md">Booking ID: <?= htmlspecialchars((string)($booking['display_id'] ?? $id)) ?></span>
                         <span class="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
-                            Folio ID: <span id="offline_folio_id_display"><?= htmlspecialchars($booking['offline_folio_id'] ?? 'N/A') ?></span>
-                            <button onclick="editOfflineFolioId(<?= $id ?>, '<?= htmlspecialchars($booking['offline_folio_id'] ?? '') ?>')" class="text-indigo-600 hover:text-indigo-900 ml-1" title="Edit Folio ID">
+                            Folio ID: <span id="offline_folio_id_display"><?= htmlspecialchars((string)($booking['offline_folio_id'] ?? 'N/A')) ?></span>
+                            <button onclick="editOfflineFolioId(<?= htmlspecialchars((string)($id), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)($booking['offline_folio_id'] ?? '')) ?>')" class="text-indigo-600 hover:text-indigo-900 ml-1" title="Edit Folio ID">
                                 <i class="ph ph-pencil-simple text-xs"></i>
                             </button>
                         </span>
-                        <span class="stayflexi-badge <?= $statusColor ?>"><?= $status ?></span>
+                        <span class="stayflexi-badge <?= htmlspecialchars((string)($statusColor), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($status), ENT_QUOTES, 'UTF-8') ?></span>
                         <?php 
                         $bSource = $booking['booking_source'] ?? 'Walk-in';
                         $sourceBg = 'bg-brand-900 text-white';
@@ -249,20 +250,20 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                             $sourceBg = 'bg-emerald-600 text-white';
                         }
                         ?>
-                        <span class="stayflexi-badge <?= $sourceBg ?>"><?= htmlspecialchars($bSource) ?></span>
+                        <span class="stayflexi-badge <?= htmlspecialchars((string)($sourceBg), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($bSource)) ?></span>
                     </div>
                     
                     <!-- Metadata Metrics Grid -->
                     <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-y-4 gap-x-2 pt-2 text-xs border-t border-slate-100">
                         <div class="folio-grid-col">
                             <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Booked</span>
-                            <span class="font-bold text-slate-800 mt-1 block"><?= date('d M Y, g:i A', strtotime($booking['created_at'] ?? $booking['check_in'])) ?></span>
+                            <span class="font-bold text-slate-800 mt-1 block"><?= htmlspecialchars((string)(date('d M Y, g:i A', strtotime($booking['created_at'] ?? $booking['check_in']))), ENT_QUOTES, 'UTF-8') ?></span>
                         </div>
                         <div class="folio-grid-col col-span-2">
                             <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Stay <i class="ph ph-clock text-[10px] inline ml-0.5 text-slate-400"></i></span>
                             <span class="font-bold text-slate-800 mt-1 block text-[11px] leading-relaxed">
-                                <span class="text-emerald-600">→</span> <?= date('d M Y g:i A', strtotime($booking['check_in'])) ?><br>
-                                <span class="text-rose-500">→</span> <?= date('d M Y g:i A', strtotime($booking['check_out'])) ?>
+                                <span class="text-emerald-600">→</span> <?= htmlspecialchars((string)(date('d M Y g:i A', strtotime($booking['check_in']))), ENT_QUOTES, 'UTF-8') ?><br>
+                                <span class="text-rose-500">→</span> <?= htmlspecialchars((string)(date('d M Y g:i A', strtotime($booking['check_out']))), ENT_QUOTES, 'UTF-8') ?>
                             </span>
                         </div>
                         <div class="folio-grid-col">
@@ -271,11 +272,11 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         </div>
                         <div class="folio-grid-col">
                             <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Duration</span>
-                            <span class="font-bold text-slate-800 mt-1 block"><?= $durationStr ?></span>
+                            <span class="font-bold text-slate-800 mt-1 block"><?= htmlspecialchars((string)($durationStr), ENT_QUOTES, 'UTF-8') ?></span>
                         </div>
                         <div class="folio-grid-col">
                             <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Rate Plan</span>
-                            <span class="font-bold text-indigo-600 mt-1 block cursor-pointer hover:underline text-xs"><?= htmlspecialchars($ratePlanName) ?></span>
+                            <span class="font-bold text-indigo-600 mt-1 block cursor-pointer hover:underline text-xs"><?= htmlspecialchars((string)($ratePlanName)) ?></span>
                         </div>
                     </div>
                     
@@ -294,11 +295,11 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <div class="pt-3">
                         <div class="flex justify-between text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                             <span>Check-in</span>
-                            <span class="<?= $timeLeft < 3600 ? 'text-rose-500' : 'text-slate-400' ?>"><?= $timeLeftStr ?></span>
+                            <span class="<?= htmlspecialchars((string)($timeLeft < 3600 ? 'text-rose-500' : 'text-slate-400'), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($timeLeftStr), ENT_QUOTES, 'UTF-8') ?></span>
                             <span>Check-out</span>
                         </div>
                         <div class="timeline-track">
-                            <div class="timeline-progress" style="width:<?= $progressPct ?>%"></div>
+                            <div class="timeline-progress" style="width:<?= htmlspecialchars((string)($progressPct), ENT_QUOTES, 'UTF-8') ?>%"></div>
                         </div>
                     </div>
                     <?php endif; ?>
@@ -306,7 +307,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <!-- Room Type Row -->
                     <div class="pt-2 text-xs flex items-center gap-1.5">
                         <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Room Type:</span>
-                        <span class="font-bold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-200/50"><?= htmlspecialchars($booking['category_name']) ?> (Room <?= htmlspecialchars($booking['room_number']) ?>)</span>
+                        <span class="font-bold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-200/50"><?= htmlspecialchars((string)($booking['category_name'])) ?> (Room <?= htmlspecialchars((string)($booking['room_number'])) ?>)</span>
                     </div>
                 </div>
 
@@ -327,18 +328,18 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <div class="grid grid-cols-3 gap-4 w-full">
                         <div>
                             <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Total</span>
-                            <span class="font-extrabold text-slate-800 text-sm mt-1 block">₹<?= number_format($totalCharges, 2) ?></span>
+                            <span class="font-extrabold text-slate-800 text-sm mt-1 block">₹<?= htmlspecialchars((string)(number_format($totalCharges, 2)), ENT_QUOTES, 'UTF-8') ?></span>
                         </div>
                         <div>
                             <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Due</span>
-                            <span class="font-extrabold <?= $balanceColor ?> text-sm mt-1 block <?= $balance <= 0 ? 'line-through opacity-60' : '' ?>">₹<?= number_format(abs($balance), 2) ?></span>
+                            <span class="font-extrabold <?= htmlspecialchars((string)($balanceColor), ENT_QUOTES, 'UTF-8') ?> text-sm mt-1 block <?= htmlspecialchars((string)($balance <= 0 ? 'line-through opacity-60' : ''), ENT_QUOTES, 'UTF-8') ?>">₹<?= htmlspecialchars((string)(number_format(abs($balance), 2)), ENT_QUOTES, 'UTF-8') ?></span>
                             <?php if($balance <= 0): ?>
                             <span class="text-[8px] font-bold text-emerald-600 uppercase">Settled</span>
                             <?php endif; ?>
                         </div>
                         <div>
                             <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Payments</span>
-                            <span class="font-extrabold text-emerald-600 text-sm mt-1 block">₹<?= number_format($totalPayments, 2) ?></span>
+                            <span class="font-extrabold text-emerald-600 text-sm mt-1 block">₹<?= htmlspecialchars((string)(number_format($totalPayments, 2)), ENT_QUOTES, 'UTF-8') ?></span>
                         </div>
                     </div>
                     
@@ -361,9 +362,8 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                 <button onclick="UI.showModal('whatsapp-triggers-modal')" class="pill-btn text-emerald-700 border-emerald-100 hover:bg-emerald-50/50">
                     <i class="ph ph-whatsapp-logo text-sm"></i> Send WhatsApp
                 </button>
-                <button onclick="showStatusModal('cancel')" class="pill-btn text-rose-600 border-rose-100 hover:bg-rose-50/50"><i class="ph ph-x-circle text-sm"></i> Cancel Booking</button>
-                
                 <?php if($bookingStatus === 'booked'): ?>
+                    <button onclick="showStatusModal('cancel')" class="pill-btn text-rose-600 border-rose-100 hover:bg-rose-50/50"><i class="ph ph-x-circle text-sm"></i> Cancel Booking</button>
                     <button onclick="showStatusModal('check_in')" class="pill-btn"><i class="ph ph-sign-in text-sm"></i> Check In</button>
                 <?php elseif($bookingStatus === 'checked_in'): ?>
                     <button onclick="showStatusModal('rollback_to_booked')" class="pill-btn"><i class="ph ph-arrow-counter-clockwise text-sm"></i> Rollback to Booked</button>
@@ -380,10 +380,10 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                 $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
                 $guestPortalUrl = "{$proto}://{$host}/guest-portal?id={$id}&token={$secureToken}";
                 ?>
-                <button onclick="navigator.clipboard.writeText('<?= $guestPortalUrl ?>'); alert('Copied Guest Portal Link!');" class="pill-btn text-indigo-700 border-indigo-100 hover:bg-indigo-50/50">
+                <button onclick="navigator.clipboard.writeText('<?= htmlspecialchars((string)($guestPortalUrl), ENT_QUOTES, 'UTF-8') ?>'); alert('Copied Guest Portal Link!');" class="pill-btn text-indigo-700 border-indigo-100 hover:bg-indigo-50/50">
                     <i class="ph ph-share-network text-sm"></i> Share Guest Link
                 </button>
-                <a href="invoice.php?id=<?= $id ?>" target="_blank" class="pill-btn bg-brand-900 text-white border-slate-900 hover:bg-slate-800">
+                <a href="invoice.php?id=<?= htmlspecialchars((string)($id), ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="pill-btn bg-brand-900 text-white border-slate-900 hover:bg-slate-800">
                     <i class="ph ph-printer text-sm"></i> Print Invoice
                 </a>
             </div>
@@ -417,8 +417,8 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         }
                         foreach($quickCharges as $qc):
                         ?>
-                        <button class="charge-pill" title="<?= htmlspecialchars($qc['desc'] ?? '') ?>" onclick="prefillCharge('<?= htmlspecialchars($qc['name']) ?>', <?= $qc['amount'] ?>)">
-                            <i class="ph <?= htmlspecialchars($qc['icon'] ?? 'ph-receipt') ?>"></i> <?= htmlspecialchars($qc['name']) ?> <span class="text-slate-400 font-normal text-[10px]">₹<?= $qc['amount'] ?></span>
+                        <button class="charge-pill" title="<?= htmlspecialchars((string)($qc['desc'] ?? '')) ?>" onclick="prefillCharge('<?= htmlspecialchars((string)($qc['name'])) ?>', <?= htmlspecialchars((string)($qc['amount']), ENT_QUOTES, 'UTF-8') ?>)">
+                            <i class="ph <?= htmlspecialchars((string)($qc['icon'] ?? 'ph-receipt')) ?>"></i> <?= htmlspecialchars((string)($qc['name'])) ?> <span class="text-slate-400 font-normal text-[10px]">₹<?= htmlspecialchars((string)($qc['amount']), ENT_QUOTES, 'UTF-8') ?></span>
                         </button>
                         <?php endforeach; ?>
                     </div>
@@ -503,33 +503,33 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                         $displayCat = $rawCat ? (ucfirst($rawCat) . ($isDebit ? ' Due' : ' Payments')) : '-';
                                     }
                                 ?>
-                                <tr class="hover:bg-slate-50/50 transition-colors" data-display-id="<?= htmlspecialchars($l['display_id'] ?? '') ?>" data-category="<?= htmlspecialchars($l['category'] ?? '') ?>" data-amount="<?= abs($l['amount']) ?>">
-                                    <td class="px-5 py-3 whitespace-nowrap text-xs text-slate-500 font-bold"><?= $srNo++ ?></td>
-                                    <td class="px-5 py-3 whitespace-nowrap text-xs text-slate-500 font-semibold"><?= date('d M Y g:i A', strtotime($l['recorded_at'])) ?></td>
-                                    <td class="px-5 py-3 whitespace-nowrap text-xs font-bold text-slate-700">Room <?= htmlspecialchars($booking['room_number']) ?></td>
-                                    <td class="px-5 py-3 text-xs font-bold text-slate-800"><?= htmlspecialchars($l['description']) ?></td>
-                                    <td class="px-5 py-3 text-xs font-bold text-slate-500 uppercase"><?= htmlspecialchars($displayCat) ?></td>
+                                <tr class="hover:bg-slate-50/50 transition-colors" data-display-id="<?= htmlspecialchars((string)($l['display_id'] ?? '')) ?>" data-category="<?= htmlspecialchars((string)($l['category'] ?? '')) ?>" data-amount="<?= htmlspecialchars((string)(abs($l['amount'])), ENT_QUOTES, 'UTF-8') ?>">
+                                    <td class="px-5 py-3 whitespace-nowrap text-xs text-slate-500 font-bold"><?= htmlspecialchars((string)($srNo++), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td class="px-5 py-3 whitespace-nowrap text-xs text-slate-500 font-semibold"><?= htmlspecialchars((string)(date('d M Y g:i A', strtotime($l['recorded_at']))), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td class="px-5 py-3 whitespace-nowrap text-xs font-bold text-slate-700">Room <?= htmlspecialchars((string)($booking['room_number'])) ?></td>
+                                    <td class="px-5 py-3 text-xs font-bold text-slate-800"><?= htmlspecialchars((string)($l['description'])) ?></td>
+                                    <td class="px-5 py-3 text-xs font-bold text-slate-500 uppercase"><?= htmlspecialchars((string)($displayCat)) ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap">
-                                        <span class="inline-flex px-2 py-0.5 rounded text-[9px] font-bold <?= $typeColor ?>"><?= $typeLabel ?></span>
+                                        <span class="inline-flex px-2 py-0.5 rounded text-[9px] font-bold <?= htmlspecialchars((string)($typeColor), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($typeLabel), ENT_QUOTES, 'UTF-8') ?></span>
                                     </td>
                                     <td class="px-5 py-3 whitespace-nowrap text-xs font-semibold text-slate-500">
-                                        <?= htmlspecialchars($l['payment_method'] ?? '-') ?>
+                                        <?= htmlspecialchars((string)($l['payment_method'] ?? '-')) ?>
                                     </td>
                                     <td class="px-5 py-3 whitespace-nowrap text-xs font-semibold text-slate-500">
-                                        <?= htmlspecialchars($l['transaction_ref'] ?? '—') ?>
+                                        <?= htmlspecialchars((string)($l['transaction_ref'] ?? '—')) ?>
                                     </td>
-                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-semibold text-slate-700">₹<?= number_format(abs($l['amount']), 2) ?></td>
+                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-semibold text-slate-700">₹<?= htmlspecialchars((string)(number_format(abs($l['amount']), 2)), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-semibold text-slate-400">—</td>
-                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-bold text-slate-800">₹<?= number_format(abs($l['amount']), 2) ?></td>
-                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-bold <?= $runBalColor ?>">₹<?= number_format(abs($runningBalance), 2) ?></td>
+                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-bold text-slate-800">₹<?= htmlspecialchars((string)(number_format(abs($l['amount']), 2)), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-bold <?= htmlspecialchars((string)($runBalColor), ENT_QUOTES, 'UTF-8') ?>">₹<?= htmlspecialchars((string)(number_format(abs($runningBalance), 2)), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs">
                                         <?php if (!empty($l['transaction_ref']) && str_starts_with($l['transaction_ref'], 'pay_')): ?>
-                                            <button onclick="refundRazorpay(<?= $l['id'] ?>)" class="px-2.5 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold border border-amber-200 transition-colors">Refund</button>
+                                            <button onclick="refundRazorpay(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>)" class="px-2.5 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold border border-amber-200 transition-colors">Refund</button>
                                         <?php elseif (preg_match('/Order #(\d+)/', $l['description'], $matches) && strpos($l['description'], 'Reverse') === false): ?>
-                                            <a href="modules/pos/pos.php?edit_order=<?= $matches[1] ?>" class="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 transition-colors text-[10px] uppercase tracking-wider inline-flex items-center gap-1" title="Edit POS Order"><i class="ph-bold ph-pencil-simple text-[10px]"></i> POS Order</a>
+                                            <a href="modules/pos/pos.php?edit_order=<?= htmlspecialchars((string)($matches[1]), ENT_QUOTES, 'UTF-8') ?>" class="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 transition-colors text-[10px] uppercase tracking-wider inline-flex items-center gap-1" title="Edit POS Order"><i class="ph-bold ph-pencil-simple text-[10px]"></i> POS Order</a>
                                         <?php else: ?>
-                                            <button onclick="openEditLedger(<?= $l['id'] ?>, '<?= htmlspecialchars(addslashes($l['description'] ?? '')) ?>', <?= abs($l['amount']) ?>, '<?= htmlspecialchars(addslashes($l['payment_method'] ?? '')) ?>', '<?= htmlspecialchars(addslashes($l['display_id'] ?? '')) ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
-                                            <button onclick="deleteLedger(<?= $l['id'] ?>)" class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-trash text-sm"></i></button>
+                                            <button onclick="openEditLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['description'] ?? ''))) ?>', <?= htmlspecialchars((string)(abs($l['amount'])), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['payment_method'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['display_id'] ?? ''))) ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
+                                            <button onclick="deleteLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>)" class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-trash text-sm"></i></button>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
@@ -547,17 +547,17 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <div class="space-y-2.5 text-xs">
                             <div class="flex justify-between">
                                 <span class="font-semibold text-slate-500">Subtotal (Ex. Tax)</span>
-                                <span class="font-bold text-slate-800">₹<?= number_format($taxPref === 'inclusive' ? $subtotalCharges - $taxAmount : $subtotalCharges, 2) ?></span>
+                                <span class="font-bold text-slate-800">₹<?= htmlspecialchars((string)(number_format($taxPref === 'inclusive' ? $subtotalCharges - $taxAmount : $subtotalCharges, 2)), ENT_QUOTES, 'UTF-8') ?></span>
                             </div>
                             <?php if ($taxEnabled && $taxPref !== 'exempt'): ?>
                             <div class="flex justify-between">
-                                <span class="font-semibold text-slate-500"><?= htmlspecialchars($taxLabel) ?> (<?= htmlspecialchars((string)$taxRate) ?>%)</span>
-                                <span class="font-bold text-slate-800">₹<?= number_format($taxAmount, 2) ?></span>
+                                <span class="font-semibold text-slate-500"><?= htmlspecialchars((string)($taxLabel)) ?> (<?= htmlspecialchars((string)($taxRate)) ?>%)</span>
+                                <span class="font-bold text-slate-800">₹<?= htmlspecialchars((string)(number_format($taxAmount, 2)), ENT_QUOTES, 'UTF-8') ?></span>
                             </div>
                             <?php endif; ?>
                             <div class="flex justify-between border-t border-slate-100 pt-2.5 text-sm font-bold text-slate-800">
                                 <span>Total Charges</span>
-                                <span>₹<?= number_format($totalCharges, 2) ?></span>
+                                <span>₹<?= htmlspecialchars((string)(number_format($totalCharges, 2)), ENT_QUOTES, 'UTF-8') ?></span>
                             </div>
                         </div>
                     </div>
@@ -568,11 +568,11 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <div class="space-y-2.5 text-xs">
                             <div class="flex justify-between">
                                 <span class="font-semibold text-slate-500">Payments Received</span>
-                                <span class="font-bold text-slate-800">₹<?= number_format($totalPayments, 2) ?></span>
+                                <span class="font-bold text-slate-800">₹<?= htmlspecialchars((string)(number_format($totalPayments, 2)), ENT_QUOTES, 'UTF-8') ?></span>
                             </div>
                             <div class="flex justify-between text-rose-600">
                                 <span class="font-semibold">Refunds Issued</span>
-                                <span class="font-bold">₹<?= number_format($refundsIssued, 2) ?></span>
+                                <span class="font-bold">₹<?= htmlspecialchars((string)(number_format($refundsIssued, 2)), ENT_QUOTES, 'UTF-8') ?></span>
                             </div>
                             <div class="flex justify-between border-t border-slate-100 pt-2.5 font-bold text-slate-800">
                                 <span>Deposits Held</span>
@@ -585,9 +585,9 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <div class="bg-emerald-50/30 border border-emerald-100/50 rounded-2xl p-5 flex flex-col justify-between items-center text-center">
                         <div>
                             <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">Balance Due</span>
-                            <h3 class="text-3xl font-extrabold text-slate-900 mt-1 block">₹<?= number_format($balance, 2) ?></h3>
-                            <span class="text-[10px] font-bold <?= $balance <= 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-amber-700 bg-amber-50 border-amber-100' ?> px-2.5 py-0.5 rounded-full inline-block mt-2 border">
-                                <?= $balance <= 0 ? 'Settled' : 'Unpaid Balance' ?>
+                            <h3 class="text-3xl font-extrabold text-slate-900 mt-1 block">₹<?= htmlspecialchars((string)(number_format($balance, 2)), ENT_QUOTES, 'UTF-8') ?></h3>
+                            <span class="text-[10px] font-bold <?= htmlspecialchars((string)($balance <= 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-amber-700 bg-amber-50 border-amber-100'), ENT_QUOTES, 'UTF-8') ?> px-2.5 py-0.5 rounded-full inline-block mt-2 border">
+                                <?= htmlspecialchars((string)($balance <= 0 ? 'Settled' : 'Unpaid Balance'), ENT_QUOTES, 'UTF-8') ?>
                             </span>
                         </div>
                         <div class="w-full mt-4">
@@ -605,40 +605,40 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">Modify Stay Details</h3>
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Room</label>
-                            <select id="edit_room_id" onchange="updateRatePlanDropdown()" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none">
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Room <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
+                            <select id="edit_room_id" onchange="updateRatePlanDropdown()" <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
                                 <?php foreach($allRooms as $r): ?>
-                                    <option value="<?= $r['id'] ?>" data-cat="<?= $r['category_id'] ?>" <?= $r['id'] == $booking['room_id'] ? 'selected' : '' ?>>
-                                        Room <?= htmlspecialchars($r['room_number']) ?> (<?= htmlspecialchars($r['cat_name']) ?>)
+                                    <option value="<?= htmlspecialchars((string)($r['id']), ENT_QUOTES, 'UTF-8') ?>" data-cat="<?= htmlspecialchars((string)($r['category_id']), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)($r['id'] == $booking['room_id'] ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>
+                                        Room <?= htmlspecialchars((string)($r['room_number'])) ?> (<?= htmlspecialchars((string)($r['cat_name'])) ?>)
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Rate Plan</label>
-                            <select id="edit_rate_plan" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none">
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Rate Plan <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
+                            <select id="edit_rate_plan" <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
                                 <!-- Populated by JS -->
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check In <?= $bookingStatus !== 'booked' ? '<span class="text-rose-500">(Locked)</span>' : '' ?></label>
-                            <input type="datetime-local" id="edit_check_in" value="<?= date('Y-m-d\TH:i', strtotime($booking['check_in'])) ?>" <?= !in_array($bookingStatus, ['booked']) ? 'disabled' : '' ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= !in_array($bookingStatus, ['booked']) ? 'opacity-60 cursor-not-allowed' : '' ?>">
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check In <?= htmlspecialchars((string)($bookingStatus !== 'booked' ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
+                            <input type="datetime-local" id="edit_check_in" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime($booking['check_in']))), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)(!in_array($bookingStatus, ['booked']) ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(!in_array($bookingStatus, ['booked']) ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check Out <?= $bookingStatus === 'checked_out' ? '<span class="text-rose-500">(Locked)</span>' : '' ?></label>
-                            <input type="datetime-local" id="edit_check_out" value="<?= date('Y-m-d\TH:i', strtotime($booking['check_out'])) ?>" <?= in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'disabled' : '' ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'opacity-60 cursor-not-allowed' : '' ?>">
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check Out <?= htmlspecialchars((string)($bookingStatus === 'checked_out' ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
+                            <input type="datetime-local" id="edit_check_out" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime($booking['check_out']))), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                         <?php if ($taxEnabled): ?>
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Tax Preference</label>
-                            <select id="edit_tax_pref" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none">
-                                <option value="exclusive" <?= ($booking['tax_preference'] ?? 'exclusive') === 'exclusive' ? 'selected' : '' ?>>Exclusive (Tax Added to Total)</option>
-                                <option value="inclusive" <?= ($booking['tax_preference'] ?? 'exclusive') === 'inclusive' ? 'selected' : '' ?>>Inclusive (Tax Included in Total)</option>
-                                <option value="exempt" <?= ($booking['tax_preference'] ?? 'exclusive') === 'exempt' ? 'selected' : '' ?>>Exempt (No Tax)</option>
+                            <select id="edit_tax_pref" <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
+                                <option value="exclusive" <?= htmlspecialchars((string)(($booking['tax_preference'] ?? 'exclusive') === 'exclusive' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Exclusive (Tax Added to Total)</option>
+                                <option value="inclusive" <?= htmlspecialchars((string)(($booking['tax_preference'] ?? 'exclusive') === 'inclusive' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Inclusive (Tax Included in Total)</option>
+                                <option value="exempt" <?= htmlspecialchars((string)(($booking['tax_preference'] ?? 'exclusive') === 'exempt' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Exempt (No Tax)</option>
                             </select>
                         </div>
                         <?php endif; ?>
-                        <button onclick="editBooking(this)" class="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold py-3.5 rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm">Update Stay Details</button>
+                        <button onclick="editBooking(this)" <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold py-3.5 rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">Update Stay Details</button>
                     </div>
                 </div>
 
@@ -661,25 +661,25 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <div class="flex items-center gap-4">
                             <div class="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center text-slate-700 text-2xl font-bold">
                                 <?php if($booking['guest_photo']): ?>
-                                    <img src="/api/admin/view_document?file=<?= htmlspecialchars($booking['guest_photo']) ?>" class="w-full h-full object-cover">
+                                    <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($booking['guest_photo'])) ?>" class="w-full h-full object-cover">
                                 <?php else: ?>
-                                    <?= htmlspecialchars(strtoupper(substr($booking['guest_name'], 0, 1))) ?>
+                                    <?= htmlspecialchars((string)(strtoupper(substr($booking['guest_name'], 0, 1)))) ?>
                                 <?php endif; ?>
                             </div>
                             <div>
-                                <p class="text-lg font-bold text-slate-800"><?= htmlspecialchars($booking['guest_name']) ?></p>
-                                <p class="text-xs text-slate-400 mt-0.5">WhatsApp: <?= htmlspecialchars($booking['guest_phone']) ?></p>
+                                <p class="text-lg font-bold text-slate-800"><?= htmlspecialchars((string)($booking['guest_name'])) ?></p>
+                                <p class="text-xs text-slate-400 mt-0.5">WhatsApp: <?= htmlspecialchars((string)($booking['guest_phone'])) ?></p>
                                 <?php if($booking['age']): ?>
-                                <p class="text-xs text-slate-455 mt-0.5">Age: <?= htmlspecialchars($booking['age']) ?> years</p>
+                                <p class="text-xs text-slate-455 mt-0.5">Age: <?= htmlspecialchars((string)($booking['age'])) ?> years</p>
                                 <?php endif; ?>
                             </div>
                         </div>
                         <div class="text-xs space-y-2 border-l border-slate-100 pl-6">
                             <p class="font-bold text-slate-400 uppercase tracking-wider mb-2">Location & Address</p>
-                            <p class="font-semibold text-slate-700">City: <span class="text-slate-900"><?= htmlspecialchars($booking['city'] ?? 'N/A') ?></span></p>
-                            <p class="font-semibold text-slate-700">State: <span class="text-slate-900"><?= htmlspecialchars($booking['state'] ?? 'N/A') ?></span></p>
-                            <p class="font-semibold text-slate-700">Country: <span class="text-slate-900"><?= htmlspecialchars($booking['country'] ?? 'India') ?></span></p>
-                            <p class="font-semibold text-slate-700">Pincode: <span class="text-slate-900"><?= htmlspecialchars($booking['pincode'] ?? 'N/A') ?></span></p>
+                            <p class="font-semibold text-slate-700">City: <span class="text-slate-900"><?= htmlspecialchars((string)($booking['city'] ?? 'N/A')) ?></span></p>
+                            <p class="font-semibold text-slate-700">State: <span class="text-slate-900"><?= htmlspecialchars((string)($booking['state'] ?? 'N/A')) ?></span></p>
+                            <p class="font-semibold text-slate-700">Country: <span class="text-slate-900"><?= htmlspecialchars((string)($booking['country'] ?? 'India')) ?></span></p>
+                            <p class="font-semibold text-slate-700">Pincode: <span class="text-slate-900"><?= htmlspecialchars((string)($booking['pincode'] ?? 'N/A')) ?></span></p>
                         </div>
                     </div>
                 </div>
@@ -691,9 +691,9 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <!-- ID Front -->
                         <div class="border border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:bg-slate-50 transition-colors relative overflow-hidden group min-h-[140px]">
                             <?php if($booking['id_proof_front']): ?>
-                                <img src="api/view_id_proof.php?file=<?= urlencode($booking['id_proof_front']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('api/view_id_proof.php?file=<?= urlencode($booking['id_proof_front']) ?>')">
+                                <img src="api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_front'])), ENT_QUOTES, 'UTF-8') ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_front'])), ENT_QUOTES, 'UTF-8') ?>')">
                                 <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center gap-2">
-                                    <button onclick="UI.viewImage('api/view_id_proof.php?file=<?= urlencode($booking['id_proof_front']) ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
+                                    <button onclick="UI.viewImage('api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_front'])), ENT_QUOTES, 'UTF-8') ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
                                     <label class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Replace<input type="file" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
                                 </div>
                             <?php else: ?>
@@ -705,9 +705,9 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <!-- ID Back -->
                         <div class="border border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:bg-slate-50 transition-colors relative overflow-hidden group min-h-[140px]">
                             <?php if($booking['id_proof_back']): ?>
-                                <img src="api/view_id_proof.php?file=<?= urlencode($booking['id_proof_back']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('api/view_id_proof.php?file=<?= urlencode($booking['id_proof_back']) ?>')">
+                                <img src="api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_back'])), ENT_QUOTES, 'UTF-8') ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_back'])), ENT_QUOTES, 'UTF-8') ?>')">
                                 <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center gap-2">
-                                    <button onclick="UI.viewImage('api/view_id_proof.php?file=<?= urlencode($booking['id_proof_back']) ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
+                                    <button onclick="UI.viewImage('api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_back'])), ENT_QUOTES, 'UTF-8') ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
                                     <label class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Replace<input type="file" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
                                 </div>
                             <?php else: ?>
@@ -719,9 +719,9 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <!-- Photo -->
                         <div class="border border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:bg-slate-50 transition-colors relative overflow-hidden group min-h-[140px]">
                             <?php if($booking['guest_photo']): ?>
-                                <img src="/api/admin/view_document?file=<?= htmlspecialchars($booking['guest_photo']) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($booking['guest_photo']) ?>')">
+                                <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($booking['guest_photo'])) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($booking['guest_photo'])) ?>')">
                                 <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center gap-2">
-                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars($booking['guest_photo']) ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
+                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($booking['guest_photo'])) ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
                                     <label class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Replace<input type="file" class="hidden" onchange="uploadDoc('guest_photo', this)"></label>
                                 </div>
                             <?php else: ?>
@@ -738,8 +738,8 @@ $statusColor = $statusMap[$bookingStatus]['color'];
             <div id="panel-audit" class="hidden bg-white border border-slate-100 rounded-2xl shadow-sm p-6 max-h-[500px] overflow-y-auto space-y-4">
                 <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">Activity Logs</h3>
                 <?php 
-                $logStmt = $db->prepare("SELECT a.*, COALESCE(s.username, 'System/Guest') as username FROM audit_logs a LEFT JOIN staff_users s ON a.staff_id = s.id WHERE a.entity_id = :id AND a.entity_type IN ('BOOKING', 'FOLIO') ORDER BY a.created_at DESC");
-                $logStmt->execute(['id' => $id]);
+                $logStmt = $db->prepare("SELECT a.*, COALESCE(s.username, 'System/Guest') as username FROM audit_logs a LEFT JOIN staff_users s ON a.staff_id = s.id WHERE a.property_id = :prop_id AND a.entity_id = :id AND a.entity_type IN ('BOOKING', 'FOLIO') ORDER BY a.created_at DESC");
+                $logStmt->execute(['id' => $id, 'prop_id' => $activePropId]);
                 $folioLogs = $logStmt->fetchAll();
                 
                 if (empty($folioLogs)): ?>
@@ -751,8 +751,8 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                             <i class="ph ph-clock-counter-clockwise"></i>
                         </div>
                         <div>
-                            <p class="text-xs font-bold text-slate-800"><?= htmlspecialchars($log['action']) ?></p>
-                            <p class="text-[10px] text-slate-400 mt-0.5">by <?= htmlspecialchars($log['username']) ?> &bull; <?= date('M j, Y g:i A', strtotime($log['created_at'])) ?></p>
+                            <p class="text-xs font-bold text-slate-800"><?= htmlspecialchars((string)($log['action'])) ?></p>
+                            <p class="text-[10px] text-slate-400 mt-0.5">by <?= htmlspecialchars((string)($log['username'])) ?> &bull; <?= htmlspecialchars((string)(date('M j, Y g:i A', strtotime($log['created_at']))), ENT_QUOTES, 'UTF-8') ?></p>
                         </div>
                     </div>
                 <?php 
@@ -771,34 +771,34 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                 <div class="space-y-4">
                     <div>
                         <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Guest Name</label>
-                        <input type="text" id="edit_g_name" value="<?= htmlspecialchars($booking['guest_name']) ?>" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
+                        <input type="text" id="edit_g_name" value="<?= htmlspecialchars((string)($booking['guest_name'])) ?>" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">WhatsApp Number</label>
-                        <input type="text" id="edit_g_phone" value="<?= htmlspecialchars($booking['guest_phone']) ?>" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
+                        <input type="text" id="edit_g_phone" value="<?= htmlspecialchars((string)($booking['guest_phone'])) ?>" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Age</label>
-                        <input type="number" id="edit_g_age" value="<?= htmlspecialchars($booking['age'] ?? '') ?>" min="1" max="120" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
+                        <input type="number" id="edit_g_age" value="<?= htmlspecialchars((string)($booking['age'] ?? '')) ?>" min="1" max="120" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">City</label>
-                            <input type="text" id="edit_g_city" value="<?= htmlspecialchars($booking['city'] ?? '') ?>" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
+                            <input type="text" id="edit_g_city" value="<?= htmlspecialchars((string)($booking['city'] ?? '')) ?>" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">State</label>
-                            <input type="text" id="edit_g_state" value="<?= htmlspecialchars($booking['state'] ?? '') ?>" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
+                            <input type="text" id="edit_g_state" value="<?= htmlspecialchars((string)($booking['state'] ?? '')) ?>" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                         </div>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Country</label>
-                            <input type="text" id="edit_g_country" value="<?= htmlspecialchars($booking['country'] ?? 'India') ?>" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
+                            <input type="text" id="edit_g_country" value="<?= htmlspecialchars((string)($booking['country'] ?? 'India')) ?>" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Pincode</label>
-                            <input type="text" id="edit_g_pincode" value="<?= htmlspecialchars($booking['pincode'] ?? '') ?>" maxlength="6" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
+                            <input type="text" id="edit_g_pincode" value="<?= htmlspecialchars((string)($booking['pincode'] ?? '')) ?>" maxlength="6" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                         </div>
                     </div>
                     <button onclick="saveGuestEdit(this)" class="w-full btn-glass mt-4 text-xs font-bold uppercase tracking-wider active:scale-[0.98]">Save Details</button>
@@ -824,7 +824,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <select id="edit_l_method" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                             <option value="">N/A (Charge)</option>
                             <?php foreach($paymentMethods as $pm): ?>
-                                <option value="<?= htmlspecialchars(strtolower($pm)) ?>"><?= htmlspecialchars($pm) ?></option>
+                                <option value="<?= htmlspecialchars((string)(strtolower($pm))) ?>"><?= htmlspecialchars((string)($pm)) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -868,17 +868,17 @@ $statusColor = $statusMap[$bookingStatus]['color'];
             <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl transform transition-transform translate-y-full max-w-lg mx-auto p-6">
                 <div class="w-12 h-1 bg-slate-200 rounded-full mx-auto mb-6"></div>
                 <h2 class="text-lg font-bold text-slate-800 mb-2 font-display">Collect Payment</h2>
-                <p class="text-slate-400 font-semibold text-xs mb-6">Balance Due: ₹<span id="cp_amount_display"><?= number_format($balance, 2) ?></span></p>
+                <p class="text-slate-400 font-semibold text-xs mb-6">Balance Due: ₹<span id="cp_amount_display"><?= htmlspecialchars((string)(number_format($balance, 2)), ENT_QUOTES, 'UTF-8') ?></span></p>
                 
                 <div class="space-y-4">
                     <div class="grid grid-cols-2 gap-3">
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Amount to Collect (₹)</label>
-                            <input type="number" id="cp_amount" min="0" value="<?= $balance ?>" class="w-full input-glass rounded-xl p-3 text-lg font-bold text-slate-800">
+                            <input type="number" id="cp_amount" min="0" value="<?= htmlspecialchars((string)($balance), ENT_QUOTES, 'UTF-8') ?>" class="w-full input-glass rounded-xl p-3 text-lg font-bold text-slate-800">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Payment Date & Time</label>
-                            <input type="datetime-local" id="cp_date" class="w-full input-glass rounded-xl p-3 text-sm text-slate-800" value="<?= date('Y-m-d\TH:i') ?>">
+                            <input type="datetime-local" id="cp_date" class="w-full input-glass rounded-xl p-3 text-sm text-slate-800" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i')), ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                     </div>
                     
@@ -918,9 +918,9 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                             if (strpos($pmLower, 'card') !== false) $icon = 'ph-credit-card';
                             if (strpos($pmLower, 'bank') !== false) $icon = 'ph-bank';
                         ?>
-                        <button onclick="recordManualPayment(this, '<?= htmlspecialchars(addslashes($pm)) ?>')" class="bg-slate-50 hover:bg-slate-100/80 text-slate-700 border border-slate-200 rounded-2xl py-4 font-bold active:scale-[0.98] transition-all flex flex-col items-center justify-center gap-1 shadow-sm">
-                            <i class="ph <?= $icon ?> text-xl text-indigo-600"></i>
-                            <span class="text-xs"><?= htmlspecialchars($pm) ?></span>
+                        <button onclick="recordManualPayment(this, '<?= htmlspecialchars((string)(addslashes($pm))) ?>')" class="bg-slate-50 hover:bg-slate-100/80 text-slate-700 border border-slate-200 rounded-2xl py-4 font-bold active:scale-[0.98] transition-all flex flex-col items-center justify-center gap-1 shadow-sm">
+                            <i class="ph <?= htmlspecialchars((string)($icon), ENT_QUOTES, 'UTF-8') ?> text-xl text-indigo-600"></i>
+                            <span class="text-xs"><?= htmlspecialchars((string)($pm)) ?></span>
                         </button>
                         <?php endforeach; ?>
                         
@@ -1017,8 +1017,8 @@ $statusColor = $statusMap[$bookingStatus]['color'];
 
     <script>
         const FOLIO_DATA = {
-            bookingId: <?= $id ?>,
-            balance: <?= $balance ?>,
+            bookingId: <?= htmlspecialchars((string)($id), ENT_QUOTES, 'UTF-8') ?>,
+            balance: <?= htmlspecialchars((string)($balance), ENT_QUOTES, 'UTF-8') ?>,
             catRatePlans: <?= json_encode($catRatePlans) ?>,
             ratePlanName: <?= json_encode($ratePlanName) ?>,
             razorpayKeyId: <?= defined("RAZORPAY_KEY_ID") ? json_encode(RAZORPAY_KEY_ID) : '""' ?>,

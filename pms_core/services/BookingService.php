@@ -34,6 +34,18 @@ class BookingService {
         $children      = isset($params['children']) ? (int)$params['children'] : 0;
         $extraBed      = isset($params['extra_bed']) && (int)$params['extra_bed'] === 1 ? 1 : 0;
         $bookingStatus = $params['booking_status'] ?? 'booked';
+        $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
+
+        // Block booking creation if there are pending Night Audit actions
+        try {
+            $actStmt = $db->prepare("SELECT COUNT(*) FROM night_audit_actions WHERE property_id = ? AND status = 'pending'");
+            $actStmt->execute([$propId]);
+            if ($actStmt->fetchColumn() > 0) {
+                throw new \Exception('Cannot create booking. Please resolve all pending Night Audit actions first.');
+            }
+        } catch (\PDOException $e) {
+            // Ignore if table doesn't exist yet
+        }
 
         // Validation
         if (!$roomId || !$guestId || !$checkIn || !$checkOut) {
@@ -66,12 +78,24 @@ class BookingService {
 
         try {
             // Lock room and get category
-            $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
-            $stmt = $db->prepare("SELECT r.category_id, r.property_id, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.id = :room_id AND r.property_id = :prop_id FOR UPDATE");
-            $stmt->execute(['room_id' => $roomId, 'prop_id' => $propId]);
+            $stmt = $db->prepare("SELECT r.category_id, r.property_id, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.id = :room_id FOR UPDATE");
+            $stmt->execute(['room_id' => $roomId]);
             $room = $stmt->fetch();
             if (!$room) {
                 throw new \Exception('Invalid room selected');
+            }
+
+            // Verify if admin has access to this room's property
+            if (class_exists('AuthHelper')) {
+                if (session_status() === PHP_SESSION_NONE) {
+                    session_start();
+                }
+                if (isset($_SESSION['user_id'])) {
+                    $activePropId = AuthHelper::getPropertyId();
+                    if ((int)$room['property_id'] !== $activePropId) {
+                        throw new \Exception('Access denied: Room belongs to a different property');
+                    }
+                }
             }
 
             // Check availability
@@ -109,10 +133,12 @@ class BookingService {
                 INSERT INTO bookings (property_id, room_id, guest_id, check_in, check_out, payment_status, booking_status, total_amount, rate_plan_name, booking_source, price_override, adults, children, extra_bed, offline_folio_id)
                 VALUES (:property_id, :room_id, :guest_id, :check_in, :check_out, :payment_status, :booking_status, :total_amount, :rate_plan_name, :booking_source, :price_override, :adults, :children, :extra_bed, :offline_folio_id)
             ");
+            $paymentCollected = (float)($params['payment_collected'] ?? 0.0);
+
             // BUG-12 fix: default to 'pending'; only mark completed when advance covers full amount
             $defaultPaymentStatus = ($paymentCollected > 0 && $paymentCollected >= $totalAmount)
                 ? 'completed_paid'
-                : ($paymentCollected > 0 ? 'partial' : 'pending');
+                : 'pending_hold';
             $insertStmt->execute([
                 'property_id'     => $propertyId,
                 'room_id'         => $roomId,
@@ -305,6 +331,7 @@ class BookingService {
                 JOIN rooms r ON b.room_id = r.id
                 JOIN room_categories c ON r.category_id = c.id
                 WHERE b.id = :id AND b.property_id = :prop_id
+                FOR UPDATE
             ");
             $stmt->execute(['id' => $bookingId, 'prop_id' => $propertyId]);
             $booking = $stmt->fetch();

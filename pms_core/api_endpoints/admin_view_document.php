@@ -22,6 +22,24 @@ if (empty($file) || strpos($file, '..') !== false || strpos($file, '/') !== fals
     exit;
 }
 
+require_once __DIR__ . '/../../pms_core/Database.php';
+$db = Database::getInstance()->getConnection();
+
+$stmt = $db->prepare("SELECT property_id FROM guests WHERE id_proof_front = :f OR id_proof_back = :f OR photo = :f LIMIT 1");
+$stmt->execute(['f' => $file]);
+$filePropertyId = $stmt->fetchColumn();
+
+if ($filePropertyId !== false) {
+    if (isset($_SESSION['user_id'])) {
+        $userPropId = AuthHelper::getPropertyId();
+        if ((int)$filePropertyId !== $userPropId) {
+            http_response_code(403);
+            echo "Unauthorized: Document belongs to a different property.";
+            exit;
+        }
+    }
+}
+
 $uploadDir = realpath(__DIR__ . '/../../pms_core/uploads');
 $filePath = $uploadDir . DIRECTORY_SEPARATOR . $file;
 

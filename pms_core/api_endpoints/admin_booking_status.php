@@ -21,6 +21,8 @@ ApiHandler::run(function(\PDO $db) {
 
     if ($action === 'cancel') {
         AuthHelper::requirePermission('cancel_booking');
+    } elseif (in_array($action, ['rollback_to_booked', 'rollback_to_checked_in'], true)) {
+        AuthHelper::requirePermission('rollback_booking');
     } else {
         AuthHelper::requirePermission('check_in_out');
     }
@@ -100,6 +102,8 @@ ApiHandler::run(function(\PDO $db) {
         
         if ($balance > 0) {
             throw new Exception("Cannot check-out: Guest has pending dues of ₹" . number_format($balance, 2) . ". Please settle the folio first.");
+        } elseif ($balance < 0) {
+            throw new Exception("Cannot check-out: Guest is owed a refund of ₹" . number_format(abs($balance), 2) . ". Please process the refund first.");
         }
 
         // BUG-2 fix: scope UPDATE to property
@@ -108,6 +112,17 @@ ApiHandler::run(function(\PDO $db) {
         
         $stmt2 = $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = :rid AND property_id = :pid");
         $stmt2->execute(['rid' => $booking['room_id'], 'pid' => $propertyId]);
+        
+        // Auto-clear active service requests for this booking
+        $clearReqStmt = $db->prepare("UPDATE guest_service_requests SET status = 'completed', resolved_at = NOW() WHERE booking_id = :id AND status != 'completed'");
+        $clearReqStmt->execute(['id' => $bookingId]);
+        
+        // Auto-resolve pending Night Audit actions
+        try {
+            $clearAuditStmt = $db->prepare("UPDATE night_audit_actions SET status = 'resolved', resolved_at = NOW() WHERE booking_id = :id AND status = 'pending'");
+            $clearAuditStmt->execute(['id' => $bookingId]);
+        } catch (\PDOException $e) {}
+
         AuditLogger::log($_SESSION['user_id'] ?? null, 'CHECK_OUT', 'BOOKING', $bookingId, [
             'action' => 'check_out',
             'from_status' => $currentStatus,
@@ -204,8 +219,8 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::success(['message' => 'Rolled back to checked-in status']);
 
     } elseif ($action === 'cancel') {
-        if (!in_array($currentStatus, ['booked', 'checked_in'])) {
-            throw new Exception("Can only cancel from 'booked' or 'checked_in' status");
+        if ($currentStatus !== 'booked') {
+            throw new Exception("Can only cancel a booking in 'booked' status. If the guest is checked-in, rollback the check-in first.");
         }
         if (empty($reason)) {
             throw new Exception("Reason is required for cancellation");

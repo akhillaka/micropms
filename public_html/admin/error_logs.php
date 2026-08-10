@@ -84,15 +84,15 @@ try {
             <div class="grid grid-cols-3 gap-4">
                 <div class="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm flex flex-col justify-between">
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Critical Unresolved</span>
-                    <span id="crit-unresolved-count" class="text-2xl font-extrabold text-red-600 mt-2"><?= $critUnresolved ?></span>
+                    <span id="crit-unresolved-count" class="text-2xl font-extrabold text-red-600 mt-2"><?= htmlspecialchars((string)($critUnresolved), ENT_QUOTES, 'UTF-8') ?></span>
                 </div>
                 <div class="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm flex flex-col justify-between">
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Errors Today</span>
-                    <span id="errors-today-count" class="text-2xl font-extrabold text-amber-600 mt-2"><?= $errorsToday ?></span>
+                    <span id="errors-today-count" class="text-2xl font-extrabold text-amber-600 mt-2"><?= htmlspecialchars((string)($errorsToday), ENT_QUOTES, 'UTF-8') ?></span>
                 </div>
                 <div class="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm flex flex-col justify-between">
                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Resolved</span>
-                    <span id="resolved-count" class="text-2xl font-extrabold text-emerald-600 mt-2"><?= $resolvedCount ?></span>
+                    <span id="resolved-count" class="text-2xl font-extrabold text-emerald-600 mt-2"><?= htmlspecialchars((string)($resolvedCount), ENT_QUOTES, 'UTF-8') ?></span>
                 </div>
             </div>
 
@@ -114,7 +114,7 @@ try {
                         <select id="filter-category" onchange="loadErrorLogs(1)" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-600">
                             <option value="">All Categories</option>
                             <?php foreach ($categories as $cat): ?>
-                                <option value="<?= htmlspecialchars($cat) ?>"><?= htmlspecialchars(ucfirst($cat)) ?></option>
+                                <option value="<?= htmlspecialchars((string)($cat)) ?>"><?= htmlspecialchars((string)(ucfirst($cat))) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -223,7 +223,7 @@ try {
                     <label class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Select Category</label>
                     <select id="bulk-category-select" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none">
                         <?php foreach ($categories as $cat): ?>
-                            <option value="<?= htmlspecialchars($cat) ?>"><?= htmlspecialchars(ucfirst($cat)) ?></option>
+                            <option value="<?= htmlspecialchars((string)($cat)) ?>"><?= htmlspecialchars((string)(ucfirst($cat))) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>

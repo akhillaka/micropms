@@ -28,17 +28,18 @@ ApiHandler::run(function(\PDO $db) {
             FROM rooms r
             JOIN room_categories c ON r.category_id = c.id
             WHERE r.state != 'out_of_order'
-              AND r.property_id = :property_id
+              AND r.property_id = :property_id1
               AND r.id NOT IN (
                 SELECT b.room_id FROM bookings b
                 WHERE b.check_in < :check_out 
                   AND b.check_out > :check_in
                   AND b.payment_status != 'cancelled'
-                  AND b.property_id = :property_id
+                  AND b.property_id = :property_id2
             )";            
     $stmt = $db->prepare($sql);
     $stmt->execute([
-        'property_id' => $propertyId,
+        'property_id1' => $propertyId,
+        'property_id2' => $propertyId,
         'check_in' => $checkInStr,
         'check_out' => $checkOutStr
     ]);

@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 
 ApiHandler::run(function(\PDO $db) {
-    AuthHelper::requirePermission('manage_settings');
+    AuthHelper::requirePermission('manage_automations');
     $json = file_get_contents('php://input');
     $data = json_decode($json, true);
     $id = $data['id'] ?? null;

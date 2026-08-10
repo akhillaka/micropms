@@ -34,6 +34,20 @@ if (empty($paymentMethods)) {
     $paymentMethods = ["Cash", "UPI"];
 }
 
+$incStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'FINANCE_INCOME_CATEGORIES'");
+$incJson = $incStmt->fetchColumn();
+$incomeCategories = $incJson ? json_decode($incJson, true) : [];
+if (empty($incomeCategories)) {
+    $incomeCategories = ["Misc", "F&B", "Laundry", "POS"];
+}
+
+$expStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'FINANCE_EXPENSE_CATEGORIES'");
+$expJson = $expStmt->fetchColumn();
+$expenseCategories = $expJson ? json_decode($expJson, true) : [];
+if (empty($expenseCategories)) {
+    $expenseCategories = ["F&B", "Laundry", "Maintenance", "Salary", "Misc"];
+}
+
 $isSuperAdminUser = AuthHelper::isSuperAdmin() ? 1 : 0;
 if ($isSuperAdminUser) {
     $staffUsers = $db->query("SELECT * FROM staff_users ORDER BY created_at DESC")->fetchAll();
@@ -81,6 +95,7 @@ $planLimits = $plansConfig[$currentPlan] ?? [
 ];
 
 $upsellEnabled = (defined('GUEST_PORTAL_UPSELL_ENABLED') && GUEST_PORTAL_UPSELL_ENABLED === 'true') || ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_UPSELL_ENABLED'")->fetchColumn() === 'true');
+$posEnabled = (defined('GUEST_PORTAL_POS_ENABLED') && GUEST_PORTAL_POS_ENABLED === 'true') || ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_POS_ENABLED'")->fetchColumn() === 'true');
 $selfCheckoutEnabled = (defined('GUEST_PORTAL_SELF_CHECKOUT_ENABLED') && GUEST_PORTAL_SELF_CHECKOUT_ENABLED === 'true') || ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_SELF_CHECKOUT_ENABLED'")->fetchColumn() === 'true');
 $housekeepingEnabled = (defined('GUEST_PORTAL_HOUSEKEEPING_ENABLED') && GUEST_PORTAL_HOUSEKEEPING_ENABLED === 'true') || ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_HOUSEKEEPING_ENABLED'")->fetchColumn() === 'true');
 $earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_EARLY_LATE_FEE'")->fetchColumn() ?: '0.00');
@@ -99,6 +114,12 @@ $upsellBreakfastPrice = floatval($db->query("SELECT key_value FROM system_settin
 $upsellTransferPrice = floatval($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_UPSELL_TRANSFER_PRICE'")->fetchColumn() ?: '1200.00');
 
 $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_OTP_ENABLED'")->fetchColumn() ?: 'false') === 'true';
+
+// New guest portal info settings
+$portalWifiSsid        = (string)($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_WIFI_SSID'")->fetchColumn() ?: (defined('PROPERTY_WIFI_NAME') ? PROPERTY_WIFI_NAME : ''));
+$portalWifiPassword    = (string)($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_WIFI_PASSWORD'")->fetchColumn() ?: (defined('PROPERTY_WIFI_PASS') ? PROPERTY_WIFI_PASS : ''));
+$portalHelpDeskNo      = (string)($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_HELP_DESK_NO'")->fetchColumn() ?: '');
+$portalLocalAttractions= (string)($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_LOCAL_ATTRACTIONS'")->fetchColumn() ?: '');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -188,6 +209,9 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                     <button onclick="switchTab('payments')" id="tab-payments" class="settings-tab-btn tab-inactive">
                         <i class="ph ph-credit-card text-lg opacity-80"></i> Payment Config
                     </button>
+                    <button onclick="switchTab('finance')" id="tab-finance" class="settings-tab-btn tab-inactive">
+                        <i class="ph ph-currency-circle-dollar text-lg opacity-80"></i> Finance Config
+                    </button>
                     <button onclick="switchTab('staff')" id="tab-staff" class="settings-tab-btn tab-inactive">
                         <i class="ph ph-users text-lg opacity-80"></i> Staff Users
                     </button>
@@ -218,6 +242,28 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
             <!-- Main Content Area -->
             <main class="flex-1 min-w-0 bg-white border border-brand-900/10 shadow-minimal rounded-3xl p-6 relative overflow-y-auto">
             
+            <!-- Finance Config Tab -->
+            <div id="content-finance" class="pb-24 hidden space-y-8">
+                <div>
+                    <h3 class="text-xl font-bold text-slate-800 mb-4">Finance Categories</h3>
+                    <p class="text-sm text-slate-500 mb-6">Manage the categories used for recording miscellaneous income and expenses in the Finance module.</p>
+                    
+                    <form onsubmit="saveFinanceConfig(event)" class="space-y-6 max-w-2xl">
+                        <div>
+                            <label class="block text-sm font-bold text-slate-700 mb-2">Income Categories (comma-separated)</label>
+                            <input type="text" id="finance_income_categories" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 transition-all outline-none" value="<?= htmlspecialchars((string)(implode(', ', $incomeCategories))) ?>">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-slate-700 mb-2">Expense Categories (comma-separated)</label>
+                            <input type="text" id="finance_expense_categories" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 transition-all outline-none" value="<?= htmlspecialchars((string)(implode(', ', $expenseCategories))) ?>">
+                        </div>
+                        <button type="submit" class="bg-brand-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-brand-800 transition-colors">
+                            Save Finance Configuration
+                        </button>
+                    </form>
+                </div>
+            </div>
+
             <!-- 1. Categories Tab -->
             <div id="content-categories" class="pb-24 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <?php foreach($categories as $c): ?>
@@ -227,15 +273,15 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                 <i class="ph ph-bed text-xl"></i>
                             </div>
                             <div>
-                                <span class="font-bold text-brand-900 block"><?= htmlspecialchars($c['name']) ?></span>
+                                <span class="font-bold text-brand-900 block"><?= htmlspecialchars((string)($c['name'])) ?></span>
                                 <span class="text-xs font-medium text-brand-900/70">Room Category</span>
                             </div>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick="openModal('catModal', {id: <?= $c['id'] ?>, name: '<?= addslashes($c['name']) ?>'})" class="w-12 h-12 rounded-full bg-brand-50 text-brand-900 flex items-center justify-center hover:bg-brand-100">
+                            <button onclick="openModal('catModal', {id: <?= htmlspecialchars((string)($c['id']), ENT_QUOTES, 'UTF-8') ?>, name: '<?= htmlspecialchars((string)(addslashes($c['name'])), ENT_QUOTES, 'UTF-8') ?>'})" class="w-12 h-12 rounded-full bg-brand-50 text-brand-900 flex items-center justify-center hover:bg-brand-100">
                                 <i class="ph ph-pencil-simple text-lg"></i>
                             </button>
-                            <button onclick="deleteItem('category', <?= $c['id'] ?>, '<?= addslashes($c['name']) ?>')" class="w-12 h-12 rounded-full bg-error-50 text-error-600 flex items-center justify-center hover:bg-error-100">
+                            <button onclick="deleteItem('category', <?= htmlspecialchars((string)($c['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($c['name'])), ENT_QUOTES, 'UTF-8') ?>')" class="w-12 h-12 rounded-full bg-error-50 text-error-600 flex items-center justify-center hover:bg-error-100">
                                 <i class="ph ph-trash text-lg"></i>
                             </button>
                         </div>
@@ -249,14 +295,14 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                     <div class="card-minimal p-4  flex justify-between items-center active:scale-[0.98] transition-transform">
                         <div class="flex items-center gap-4">
                             <div class="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-700 font-semibold text-lg border border-indigo-100">
-                                <?= htmlspecialchars($r['room_number']) ?>
+                                <?= htmlspecialchars((string)($r['room_number'])) ?>
                             </div>
                             <div>
-                                <span class="text-sm font-bold text-brand-900 block">Room <?= htmlspecialchars($r['room_number']) ?></span>
-                                <span class="text-xs font-medium text-brand-900/70 bg-brand-100 px-2 py-0.5 rounded mt-1 inline-block"><?= htmlspecialchars($r['category_name']) ?></span>
+                                <span class="text-sm font-bold text-brand-900 block">Room <?= htmlspecialchars((string)($r['room_number'])) ?></span>
+                                <span class="text-xs font-medium text-brand-900/70 bg-brand-100 px-2 py-0.5 rounded mt-1 inline-block"><?= htmlspecialchars((string)($r['category_name'])) ?></span>
                                 <div class="mt-2.5">
                                     <label class="relative inline-flex items-center cursor-pointer select-none">
-                                        <input type="checkbox" class="sr-only peer" <?= $r['state'] === 'out_of_order' ? 'checked' : '' ?> onchange="toggleRoomOOO(<?= $r['id'] ?>, this.checked)">
+                                        <input type="checkbox" class="sr-only peer" <?= htmlspecialchars((string)($r['state'] === 'out_of_order' ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> onchange="toggleRoomOOO(<?= htmlspecialchars((string)($r['id']), ENT_QUOTES, 'UTF-8') ?>, this.checked)">
                                         <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-500"></div>
                                         <span class="ml-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Out of Order</span>
                                     </label>
@@ -264,10 +310,10 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             </div>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick="openModal('roomModal', {id: <?= $r['id'] ?>, num: '<?= addslashes($r['room_number']) ?>', cat: <?= $r['category_id'] ?>})" class="w-12 h-12 rounded-full bg-brand-50 text-brand-900 flex items-center justify-center hover:bg-brand-100">
+                            <button onclick="openModal('roomModal', {id: <?= htmlspecialchars((string)($r['id']), ENT_QUOTES, 'UTF-8') ?>, num: '<?= htmlspecialchars((string)(addslashes($r['room_number'])), ENT_QUOTES, 'UTF-8') ?>', cat: <?= htmlspecialchars((string)($r['category_id']), ENT_QUOTES, 'UTF-8') ?>})" class="w-12 h-12 rounded-full bg-brand-50 text-brand-900 flex items-center justify-center hover:bg-brand-100">
                                 <i class="ph ph-pencil-simple text-lg"></i>
                             </button>
-                            <button onclick="deleteItem('room', <?= $r['id'] ?>, '<?= addslashes($r['room_number']) ?>')" class="w-12 h-12 rounded-full bg-error-50 text-error-600 flex items-center justify-center hover:bg-error-100">
+                            <button onclick="deleteItem('room', <?= htmlspecialchars((string)($r['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($r['room_number'])), ENT_QUOTES, 'UTF-8') ?>')" class="w-12 h-12 rounded-full bg-error-50 text-error-600 flex items-center justify-center hover:bg-error-100">
                                 <i class="ph ph-trash text-lg"></i>
                             </button>
                         </div>
@@ -308,20 +354,20 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                 <i class="ph ph-clock"></i>
                             </div>
                             <div>
-                                <span class="font-semibold text-brand-900 text-lg block"><?= htmlspecialchars($cat['name']) ?></span>
+                                <span class="font-semibold text-brand-900 text-lg block"><?= htmlspecialchars((string)($cat['name'])) ?></span>
                                 <div class="flex flex-wrap gap-1.5 mt-2">
                                     <?php if (empty($catPlans)): ?>
                                         <span class="text-[10px] font-bold text-orange-500 bg-orange-50 px-2 py-0.5 rounded border border-orange-100/50">No Rates Set</span>
                                     <?php else: ?>
                                         <?php foreach (array_keys($catPlans) as $planName): ?>
-                                            <span class="text-[10px] font-bold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-200"><?= htmlspecialchars($planName) ?></span>
+                                            <span class="text-[10px] font-bold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-200"><?= htmlspecialchars((string)($planName)) ?></span>
                                         <?php endforeach; ?>
                                     <?php endif; ?>
                                 </div>
                             </div>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick='openBulkRateModal(<?= htmlspecialchars($jsonData, ENT_QUOTES, "UTF-8") ?>)' class="bg-brand-accentLight text-brand-accent px-4 py-2 rounded-xl text-sm font-bold hover:bg-brand-accentLight active:scale-95 transition-all flex items-center gap-2">
+                            <button onclick='openBulkRateModal(<?= htmlspecialchars((string)($jsonData), ENT_QUOTES, "UTF-8") ?>)' class="bg-brand-accentLight text-brand-accent px-4 py-2 rounded-xl text-sm font-bold hover:bg-brand-accentLight active:scale-95 transition-all flex items-center gap-2">
                                 <i class="ph ph-pencil-simple text-lg"></i> Manage Rates
                             </button>
                         </div>
@@ -346,15 +392,15 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Key ID</label>
-                                <input type="text" name="RAZORPAY_KEY_ID" value="<?= htmlspecialchars(defined('RAZORPAY_KEY_ID') ? RAZORPAY_KEY_ID : '') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <input type="text" name="RAZORPAY_KEY_ID" value="<?= htmlspecialchars((string)(defined('RAZORPAY_KEY_ID') ? RAZORPAY_KEY_ID : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Key Secret</label>
-                                <input type="text" name="RAZORPAY_KEY_SECRET" value="<?= htmlspecialchars(defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : '') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <input type="text" name="RAZORPAY_KEY_SECRET" value="<?= htmlspecialchars((string)(defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Webhook Secret</label>
-                                <input type="text" name="RAZORPAY_WEBHOOK_SECRET" value="<?= htmlspecialchars(defined('RAZORPAY_WEBHOOK_SECRET') ? RAZORPAY_WEBHOOK_SECRET : '') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <input type="text" name="RAZORPAY_WEBHOOK_SECRET" value="<?= htmlspecialchars((string)(defined('RAZORPAY_WEBHOOK_SECRET') ? RAZORPAY_WEBHOOK_SECRET : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
                             </div>
                         </div>
                     </div>
@@ -395,12 +441,12 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                     <span class="text-sm font-bold text-brand-800">Enable Google Sheets Auto-Sync</span>
                                     <p class="text-xs text-brand-900/70">Automatically sync bookings, payments, and expenses as they are recorded.</p>
                                 </div>
-                                <input type="hidden" name="GOOGLE_SHEETS_ENABLED" id="GOOGLE_SHEETS_ENABLED" value="<?= (defined('GOOGLE_SHEETS_ENABLED') && (GOOGLE_SHEETS_ENABLED === 'true' || GOOGLE_SHEETS_ENABLED === true || GOOGLE_SHEETS_ENABLED === '1')) ? 'true' : 'false' ?>">
-                                <input type="checkbox" id="gs_enable_checkbox" <?= (defined('GOOGLE_SHEETS_ENABLED') && (GOOGLE_SHEETS_ENABLED === 'true' || GOOGLE_SHEETS_ENABLED === true || GOOGLE_SHEETS_ENABLED === '1')) ? 'checked' : '' ?> onchange="document.getElementById('GOOGLE_SHEETS_ENABLED').value = this.checked ? 'true' : 'false'" class="w-5 h-5 rounded border-brand-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer">
+                                <input type="hidden" name="GOOGLE_SHEETS_ENABLED" id="GOOGLE_SHEETS_ENABLED" value="<?= htmlspecialchars((string)((defined('GOOGLE_SHEETS_ENABLED') && (GOOGLE_SHEETS_ENABLED === 'true' || GOOGLE_SHEETS_ENABLED === true || GOOGLE_SHEETS_ENABLED === '1')) ? 'true' : 'false'), ENT_QUOTES, 'UTF-8') ?>">
+                                <input type="checkbox" id="gs_enable_checkbox" <?= htmlspecialchars((string)((defined('GOOGLE_SHEETS_ENABLED') && (GOOGLE_SHEETS_ENABLED === 'true' || GOOGLE_SHEETS_ENABLED === true || GOOGLE_SHEETS_ENABLED === '1')) ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> onchange="document.getElementById('GOOGLE_SHEETS_ENABLED').value = this.checked ? 'true' : 'false'" class="w-5 h-5 rounded border-brand-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Google Apps Script Webhook URL</label>
-                                <input type="text" id="gs_webhook_url" name="GOOGLE_SHEETS_WEBHOOK_URL" value="<?= htmlspecialchars(defined('GOOGLE_SHEETS_WEBHOOK_URL') ? GOOGLE_SHEETS_WEBHOOK_URL : '') ?>" placeholder="https://script.google.com/macros/s/.../exec" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <input type="text" id="gs_webhook_url" name="GOOGLE_SHEETS_WEBHOOK_URL" value="<?= htmlspecialchars((string)(defined('GOOGLE_SHEETS_WEBHOOK_URL') ? GOOGLE_SHEETS_WEBHOOK_URL : '')) ?>" placeholder="https://script.google.com/macros/s/.../exec" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
                             </div>
                             <div class="pt-2 border-t border-brand-100">
                                 <p class="text-xs font-bold text-brand-900/70 uppercase tracking-widest mb-2">Manual Bulk Resync:</p>
@@ -438,12 +484,27 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         </div>
                         <div class="space-y-4">
                             <div>
-                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Bot Token</label>
-                                <input type="text" name="TELEGRAM_BOT_TOKEN" value="<?= htmlspecialchars(defined('TELEGRAM_BOT_TOKEN') ? TELEGRAM_BOT_TOKEN : '') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <h3 class="text-xs font-bold text-brand-900 bg-brand-100 px-3 py-1.5 rounded inline-block mb-1 mt-2">Notifier Bot (Outbound)</h3>
                             </div>
                             <div>
-                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Chat ID</label>
-                                <input type="text" name="TELEGRAM_CHAT_ID" value="<?= htmlspecialchars(defined('TELEGRAM_CHAT_ID') ? TELEGRAM_CHAT_ID : '') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Bot Token</label>
+                                <input type="text" name="TELEGRAM_BOT_TOKEN" value="<?= htmlspecialchars((string)(defined('TELEGRAM_BOT_TOKEN') ? TELEGRAM_BOT_TOKEN : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Chat IDs (Comma separated)</label>
+                                <input type="text" name="TELEGRAM_CHAT_ID" value="<?= htmlspecialchars((string)(defined('TELEGRAM_CHAT_ID') ? TELEGRAM_CHAT_ID : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                            </div>
+                            <div class="pt-4 border-t border-brand-100">
+                                <h3 class="text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1.5 rounded inline-block mb-1 mt-1">Operations Bot (Two-Way Interactive)</h3>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Operations Bot Token</label>
+                                <input type="text" name="TELEGRAM_OPERATIONS_BOT_TOKEN" value="<?= htmlspecialchars((string)(defined('TELEGRAM_OPERATIONS_BOT_TOKEN') ? TELEGRAM_OPERATIONS_BOT_TOKEN : '')) ?>" class="w-full bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Authorized Chat IDs (Comma separated)</label>
+                                <input type="text" name="TELEGRAM_OPERATIONS_CHAT_IDS" value="<?= htmlspecialchars((string)(defined('TELEGRAM_OPERATIONS_CHAT_IDS') ? TELEGRAM_OPERATIONS_CHAT_IDS : '')) ?>" placeholder="e.g. 12345678,87654321" class="w-full bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono">
+                                <p class="text-[9px] text-slate-500 mt-1 font-semibold">Only these IDs can interact with the operations menu. Don't forget to set the webhook to `/api/telegram_webhook.php`.</p>
                             </div>
                         </div>
 
@@ -465,24 +526,24 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             ];
                             ?>
                             <div class="space-y-2" id="notify-events-wrap">
-                                <input type="hidden" id="notify_events_json" name="NOTIFY_EVENTS" value="<?= htmlspecialchars(defined('NOTIFY_EVENTS') ? NOTIFY_EVENTS : '{}') ?>">
+                                <input type="hidden" id="notify_events_json" name="NOTIFY_EVENTS" value="<?= htmlspecialchars((string)(defined('NOTIFY_EVENTS') ? NOTIFY_EVENTS : '{}')) ?>">
                                 <?php foreach ($eventLabels as $key => [$label, $icon, $desc]): ?>
                                 <div class="bg-brand-50 rounded-xl border border-brand-200/50 p-3 hover:border-brand-300 transition-all">
                                     <label class="flex items-center gap-3 cursor-pointer">
-                                        <input type="checkbox" data-event="<?= $key ?>" <?= (!empty($notifyEvents[$key])) ? 'checked' : '' ?> onchange="syncNotifyEvents()" class="w-5 h-5 rounded border-brand-300 text-sky-600 focus:ring-sky-500">
+                                        <input type="checkbox" data-event="<?= htmlspecialchars((string)($key), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)((!empty($notifyEvents[$key])) ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> onchange="syncNotifyEvents()" class="w-5 h-5 rounded border-brand-300 text-sky-600 focus:ring-sky-500">
                                         <div class="flex-1 min-w-0">
                                             <div class="flex items-center gap-2">
-                                                <i class="ph <?= $icon ?> text-sm text-brand-400"></i>
-                                                <span class="text-sm font-bold text-brand-800"><?= $label ?></span>
+                                                <i class="ph <?= htmlspecialchars((string)($icon), ENT_QUOTES, 'UTF-8') ?> text-sm text-brand-400"></i>
+                                                <span class="text-sm font-bold text-brand-800"><?= htmlspecialchars((string)($label), ENT_QUOTES, 'UTF-8') ?></span>
                                             </div>
-                                            <p class="text-[11px] text-brand-900/70 mt-0.5"><?= $desc ?></p>
+                                            <p class="text-[11px] text-brand-900/70 mt-0.5"><?= htmlspecialchars((string)($desc), ENT_QUOTES, 'UTF-8') ?></p>
                                         </div>
-                                        <button type="button" onclick="toggleTemplateEdit('<?= $key ?>')" class="text-xs font-bold text-brand-500 hover:text-brand-900 flex items-center gap-1 select-none">
+                                        <button type="button" onclick="toggleTemplateEdit('<?= htmlspecialchars((string)($key), ENT_QUOTES, 'UTF-8') ?>')" class="text-xs font-bold text-brand-500 hover:text-brand-900 flex items-center gap-1 select-none">
                                             <i class="ph ph-note-pencil"></i> Customize
                                         </button>
                                     </label>
                                     
-                                    <div id="tg-edit-container-<?= $key ?>" class="hidden mt-3 pt-3 border-t border-brand-100/50 space-y-2">
+                                    <div id="tg-edit-container-<?= htmlspecialchars((string)($key), ENT_QUOTES, 'UTF-8') ?>" class="hidden mt-3 pt-3 border-t border-brand-100/50 space-y-2">
                                         <label class="block text-[10px] font-bold text-brand-400 uppercase tracking-wider">Custom Message Template (Telegram)</label>
                                         <?php
                                         $defaultTgs = [
@@ -498,7 +559,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                         ];
                                         $savedTgTemplate = defined('TG_TEMPLATE_' . strtoupper($key)) ? constant('TG_TEMPLATE_' . strtoupper($key)) : ($defaultTgs[$key] ?? '');
                                         ?>
-                                        <textarea name="TG_TEMPLATE_<?= strtoupper($key) ?>" rows="3" class="w-full bg-white border border-brand-200 p-2.5 rounded-xl text-xs font-mono outline-none focus:border-brand-900"><?= htmlspecialchars($savedTgTemplate) ?></textarea>
+                                        <textarea name="TG_TEMPLATE_<?= htmlspecialchars((string)(strtoupper($key)), ENT_QUOTES, 'UTF-8') ?>" rows="3" class="w-full bg-white border border-brand-200 p-2.5 rounded-xl text-xs font-mono outline-none focus:border-brand-900"><?= htmlspecialchars((string)($savedTgTemplate)) ?></textarea>
                                         <p class="text-[9px] text-slate-400 font-semibold leading-tight">Placeholders: <code>{guest_name}</code>, <code>{room_number}</code>, <code>{check_in_date}</code>, <code>{check_out_date}</code>, <code>{total_amount}</code>, <code>{paid_amount}</code>, <code>{balance_amount}</code>, <code>{amount}</code>, <code>{method}</code>, <code>{ref}</code>, <code>{description}</code></p>
                                     </div>
                                 </div>
@@ -536,20 +597,42 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                     <span class="text-sm font-bold text-brand-800">Enable Email Reports</span>
                                     <p class="text-xs text-brand-900/70">Allow the system to dispatch automated reports.</p>
                                 </div>
-                                <input type="hidden" name="EMAIL_REPORTS_ACTIVE" id="EMAIL_REPORTS_ACTIVE" value="<?= $emailConfig['is_active'] ? '1' : '0' ?>">
-                                <input type="checkbox" onchange="document.getElementById('EMAIL_REPORTS_ACTIVE').value = this.checked ? '1' : '0'" <?= $emailConfig['is_active'] ? 'checked' : '' ?> class="w-5 h-5 rounded border-brand-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+                                <input type="hidden" name="EMAIL_REPORTS_ACTIVE" id="EMAIL_REPORTS_ACTIVE" value="<?= htmlspecialchars((string)($emailConfig['is_active'] ? '1' : '0'), ENT_QUOTES, 'UTF-8') ?>">
+                                <input type="checkbox" onchange="document.getElementById('EMAIL_REPORTS_ACTIVE').value = this.checked ? '1' : '0'" <?= htmlspecialchars((string)($emailConfig['is_active'] ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-5 h-5 rounded border-brand-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Daily Audit Emails (Comma separated)</label>
-                                <input type="text" name="DAILY_AUDIT_EMAILS" value="<?= htmlspecialchars((string)$emailConfig['daily_audit_emails']) ?>" placeholder="admin@hotel.com, manager@hotel.com" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-brand-900 transition-all font-mono">
+                                <input type="text" name="DAILY_AUDIT_EMAILS" value="<?= htmlspecialchars((string)($emailConfig['daily_audit_emails'])) ?>" placeholder="admin@hotel.com, manager@hotel.com" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-brand-900 transition-all font-mono">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Weekly Revenue Emails (Comma separated)</label>
-                                <input type="text" name="WEEKLY_REVENUE_EMAILS" value="<?= htmlspecialchars((string)$emailConfig['weekly_revenue_emails']) ?>" placeholder="owner@hotel.com, accountant@hotel.com" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-brand-900 transition-all font-mono">
+                                <input type="text" name="WEEKLY_REVENUE_EMAILS" value="<?= htmlspecialchars((string)($emailConfig['weekly_revenue_emails'])) ?>" placeholder="owner@hotel.com, accountant@hotel.com" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-brand-900 transition-all font-mono">
                             </div>
                         </div>
                     </div>
 
+                    <!-- Finance Categories Configuration -->
+                    <div class="card-minimal p-6 mb-6">
+                        <div class="flex items-center gap-3 mb-6 border-b border-brand-100 pb-4">
+                            <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                <i class="ph ph-currency-circle-dollar text-2xl"></i>
+                            </div>
+                            <div class="flex-1">
+                                <h2 class="font-bold text-brand-900">Finance Categories</h2>
+                                <p class="text-xs text-brand-900/70">Custom Income & Expense Categories for Ledger</p>
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Income Categories (Comma separated)</label>
+                                <input type="text" name="FINANCE_INCOME_CATEGORIES" value="<?= htmlspecialchars((string)(defined('FINANCE_INCOME_CATEGORIES') ? FINANCE_INCOME_CATEGORIES : 'F&B, Laundry, POS, Misc, Event, Transport')) ?>" placeholder="F&B, Laundry, POS, Misc, Event, Transport" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-brand-900 transition-all font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Expense Categories (Comma separated)</label>
+                                <input type="text" name="FINANCE_EXPENSE_CATEGORIES" value="<?= htmlspecialchars((string)(defined('FINANCE_EXPENSE_CATEGORIES') ? FINANCE_EXPENSE_CATEGORIES : 'Salaries, Utility Bills, F&B Supplies, Maintenance, Refunds, Marketing, Misc')) ?>" placeholder="Salaries, Utility Bills, F&B Supplies, Maintenance, Refunds, Marketing, Misc" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-brand-900 transition-all font-mono">
+                            </div>
+                        </div>
+                    </div>
 
                     <!-- Google Vision API -->
                     <div class="card-minimal p-6">
@@ -565,7 +648,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">API Key</label>
-                                <input type="password" name="GOOGLE_VISION_API_KEY" value="<?= htmlspecialchars(getenv('GOOGLE_VISION_API_KEY') ?: '') ?>" placeholder="AIzaSy..." class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-brand-900">
+                                <input type="password" name="GOOGLE_VISION_API_KEY" value="<?= htmlspecialchars((string)(getenv('GOOGLE_VISION_API_KEY') ?: '')) ?>" placeholder="AIzaSy..." class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-brand-900">
                                 <p class="text-[10px] text-brand-900/50 mt-1">Get from Google Cloud Console > APIs > Vision API > Credentials</p>
                             </div>
                         </div>
@@ -596,6 +679,23 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         </div>
 
                         <div class="space-y-5">
+                            
+                            <!-- Direct Portal Link -->
+                            <div class="p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
+                                <div class="flex justify-between items-center flex-wrap gap-4">
+                                    <div>
+                                        <span class="text-sm font-bold text-indigo-900 block">Direct Portal Link</span>
+                                        <p class="text-[11px] text-indigo-700">Share this link with your guests to log in directly to your property.</p>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <?php $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://"; ?>
+                                        <input type="text" readonly value="<?= htmlspecialchars($protocol . $_SERVER['HTTP_HOST'] . '/guest-login?hotelId=' . $propertyId, ENT_QUOTES, 'UTF-8') ?>" class="bg-white border border-indigo-200 px-3 py-2 rounded-lg text-xs font-mono text-indigo-900 w-64 focus:outline-none" onclick="this.select()">
+                                        <button type="button" onclick="navigator.clipboard.writeText('<?= htmlspecialchars($protocol . $_SERVER['HTTP_HOST'] . '/guest-login?hotelId=' . $propertyId, ENT_QUOTES, 'UTF-8') ?>'); alert('Copied to clipboard!')" class="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition" title="Copy Link">
+                                            <i class="ph ph-copy"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                             <!-- Loyalty Settings -->
                             <div class="flex items-center justify-between p-4 bg-brand-50 rounded-xl border border-brand-200/50">
                                 <div>
@@ -603,18 +703,18 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                     <p class="text-[11px] text-slate-500">Classify guests into tiers (Silver, Gold, Platinum) with dynamic badges.</p>
                                 </div>
                                 <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="portal_loyalty_enabled" <?= $loyaltyEnabled ? 'checked' : '' ?> class="sr-only peer">
+                                    <input type="checkbox" id="portal_loyalty_enabled" <?= htmlspecialchars((string)($loyaltyEnabled ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="sr-only peer">
                                     <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
                             </div>
                             <div class="pl-4 border-l-2 border-brand-200 grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider">Gold Tier Min. Stays</label>
-                                    <input type="number" id="portal_loyalty_gold" value="<?= $loyaltyGold ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
+                                    <input type="number" id="portal_loyalty_gold" value="<?= htmlspecialchars((string)($loyaltyGold), ENT_QUOTES, 'UTF-8') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider">Platinum Tier Min. Stays</label>
-                                    <input type="number" id="portal_loyalty_platinum" value="<?= $loyaltyPlatinum ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
+                                    <input type="number" id="portal_loyalty_platinum" value="<?= htmlspecialchars((string)($loyaltyPlatinum), ENT_QUOTES, 'UTF-8') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
                                 </div>
                             </div>
 
@@ -625,16 +725,16 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                     <p class="text-[11px] text-slate-500">Allow guests to check-in online prior to their physical arrival.</p>
                                 </div>
                                 <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="portal_pre_arrival_enabled" <?= $preArrivalEnabled ? 'checked' : '' ?> class="sr-only peer">
+                                    <input type="checkbox" id="portal_pre_arrival_enabled" <?= htmlspecialchars((string)($preArrivalEnabled ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="sr-only peer">
                                     <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
                             </div>
                             <div class="pl-4 border-l-2 border-brand-200 space-y-2">
                                 <label class="flex items-center gap-2 text-xs font-semibold text-brand-800">
-                                    <input type="checkbox" id="portal_pre_arrival_signature" <?= $preArrivalSignature ? 'checked' : '' ?>> Require Digital Signature
+                                    <input type="checkbox" id="portal_pre_arrival_signature" <?= htmlspecialchars((string)($preArrivalSignature ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?>> Require Digital Signature
                                 </label>
                                 <label class="flex items-center gap-2 text-xs font-semibold text-brand-800">
-                                    <input type="checkbox" id="portal_pre_arrival_doc" <?= $preArrivalDoc ? 'checked' : '' ?>> Require Government ID Upload
+                                    <input type="checkbox" id="portal_pre_arrival_doc" <?= htmlspecialchars((string)($preArrivalDoc ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?>> Require Government ID Upload
                                 </label>
                             </div>
 
@@ -645,7 +745,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                     <p class="text-[11px] text-slate-500">Allow guests to buy upgrades/packages directly in the portal.</p>
                                 </div>
                                 <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="portal_upsell_enabled" <?= $upsellEnabled ? 'checked' : '' ?> class="sr-only peer">
+                                    <input type="checkbox" id="portal_upsell_enabled" <?= htmlspecialchars((string)($upsellEnabled ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="sr-only peer">
                                     <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
                             </div>
@@ -653,16 +753,28 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             <div class="pl-4 border-l-2 border-brand-200 grid grid-cols-3 gap-4">
                                 <div>
                                     <label class="block text-[10px] font-bold text-brand-900 uppercase tracking-wider">Early/Late Check Fee</label>
-                                    <input type="number" step="0.01" id="portal_early_late_fee" value="<?= number_format($earlyLateFee, 2, '.', '') ?>" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl text-sm outline-none font-mono">
+                                    <input type="number" step="0.01" id="portal_early_late_fee" value="<?= htmlspecialchars((string)(number_format($earlyLateFee, 2, '.', '')), ENT_QUOTES, 'UTF-8') ?>" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl text-sm outline-none font-mono">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-bold text-brand-900 uppercase tracking-wider">Breakfast Buffet Fee</label>
-                                    <input type="number" step="0.01" id="portal_upsell_breakfast_price" value="<?= number_format($upsellBreakfastPrice, 2, '.', '') ?>" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl text-sm outline-none font-mono">
+                                    <input type="number" step="0.01" id="portal_upsell_breakfast_price" value="<?= htmlspecialchars((string)(number_format($upsellBreakfastPrice, 2, '.', '')), ENT_QUOTES, 'UTF-8') ?>" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl text-sm outline-none font-mono">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-bold text-brand-900 uppercase tracking-wider">Airport Cab Transfer</label>
-                                    <input type="number" step="0.01" id="portal_upsell_transfer_price" value="<?= number_format($upsellTransferPrice, 2, '.', '') ?>" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl text-sm outline-none font-mono">
+                                    <input type="number" step="0.01" id="portal_upsell_transfer_price" value="<?= htmlspecialchars((string)(number_format($upsellTransferPrice, 2, '.', '')), ENT_QUOTES, 'UTF-8') ?>" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl text-sm outline-none font-mono">
                                 </div>
+                            </div>
+
+                            <!-- POS Toggle -->
+                            <div class="flex items-center justify-between p-4 bg-brand-50 rounded-xl border border-brand-200/50">
+                                <div>
+                                    <span class="text-sm font-bold text-brand-800 block">Enable Guest Portal POS</span>
+                                    <p class="text-[11px] text-slate-500">Allow guests to order food, beverages, and items from the POS menu.</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="portal_pos_enabled" <?= htmlspecialchars((string)($posEnabled ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="sr-only peer">
+                                    <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                </label>
                             </div>
 
                             <!-- WhatsApp OTP Toggle -->
@@ -672,7 +784,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                     <p class="text-[11px] text-slate-500">Send verification code to guest phone when searching by mobile.</p>
                                 </div>
                                 <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="portal_otp_enabled" <?= $otpEnabled ? 'checked' : '' ?> class="sr-only peer">
+                                    <input type="checkbox" id="portal_otp_enabled" <?= htmlspecialchars((string)($otpEnabled ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="sr-only peer">
                                     <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
                             </div>
@@ -684,7 +796,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                     <p class="text-[11px] text-slate-500">Guests can request room cleaning and service directly from their browser.</p>
                                 </div>
                                 <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="portal_housekeeping_enabled" <?= $housekeepingEnabled ? 'checked' : '' ?> class="sr-only peer">
+                                    <input type="checkbox" id="portal_housekeeping_enabled" <?= htmlspecialchars((string)($housekeepingEnabled ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="sr-only peer">
                                     <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
                             </div>
@@ -696,10 +808,44 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                     <p class="text-[11px] text-slate-500">Allow guests to mark their checkout online (if balance is zero).</p>
                                 </div>
                                 <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="portal_self_checkout_enabled" <?= $selfCheckoutEnabled ? 'checked' : '' ?> class="sr-only peer">
+                                    <input type="checkbox" id="portal_self_checkout_enabled" <?= htmlspecialchars((string)($selfCheckoutEnabled ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> class="sr-only peer">
                                     <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
                             </div>
+
+                            <!-- === PROPERTY INFO FOR GUEST PORTAL === -->
+                            <div class="pt-4 mt-2 border-t-2 border-dashed border-brand-200">
+                                <div class="flex items-center gap-2 mb-4">
+                                    <div class="w-8 h-8 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center">
+                                        <i class="ph ph-info text-lg"></i>
+                                    </div>
+                                    <div>
+                                        <span class="text-sm font-bold text-brand-800 block">Guest Portal Info Cards</span>
+                                        <p class="text-[11px] text-slate-500">Displayed on the guest's portal home screen</p>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider mb-1">WiFi Network (SSID)</label>
+                                        <input type="text" id="portal_wifi_ssid" value="<?= htmlspecialchars((string)($portalWifiSsid)) ?>" placeholder="Hotel_Guest_WiFi" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono focus:border-indigo-400 focus:bg-white transition">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider mb-1">WiFi Password</label>
+                                        <input type="text" id="portal_wifi_password" value="<?= htmlspecialchars((string)($portalWifiPassword)) ?>" placeholder="Welcome2026" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono focus:border-indigo-400 focus:bg-white transition">
+                                    </div>
+                                </div>
+                                <div class="mt-4">
+                                    <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider mb-1">Help Desk / WhatsApp Number</label>
+                                    <input type="text" id="portal_help_desk_no" value="<?= htmlspecialchars((string)($portalHelpDeskNo)) ?>" placeholder="+91 98765 43210" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono focus:border-indigo-400 focus:bg-white transition">
+                                    <p class="text-[10px] text-slate-400 mt-1">Guests can tap to WhatsApp/call this number for help</p>
+                                </div>
+                                <div class="mt-4">
+                                    <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider mb-1">Local Attractions / Sightseeing</label>
+                                    <textarea id="portal_local_attractions" rows="4" placeholder="1. Taj Mahal - 5 km&#10;2. City Museum - 2 km&#10;3. Local Market - 1 km" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono focus:border-indigo-400 focus:bg-white transition resize-none"><?= htmlspecialchars((string)($portalLocalAttractions)) ?></textarea>
+                                    <p class="text-[10px] text-slate-400 mt-1">One attraction per line — displayed as a visual list for guests</p>
+                                </div>
+                            </div>
+
                         </div>
                     </div>
 
@@ -725,7 +871,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         <div id="pmList" class="space-y-3">
                             <?php foreach($paymentMethods as $pm): ?>
                                 <div class="flex items-center gap-2">
-                                    <input type="text" name="payment_methods[]" value="<?= htmlspecialchars($pm) ?>" required class="flex-1 bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-blue-500 font-bold text-brand-900">
+                                    <input type="text" name="payment_methods[]" value="<?= htmlspecialchars((string)($pm)) ?>" required class="flex-1 bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-blue-500 font-bold text-brand-900">
                                     <button type="button" onclick="this.parentElement.remove()" class="w-11 h-11 flex-shrink-0 bg-error-50 text-error-600 rounded-xl flex items-center justify-center hover:bg-error-100"><i class="ph ph-trash text-lg"></i></button>
                                 </div>
                             <?php endforeach; ?>
@@ -752,7 +898,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         <div class="flex items-center justify-between">
                             <h3 class="font-bold text-slate-800">Razorpay</h3>
                             <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" name="is_active" class="sr-only peer" <?= ($pgConfigs['razorpay']['is_active'] ?? 1) ? 'checked' : '' ?>>
+                                <input type="checkbox" name="is_active" class="sr-only peer" <?= htmlspecialchars((string)(($pgConfigs['razorpay']['is_active'] ?? 1) ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?>>
                                 <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
                                 <span class="ml-2 text-xs font-bold text-slate-600 uppercase tracking-wide">Active</span>
                             </label>
@@ -761,17 +907,17 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             <div>
                                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Mode</label>
                                 <select name="mode" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
-                                    <option value="test" <?= ($pgConfigs['razorpay']['mode'] ?? 'test') === 'test' ? 'selected' : '' ?>>Test</option>
-                                    <option value="live" <?= ($pgConfigs['razorpay']['mode'] ?? 'test') === 'live' ? 'selected' : '' ?>>Live</option>
+                                    <option value="test" <?= htmlspecialchars((string)(($pgConfigs['razorpay']['mode'] ?? 'test') === 'test' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Test</option>
+                                    <option value="live" <?= htmlspecialchars((string)(($pgConfigs['razorpay']['mode'] ?? 'test') === 'live' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Live</option>
                                 </select>
                             </div>
                             <div>
                                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Key ID</label>
-                                <input type="text" name="key_id" value="<?= htmlspecialchars($pgConfigs['razorpay']['key_id'] ?? '') ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
+                                <input type="text" name="key_id" value="<?= htmlspecialchars((string)($pgConfigs['razorpay']['key_id'] ?? '')) ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
                             </div>
                             <div class="col-span-2">
                                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Key Secret</label>
-                                <input type="password" name="key_secret" value="<?= htmlspecialchars($pgConfigs['razorpay']['key_secret'] ?? '') ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
+                                <input type="password" name="key_secret" value="<?= htmlspecialchars((string)($pgConfigs['razorpay']['key_secret'] ?? '')) ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
                             </div>
                         </div>
                         <button type="submit" class="bg-indigo-50 text-indigo-700 font-bold px-4 py-2 rounded-lg text-sm hover:bg-indigo-100">Save Razorpay Config</button>
@@ -781,7 +927,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         <div class="flex items-center justify-between">
                             <h3 class="font-bold text-slate-800">PhonePe</h3>
                             <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" name="is_active" class="sr-only peer" <?= ($pgConfigs['phonepe']['is_active'] ?? 1) ? 'checked' : '' ?>>
+                                <input type="checkbox" name="is_active" class="sr-only peer" <?= htmlspecialchars((string)(($pgConfigs['phonepe']['is_active'] ?? 1) ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?>>
                                 <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
                                 <span class="ml-2 text-xs font-bold text-slate-600 uppercase tracking-wide">Active</span>
                             </label>
@@ -793,21 +939,21 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             <div>
                                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Mode</label>
                                 <select name="mode" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
-                                    <option value="test" <?= ($pgConfigs['phonepe']['mode'] ?? 'test') === 'test' ? 'selected' : '' ?>>Test (UAT)</option>
-                                    <option value="live" <?= ($pgConfigs['phonepe']['mode'] ?? 'test') === 'live' ? 'selected' : '' ?>>Live</option>
+                                    <option value="test" <?= htmlspecialchars((string)(($pgConfigs['phonepe']['mode'] ?? 'test') === 'test' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Test (UAT)</option>
+                                    <option value="live" <?= htmlspecialchars((string)(($pgConfigs['phonepe']['mode'] ?? 'test') === 'live' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Live</option>
                                 </select>
                             </div>
                             <div>
                                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Merchant ID</label>
-                                <input type="text" name="key_id" value="<?= htmlspecialchars($pgConfigs['phonepe']['key_id'] ?? '') ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
+                                <input type="text" name="key_id" value="<?= htmlspecialchars((string)($pgConfigs['phonepe']['key_id'] ?? '')) ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
                             </div>
                             <div>
                                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Salt Key</label>
-                                <input type="password" name="key_secret" value="<?= htmlspecialchars($pgConfigs['phonepe']['key_secret'] ?? '') ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
+                                <input type="password" name="key_secret" value="<?= htmlspecialchars((string)($pgConfigs['phonepe']['key_secret'] ?? '')) ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
                             </div>
                             <div>
                                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Salt Index</label>
-                                <input type="number" name="salt_index" value="<?= htmlspecialchars($peExtra['salt_index'] ?? '1') ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
+                                <input type="number" name="salt_index" value="<?= htmlspecialchars((string)($peExtra['salt_index'] ?? '1')) ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
                             </div>
                         </div>
                         <button type="submit" class="bg-indigo-50 text-indigo-700 font-bold px-4 py-2 rounded-lg text-sm hover:bg-indigo-100">Save PhonePe Config</button>
@@ -817,7 +963,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
 
             <div id="content-staff" class="pb-24" style="display:none">
                 <div class="flex items-center justify-between mb-4">
-                    <p class="text-sm font-bold text-brand-900/70"><?= count($staffUsers) ?> user(s)</p>
+                    <p class="text-sm font-bold text-brand-900/70"><?= htmlspecialchars((string)(count($staffUsers)), ENT_QUOTES, 'UTF-8') ?> user(s)</p>
                     <div class="flex items-center gap-2">
                         <button onclick="openInviteModal()" class="text-sm font-bold text-indigo-600 bg-indigo-50 flex items-center gap-1 hover:bg-indigo-100 py-2 px-3 rounded-lg transition-colors"><i class="ph ph-envelope-simple-open"></i> Invite via Link</button>
                         <button onclick="openStaffModal()" class="text-sm font-bold text-brand-accent flex items-center gap-1 hover:bg-brand-accentLight py-2 px-3 rounded-lg transition-colors"><i class="ph ph-plus"></i> Add User</button>
@@ -845,13 +991,13 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                     <div class="card-minimal p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <div class="flex items-center gap-3">
                             <div class="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200 shrink-0">
-                                <span class="text-slate-700 font-bold text-sm"><?= htmlspecialchars(strtoupper(substr($su['username'], 0, 1))) ?></span>
+                                <span class="text-slate-700 font-bold text-sm"><?= htmlspecialchars((string)(strtoupper(substr($su['username'], 0, 1)))) ?></span>
                             </div>
                             <div>
                                 <div class="flex items-center gap-2">
-                                    <span class="font-bold text-brand-900"><?= htmlspecialchars($su['username']) ?></span>
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-lg border text-[9px] font-black uppercase <?= $roleBadge ?>">
-                                        <?= ucfirst($suRole) ?>
+                                    <span class="font-bold text-brand-900"><?= htmlspecialchars((string)($su['username'])) ?></span>
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-lg border text-[9px] font-black uppercase <?= htmlspecialchars((string)($roleBadge), ENT_QUOTES, 'UTF-8') ?>">
+                                        <?= htmlspecialchars((string)(ucfirst($suRole)), ENT_QUOTES, 'UTF-8') ?>
                                     </span>
                                     <?php if ($isActive): ?>
                                         <span class="inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Active</span>
@@ -859,9 +1005,9 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                         <span class="inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">Suspended</span>
                                     <?php endif; ?>
                                 </div>
-                                <p class="text-[11px] text-slate-500 font-medium mt-0.5"><?= $permSummary ?></p>
+                                <p class="text-[11px] text-slate-500 font-medium mt-0.5"><?= htmlspecialchars((string)($permSummary), ENT_QUOTES, 'UTF-8') ?></p>
                                 <?php if (isset($su['last_login_at']) && $su['last_login_at']): ?>
-                                    <p class="text-[9px] text-slate-400 font-bold mt-1">Last Login: <?= date('M j, H:i', strtotime($su['last_login_at'])) ?> · IP: <?= htmlspecialchars($su['last_login_ip'] ?? '') ?></p>
+                                    <p class="text-[9px] text-slate-400 font-bold mt-1">Last Login: <?= htmlspecialchars((string)(date('M j, H:i', strtotime($su['last_login_at']))), ENT_QUOTES, 'UTF-8') ?> · IP: <?= htmlspecialchars((string)($su['last_login_ip'] ?? '')) ?></p>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -869,11 +1015,11 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             $staffDropdownValue = (!empty($su['role_id'])) ? 'custom_' . $su['role_id'] : $su['access_level'];
                         ?>
                         <div class="flex gap-2 self-end md:self-auto">
-                            <button onclick="editStaff(<?= $su['id'] ?>, '<?= htmlspecialchars(addslashes($su['username'])) ?>', '<?= htmlspecialchars($staffDropdownValue) ?>', <?= $isActive ? 1 : 0 ?>)" class="w-10 h-10 rounded-full bg-brand-50 text-brand-900 flex items-center justify-center hover:bg-brand-100 transition-colors" title="Edit User">
+                            <button onclick="editStaff(<?= htmlspecialchars((string)($su['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($su['username']))) ?>', '<?= htmlspecialchars((string)($staffDropdownValue)) ?>', <?= htmlspecialchars((string)($isActive ? 1 : 0), ENT_QUOTES, 'UTF-8') ?>)" class="w-10 h-10 rounded-full bg-brand-50 text-brand-900 flex items-center justify-center hover:bg-brand-100 transition-colors" title="Edit User">
                                 <i class="ph ph-pencil-simple text-base"></i>
                             </button>
                             <?php if($su['id'] != $_SESSION['user_id']): ?>
-                            <button onclick="deleteStaff(<?= $su['id'] ?>, '<?= addslashes($su['username']) ?>')" class="w-10 h-10 rounded-full bg-error-50 text-error-600 flex items-center justify-center hover:bg-error-100 transition-colors" title="Suspend User">
+                            <button onclick="deleteStaff(<?= htmlspecialchars((string)($su['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($su['username'])), ENT_QUOTES, 'UTF-8') ?>')" class="w-10 h-10 rounded-full bg-error-50 text-error-600 flex items-center justify-center hover:bg-error-100 transition-colors" title="Suspend User">
                                 <i class="ph ph-trash text-base"></i>
                             </button>
                             <?php endif; ?>
@@ -914,19 +1060,19 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                     
                                     $permCount = count($flatPerms);
                                     
-                                    $jsRoleName = htmlspecialchars(json_encode($crole['name']), ENT_QUOTES, 'UTF-8');
-                                    $jsPerms = htmlspecialchars(json_encode($flatPerms), ENT_QUOTES, 'UTF-8');
+                                    $jsRoleName = htmlspecialchars((string)(json_encode($crole['name'])), ENT_QUOTES, 'UTF-8');
+                                    $jsPerms = htmlspecialchars((string)(json_encode($flatPerms)), ENT_QUOTES, 'UTF-8');
                                 ?>
                                 <div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-all shadow-sm">
                                     <div>
-                                        <h3 class="font-bold text-brand-900 text-base"><?= htmlspecialchars($crole['name']) ?></h3>
-                                        <p class="text-xs font-semibold text-slate-500 mt-0.5"><span class="text-indigo-600 font-bold"><?= $permCount ?></span> permissions assigned</p>
+                                        <h3 class="font-bold text-brand-900 text-base"><?= htmlspecialchars((string)($crole['name'])) ?></h3>
+                                        <p class="text-xs font-semibold text-slate-500 mt-0.5"><span class="text-indigo-600 font-bold"><?= htmlspecialchars((string)($permCount), ENT_QUOTES, 'UTF-8') ?></span> permissions assigned</p>
                                     </div>
                                     <div class="flex gap-2">
-                                        <button data-role-id="<?= (int)$crole['id'] ?>" data-role-name="<?= htmlspecialchars($crole['name']) ?>" data-role-perms="<?= htmlspecialchars(json_encode($flatPerms), ENT_QUOTES, 'UTF-8') ?>" onclick="editRoleFromBtn(this)" class="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-brand-50 hover:text-brand-600 transition-colors" title="Edit Role">
+                                        <button data-role-id="<?= htmlspecialchars((string)((int)$crole['id']), ENT_QUOTES, 'UTF-8') ?>" data-role-name="<?= htmlspecialchars((string)($crole['name'])) ?>" data-role-perms="<?= htmlspecialchars((string)(json_encode($flatPerms)), ENT_QUOTES, 'UTF-8') ?>" onclick="editRoleFromBtn(this)" class="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-brand-50 hover:text-brand-600 transition-colors" title="Edit Role">
                                             <i class="ph ph-pencil-simple text-base"></i>
                                         </button>
-                                        <button onclick="deleteRole(<?= (int)$crole['id'] ?>, <?= $jsRoleName ?>)" class="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-colors" title="Delete Role">
+                                        <button onclick="deleteRole(<?= htmlspecialchars((string)((int)$crole['id']), ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars((string)($jsRoleName), ENT_QUOTES, 'UTF-8') ?>)" class="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-colors" title="Delete Role">
                                             <i class="ph ph-trash text-base"></i>
                                         </button>
                                     </div>
@@ -952,7 +1098,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         <h3 class="font-bold text-sm text-slate-800 mb-2">Deep Cleaning Schedule</h3>
                         <p class="text-xs text-slate-500 mb-3">Set how often a room requires a deep clean (in days).</p>
                         <div class="flex items-center gap-3">
-                            <input type="number" id="deep_clean_frequency" min="0" value="<?= htmlspecialchars(defined('DEEP_CLEAN_FREQ_DAYS') ? DEEP_CLEAN_FREQ_DAYS : '15') ?>" class="w-24 bg-white border border-slate-300 p-2 rounded-lg text-sm font-bold text-slate-900 outline-none focus:border-indigo-500">
+                            <input type="number" id="deep_clean_frequency" min="0" value="<?= htmlspecialchars((string)(defined('DEEP_CLEAN_FREQ_DAYS') ? DEEP_CLEAN_FREQ_DAYS : '15')) ?>" class="w-24 bg-white border border-slate-300 p-2 rounded-lg text-sm font-bold text-slate-900 outline-none focus:border-indigo-500">
                             <span class="text-sm font-semibold text-slate-600">days</span>
                             <button onclick="saveDeepCleanFreq()" class="ml-4 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-4 py-2 rounded-lg transition-all">Save</button>
                         </div>
@@ -982,14 +1128,14 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                 <div class="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-all">
                                     <div class="flex items-center gap-3">
                                         <i class="ph ph-check-square text-indigo-600 text-xl"></i>
-                                        <span class="font-bold text-sm text-slate-800"><?= htmlspecialchars($item['item_text']) ?></span>
+                                        <span class="font-bold text-sm text-slate-800"><?= htmlspecialchars((string)($item['item_text'])) ?></span>
                                         <?php if ((int)$item['is_mandatory'] === 1): ?>
                                             <span class="px-2 py-0.5 rounded text-[9px] font-black bg-rose-50 text-rose-600 border border-rose-200 uppercase">Mandatory</span>
                                         <?php else: ?>
                                             <span class="px-2 py-0.5 rounded text-[9px] font-black bg-slate-100 text-slate-500 border border-slate-200 uppercase">Optional</span>
                                         <?php endif; ?>
                                     </div>
-                                    <button onclick="deleteHkChecklistItem(<?= $item['id'] ?>)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-colors" title="Delete Item">
+                                    <button onclick="deleteHkChecklistItem(<?= htmlspecialchars((string)($item['id']), ENT_QUOTES, 'UTF-8') ?>)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-colors" title="Delete Item">
                                         <i class="ph ph-trash text-sm"></i>
                                     </button>
                                 </div>
@@ -1005,7 +1151,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                 <div class="card-minimal p-4 mb-4 flex items-center gap-4">
                     <div id="preview-logo-wrap">
                         <?php if($currentLogoB64): ?>
-                        <img id="preview-logo" src="data:image/png;base64,<?= htmlspecialchars($currentLogoB64) ?>" class="w-14 h-14 rounded-xl object-cover border border-slate-200" alt="Hotel Logo">
+                        <img id="preview-logo" src="data:image/png;base64,<?= htmlspecialchars((string)($currentLogoB64)) ?>" class="w-14 h-14 rounded-xl object-cover border border-slate-200" alt="Hotel Logo">
                         <?php else: ?>
                         <div id="preview-logo-placeholder" class="w-14 h-14 rounded-xl bg-slate-900 flex items-center justify-center text-white text-xl">
                             <i class="ph ph-buildings"></i>
@@ -1013,7 +1159,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         <?php endif; ?>
                     </div>
                     <div>
-                        <p id="preview-hotel-name" class="text-lg font-extrabold text-slate-900 font-display leading-tight"><?= htmlspecialchars($currentHotelName) ?></p>
+                        <p id="preview-hotel-name" class="text-lg font-extrabold text-slate-900 font-display leading-tight"><?= htmlspecialchars((string)($currentHotelName)) ?></p>
                         <p class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Live Preview</p>
                     </div>
                 </div>
@@ -1035,29 +1181,29 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Property Name</label>
                                 <input type="text" name="PROPERTY_NAME" id="property_name_input"
                                     oninput="document.getElementById('preview-hotel-name').textContent = this.value || 'Your Hotel'"
-                                    value="<?= htmlspecialchars($currentHotelName) ?>" 
+                                    value="<?= htmlspecialchars((string)($currentHotelName)) ?>" 
                                     class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Address</label>
-                                <textarea name="PROPERTY_ADDRESS" rows="3" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold"><?= htmlspecialchars(defined('PROPERTY_ADDRESS') ? PROPERTY_ADDRESS : '') ?></textarea>
+                                <textarea name="PROPERTY_ADDRESS" rows="3" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold"><?= htmlspecialchars((string)(defined('PROPERTY_ADDRESS') ? PROPERTY_ADDRESS : '')) ?></textarea>
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Phone / Contact</label>
-                                <input type="text" name="PROPERTY_PHONE" value="<?= htmlspecialchars(defined('PROPERTY_PHONE') ? PROPERTY_PHONE : '') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
+                                <input type="text" name="PROPERTY_PHONE" value="<?= htmlspecialchars((string)(defined('PROPERTY_PHONE') ? PROPERTY_PHONE : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Email</label>
-                                <input type="email" name="PROPERTY_EMAIL" value="<?= htmlspecialchars(defined('PROPERTY_EMAIL') ? PROPERTY_EMAIL : '') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
+                                <input type="email" name="PROPERTY_EMAIL" value="<?= htmlspecialchars((string)(defined('PROPERTY_EMAIL') ? PROPERTY_EMAIL : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Wi-Fi Network SSID (Smart Reply)</label>
-                                    <input type="text" name="PROPERTY_WIFI_NAME" value="<?= htmlspecialchars(defined('PROPERTY_WIFI_NAME') ? PROPERTY_WIFI_NAME : 'Hotel_Guest_WiFi') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
+                                    <input type="text" name="PROPERTY_WIFI_NAME" value="<?= htmlspecialchars((string)(defined('PROPERTY_WIFI_NAME') ? PROPERTY_WIFI_NAME : 'Hotel_Guest_WiFi')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Wi-Fi Password (Smart Reply)</label>
-                                    <input type="text" name="PROPERTY_WIFI_PASS" value="<?= htmlspecialchars(defined('PROPERTY_WIFI_PASS') ? PROPERTY_WIFI_PASS : 'Welcome2026') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
+                                    <input type="text" name="PROPERTY_WIFI_PASS" value="<?= htmlspecialchars((string)(defined('PROPERTY_WIFI_PASS') ? PROPERTY_WIFI_PASS : 'Welcome2026')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
                                 </div>
                             </div>
                             <!-- Logo Upload -->
@@ -1065,7 +1211,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                 <label class="block text-xs font-bold text-brand-900 mb-2 uppercase tracking-wider">Hotel Logo</label>
                                 <div class="border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-all" onclick="document.getElementById('property_logo_file').click()">
                                     <?php if($currentLogoB64): ?>
-                                    <img id="logo-preview" src="data:image/png;base64,<?= htmlspecialchars($currentLogoB64) ?>" class="w-20 h-20 rounded-xl mx-auto object-cover mb-2" alt="Current Logo">
+                                    <img id="logo-preview" src="data:image/png;base64,<?= htmlspecialchars((string)($currentLogoB64)) ?>" class="w-20 h-20 rounded-xl mx-auto object-cover mb-2" alt="Current Logo">
                                     <p class="text-xs text-slate-500 font-semibold">Click to replace logo</p>
                                     <?php else: ?>
                                     <div class="w-14 h-14 bg-slate-100 rounded-xl mx-auto flex items-center justify-center mb-2">
@@ -1075,7 +1221,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                     <p class="text-[10px] text-slate-400 mt-0.5">PNG, JPG, SVG — shown in admin header</p>
                                     <?php endif; ?>
                                     <input type="file" id="property_logo_file" accept="image/*" onchange="convertLogoToBase64()" class="hidden">
-                                    <input type="hidden" name="PROPERTY_LOGO_BASE64" id="property_logo_base64" value="<?= htmlspecialchars($currentLogoB64) ?>">
+                                    <input type="hidden" name="PROPERTY_LOGO_BASE64" id="property_logo_base64" value="<?= htmlspecialchars((string)($currentLogoB64)) ?>">
                                 </div>
                             </div>
                         </div>
@@ -1094,8 +1240,8 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         </div>
                         <div class="space-y-4">
                             <label class="flex items-center gap-3 p-3 bg-brand-50 rounded-xl cursor-pointer hover:bg-brand-100 transition-colors">
-                                <input type="checkbox" id="tax_enabled_checkbox" <?= (defined('TAX_ENABLED') && TAX_ENABLED === 'true') ? 'checked' : '' ?> onchange="document.getElementById('TAX_ENABLED').value = this.checked ? 'true' : 'false'" class="w-5 h-5 rounded border-brand-300 text-sky-600 focus:ring-sky-500">
-                                <input type="hidden" name="TAX_ENABLED" id="TAX_ENABLED" value="<?= defined('TAX_ENABLED') ? TAX_ENABLED : 'false' ?>">
+                                <input type="checkbox" id="tax_enabled_checkbox" <?= htmlspecialchars((string)((defined('TAX_ENABLED') && TAX_ENABLED === 'true') ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> onchange="document.getElementById('TAX_ENABLED').value = this.checked ? 'true' : 'false'" class="w-5 h-5 rounded border-brand-300 text-sky-600 focus:ring-sky-500">
+                                <input type="hidden" name="TAX_ENABLED" id="TAX_ENABLED" value="<?= htmlspecialchars((string)(defined('TAX_ENABLED') ? TAX_ENABLED : 'false'), ENT_QUOTES, 'UTF-8') ?>">
                                 <div class="flex-1 min-w-0">
                                     <span class="text-sm font-bold text-brand-800">Enable Tax</span>
                                     <p class="text-[11px] text-brand-900/70 mt-0.5">Automatically apply tax calculations to booking totals and receipts</p>
@@ -1105,11 +1251,11 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Tax Label (e.g. GST, VAT)</label>
-                                    <input type="text" name="TAX_LABEL" value="<?= htmlspecialchars(defined('TAX_LABEL') ? TAX_LABEL : 'GST') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
+                                    <input type="text" name="TAX_LABEL" value="<?= htmlspecialchars((string)(defined('TAX_LABEL') ? TAX_LABEL : 'GST')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Tax Rate (%)</label>
-                                    <input type="number" name="TAX_RATE" step="0.01" min="0" value="<?= htmlspecialchars(defined('TAX_RATE') ? TAX_RATE : '12') ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
+                                    <input type="number" name="TAX_RATE" step="0.01" min="0" value="<?= htmlspecialchars((string)(defined('TAX_RATE') ? TAX_RATE : '12')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
                                 </div>
                             </div>
                         </div>
@@ -1149,7 +1295,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             $qcJson = json_encode($qcArray);
                         }
                         ?>
-                        <input type="hidden" id="folio_quick_charges_json" name="FOLIO_QUICK_CHARGES" value="<?= htmlspecialchars($qcJson) ?>">
+                        <input type="hidden" id="folio_quick_charges_json" name="FOLIO_QUICK_CHARGES" value="<?= htmlspecialchars((string)($qcJson)) ?>">
                         
                         <div id="quick-charges-list" class="space-y-3">
                             <!-- Injected via JS -->
@@ -1194,16 +1340,16 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Booking ID Format</label>
-                                    <input type="text" name="SEQ_BOOKING_FORMAT" value="<?= htmlspecialchars(defined('SEQ_BOOKING_FORMAT') ? SEQ_BOOKING_FORMAT : 'BKG-{YY}{MM}-{ID}') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
+                                    <input type="text" name="SEQ_BOOKING_FORMAT" value="<?= htmlspecialchars((string)(defined('SEQ_BOOKING_FORMAT') ? SEQ_BOOKING_FORMAT : 'BKG-{YY}{MM}-{ID}')) ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Reset Rule</label>
                                     <div class="relative">
                                         <select name="SEQ_BOOKING_RESET" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-bold text-brand-900 outline-none focus:border-indigo-500 appearance-none">
-                                            <option value="never" <?= (defined('SEQ_BOOKING_RESET') && SEQ_BOOKING_RESET === 'never') ? 'selected' : '' ?>>Never (Continuous ID)</option>
-                                            <option value="monthly" <?= (defined('SEQ_BOOKING_RESET') && SEQ_BOOKING_RESET === 'monthly') ? 'selected' : '' ?>>Monthly (Resets to 1 each month)</option>
-                                            <option value="yearly" <?= (defined('SEQ_BOOKING_RESET') && SEQ_BOOKING_RESET === 'yearly') ? 'selected' : '' ?>>Yearly (Resets to 1 each year)</option>
-                                            <option value="daily" <?= (defined('SEQ_BOOKING_RESET') && SEQ_BOOKING_RESET === 'daily') ? 'selected' : '' ?>>Daily (Resets to 1 each day)</option>
+                                            <option value="never" <?= htmlspecialchars((string)((defined('SEQ_BOOKING_RESET') && SEQ_BOOKING_RESET === 'never') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Never (Continuous ID)</option>
+                                            <option value="monthly" <?= htmlspecialchars((string)((defined('SEQ_BOOKING_RESET') && SEQ_BOOKING_RESET === 'monthly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Monthly (Resets to 1 each month)</option>
+                                            <option value="yearly" <?= htmlspecialchars((string)((defined('SEQ_BOOKING_RESET') && SEQ_BOOKING_RESET === 'yearly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Yearly (Resets to 1 each year)</option>
+                                            <option value="daily" <?= htmlspecialchars((string)((defined('SEQ_BOOKING_RESET') && SEQ_BOOKING_RESET === 'daily') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Daily (Resets to 1 each day)</option>
                                         </select>
                                         <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
                                     </div>
@@ -1214,16 +1360,16 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Guest ID Format</label>
-                                    <input type="text" name="SEQ_GUEST_FORMAT" value="<?= htmlspecialchars(defined('SEQ_GUEST_FORMAT') ? SEQ_GUEST_FORMAT : 'GST-{YY}{MM}-{ID}') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
+                                    <input type="text" name="SEQ_GUEST_FORMAT" value="<?= htmlspecialchars((string)(defined('SEQ_GUEST_FORMAT') ? SEQ_GUEST_FORMAT : 'GST-{YY}{MM}-{ID}')) ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Reset Rule</label>
                                     <div class="relative">
                                         <select name="SEQ_GUEST_RESET" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-bold text-brand-900 outline-none focus:border-indigo-500 appearance-none">
-                                            <option value="never" <?= (defined('SEQ_GUEST_RESET') && SEQ_GUEST_RESET === 'never') ? 'selected' : '' ?>>Never (Continuous ID)</option>
-                                            <option value="monthly" <?= (defined('SEQ_GUEST_RESET') && SEQ_GUEST_RESET === 'monthly') ? 'selected' : '' ?>>Monthly (Resets to 1 each month)</option>
-                                            <option value="yearly" <?= (defined('SEQ_GUEST_RESET') && SEQ_GUEST_RESET === 'yearly') ? 'selected' : '' ?>>Yearly (Resets to 1 each year)</option>
-                                            <option value="daily" <?= (defined('SEQ_GUEST_RESET') && SEQ_GUEST_RESET === 'daily') ? 'selected' : '' ?>>Daily (Resets to 1 each day)</option>
+                                            <option value="never" <?= htmlspecialchars((string)((defined('SEQ_GUEST_RESET') && SEQ_GUEST_RESET === 'never') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Never (Continuous ID)</option>
+                                            <option value="monthly" <?= htmlspecialchars((string)((defined('SEQ_GUEST_RESET') && SEQ_GUEST_RESET === 'monthly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Monthly (Resets to 1 each month)</option>
+                                            <option value="yearly" <?= htmlspecialchars((string)((defined('SEQ_GUEST_RESET') && SEQ_GUEST_RESET === 'yearly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Yearly (Resets to 1 each year)</option>
+                                            <option value="daily" <?= htmlspecialchars((string)((defined('SEQ_GUEST_RESET') && SEQ_GUEST_RESET === 'daily') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Daily (Resets to 1 each day)</option>
                                         </select>
                                         <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
                                     </div>
@@ -1234,16 +1380,16 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Receipt ID Format</label>
-                                    <input type="text" name="SEQ_RECEIPT_FORMAT" value="<?= htmlspecialchars(defined('SEQ_RECEIPT_FORMAT') ? SEQ_RECEIPT_FORMAT : 'RCPT-{YY}{MM}-{ID}') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
+                                    <input type="text" name="SEQ_RECEIPT_FORMAT" value="<?= htmlspecialchars((string)(defined('SEQ_RECEIPT_FORMAT') ? SEQ_RECEIPT_FORMAT : 'RCPT-{YY}{MM}-{ID}')) ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Reset Rule</label>
                                     <div class="relative">
                                         <select name="SEQ_RECEIPT_RESET" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-bold text-brand-900 outline-none focus:border-indigo-500 appearance-none">
-                                            <option value="never" <?= (defined('SEQ_RECEIPT_RESET') && SEQ_RECEIPT_RESET === 'never') ? 'selected' : '' ?>>Never (Continuous ID)</option>
-                                            <option value="monthly" <?= (defined('SEQ_RECEIPT_RESET') && SEQ_RECEIPT_RESET === 'monthly') ? 'selected' : '' ?>>Monthly (Resets to 1 each month)</option>
-                                            <option value="yearly" <?= (defined('SEQ_RECEIPT_RESET') && SEQ_RECEIPT_RESET === 'yearly') ? 'selected' : '' ?>>Yearly (Resets to 1 each year)</option>
-                                            <option value="daily" <?= (defined('SEQ_RECEIPT_RESET') && SEQ_RECEIPT_RESET === 'daily') ? 'selected' : '' ?>>Daily (Resets to 1 each day)</option>
+                                            <option value="never" <?= htmlspecialchars((string)((defined('SEQ_RECEIPT_RESET') && SEQ_RECEIPT_RESET === 'never') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Never (Continuous ID)</option>
+                                            <option value="monthly" <?= htmlspecialchars((string)((defined('SEQ_RECEIPT_RESET') && SEQ_RECEIPT_RESET === 'monthly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Monthly (Resets to 1 each month)</option>
+                                            <option value="yearly" <?= htmlspecialchars((string)((defined('SEQ_RECEIPT_RESET') && SEQ_RECEIPT_RESET === 'yearly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Yearly (Resets to 1 each year)</option>
+                                            <option value="daily" <?= htmlspecialchars((string)((defined('SEQ_RECEIPT_RESET') && SEQ_RECEIPT_RESET === 'daily') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Daily (Resets to 1 each day)</option>
                                         </select>
                                         <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
                                     </div>
@@ -1254,16 +1400,16 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Transaction ID Format</label>
-                                    <input type="text" name="SEQ_TRANSACTION_FORMAT" value="<?= htmlspecialchars(defined('SEQ_TRANSACTION_FORMAT') ? SEQ_TRANSACTION_FORMAT : 'TXN-{YY}{MM}-{ID}') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
+                                    <input type="text" name="SEQ_TRANSACTION_FORMAT" value="<?= htmlspecialchars((string)(defined('SEQ_TRANSACTION_FORMAT') ? SEQ_TRANSACTION_FORMAT : 'TXN-{YY}{MM}-{ID}')) ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Reset Rule</label>
                                     <div class="relative">
                                         <select name="SEQ_TRANSACTION_RESET" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-bold text-brand-900 outline-none focus:border-indigo-500 appearance-none">
-                                            <option value="never" <?= (defined('SEQ_TRANSACTION_RESET') && SEQ_TRANSACTION_RESET === 'never') ? 'selected' : '' ?>>Never (Continuous ID)</option>
-                                            <option value="monthly" <?= (defined('SEQ_TRANSACTION_RESET') && SEQ_TRANSACTION_RESET === 'monthly') ? 'selected' : '' ?>>Monthly (Resets to 1 each month)</option>
-                                            <option value="yearly" <?= (defined('SEQ_TRANSACTION_RESET') && SEQ_TRANSACTION_RESET === 'yearly') ? 'selected' : '' ?>>Yearly (Resets to 1 each year)</option>
-                                            <option value="daily" <?= (defined('SEQ_TRANSACTION_RESET') && SEQ_TRANSACTION_RESET === 'daily') ? 'selected' : '' ?>>Daily (Resets to 1 each day)</option>
+                                            <option value="never" <?= htmlspecialchars((string)((defined('SEQ_TRANSACTION_RESET') && SEQ_TRANSACTION_RESET === 'never') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Never (Continuous ID)</option>
+                                            <option value="monthly" <?= htmlspecialchars((string)((defined('SEQ_TRANSACTION_RESET') && SEQ_TRANSACTION_RESET === 'monthly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Monthly (Resets to 1 each month)</option>
+                                            <option value="yearly" <?= htmlspecialchars((string)((defined('SEQ_TRANSACTION_RESET') && SEQ_TRANSACTION_RESET === 'yearly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Yearly (Resets to 1 each year)</option>
+                                            <option value="daily" <?= htmlspecialchars((string)((defined('SEQ_TRANSACTION_RESET') && SEQ_TRANSACTION_RESET === 'daily') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Daily (Resets to 1 each day)</option>
                                         </select>
                                         <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
                                     </div>
@@ -1274,24 +1420,24 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-brand-100">
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Folio ID Format</label>
-                                    <input type="text" name="SEQ_FOLIO_FORMAT" value="<?= htmlspecialchars(defined('SEQ_FOLIO_FORMAT') ? SEQ_FOLIO_FORMAT : 'FLO-{YY}{MM}-{ID}') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
+                                    <input type="text" name="SEQ_FOLIO_FORMAT" value="<?= htmlspecialchars((string)(defined('SEQ_FOLIO_FORMAT') ? SEQ_FOLIO_FORMAT : 'FLO-{YY}{MM}-{ID}')) ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
                                     <p class="text-[10px] text-brand-900/50 mt-1">Applied to each folio ledger entry</p>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Reset Rule</label>
                                     <div class="relative">
                                         <select name="SEQ_FOLIO_RESET" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-bold text-brand-900 outline-none focus:border-indigo-500 appearance-none">
-                                            <option value="never" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'never') ? 'selected' : '' ?>>Never (Continuous ID)</option>
-                                            <option value="monthly" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'monthly') ? 'selected' : '' ?>>Monthly</option>
-                                            <option value="yearly" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'yearly') ? 'selected' : '' ?>>Yearly</option>
-                                            <option value="daily" <?= (defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'daily') ? 'selected' : '' ?>>Daily</option>
+                                            <option value="never" <?= htmlspecialchars((string)((defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'never') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Never (Continuous ID)</option>
+                                            <option value="monthly" <?= htmlspecialchars((string)((defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'monthly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Monthly</option>
+                                            <option value="yearly" <?= htmlspecialchars((string)((defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'yearly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Yearly</option>
+                                            <option value="daily" <?= htmlspecialchars((string)((defined('SEQ_FOLIO_RESET') && SEQ_FOLIO_RESET === 'daily') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Daily</option>
                                         </select>
                                         <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
                                     </div>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Reset Threshold (1 to Max Limit)</label>
-                                    <input type="number" name="SEQ_FOLIO_MAX" min="1" value="<?= htmlspecialchars(defined('SEQ_FOLIO_MAX') ? SEQ_FOLIO_MAX : '150') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
+                                    <input type="number" name="SEQ_FOLIO_MAX" min="1" value="<?= htmlspecialchars((string)(defined('SEQ_FOLIO_MAX') ? SEQ_FOLIO_MAX : '150')) ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
                                     <p class="text-[10px] text-brand-900/50 mt-1">Resets sequence back to 1 when reached (e.g. 150)</p>
                                 </div>
                             </div>
@@ -1300,17 +1446,17 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-brand-100">
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">POS Order ID Format</label>
-                                    <input type="text" name="SEQ_POS_ORDER_FORMAT" value="<?= htmlspecialchars(defined('SEQ_POS_ORDER_FORMAT') ? SEQ_POS_ORDER_FORMAT : 'ORD-{YY}{MM}-{ID}') ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
+                                    <input type="text" name="SEQ_POS_ORDER_FORMAT" value="<?= htmlspecialchars((string)(defined('SEQ_POS_ORDER_FORMAT') ? SEQ_POS_ORDER_FORMAT : 'ORD-{YY}{MM}-{ID}')) ?>" required class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-indigo-500 font-bold text-brand-900">
                                     <p class="text-[10px] text-brand-900/50 mt-1">Applied to each POS store order</p>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Reset Rule</label>
                                     <div class="relative">
                                         <select name="SEQ_POS_ORDER_RESET" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-bold text-brand-900 outline-none focus:border-indigo-500 appearance-none">
-                                            <option value="never" <?= (defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'never') ? 'selected' : '' ?>>Never (Continuous ID)</option>
-                                            <option value="monthly" <?= (defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'monthly') ? 'selected' : '' ?>>Monthly</option>
-                                            <option value="yearly" <?= (defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'yearly') ? 'selected' : '' ?>>Yearly</option>
-                                            <option value="daily" <?= (defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'daily') ? 'selected' : '' ?>>Daily</option>
+                                            <option value="never" <?= htmlspecialchars((string)((defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'never') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Never (Continuous ID)</option>
+                                            <option value="monthly" <?= htmlspecialchars((string)((defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'monthly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Monthly</option>
+                                            <option value="yearly" <?= htmlspecialchars((string)((defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'yearly') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Yearly</option>
+                                            <option value="daily" <?= htmlspecialchars((string)((defined('SEQ_POS_ORDER_RESET') && SEQ_POS_ORDER_RESET === 'daily') ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Daily</option>
                                         </select>
                                         <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
                                     </div>
@@ -1518,17 +1664,17 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                     <div class="bg-gradient-to-br from-slate-900 to-indigo-950 p-6 rounded-2xl border border-indigo-500/20 text-white relative overflow-hidden mb-6">
                         <div class="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-2xl"></div>
                         <div class="text-[10px] uppercase font-black text-indigo-300 tracking-widest">Active Plan</div>
-                        <div class="text-3xl font-black mt-1"><?= htmlspecialchars($planLimits['name']) ?> Tier</div>
-                        <div class="text-sm text-indigo-200 mt-2">Price: ₹<?= number_format((float)$planLimits['price'], 2) ?> / month</div>
+                        <div class="text-3xl font-black mt-1"><?= htmlspecialchars((string)($planLimits['name'])) ?> Tier</div>
+                        <div class="text-sm text-indigo-200 mt-2">Price: ₹<?= htmlspecialchars((string)(number_format((float)$planLimits['price'], 2)), ENT_QUOTES, 'UTF-8') ?> / month</div>
                         
                         <div class="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-white/10 text-xs">
                             <div>
                                 <span class="text-indigo-300 block uppercase font-bold text-[9px] tracking-wider">Rooms Registered</span>
-                                <span class="font-extrabold text-white text-base mt-1 block"><?= $roomCount ?> <span class="text-slate-400 font-normal text-xs">/ <?= $planLimits['max_rooms'] ?> Rooms limit</span></span>
+                                <span class="font-extrabold text-white text-base mt-1 block"><?= htmlspecialchars((string)($roomCount), ENT_QUOTES, 'UTF-8') ?> <span class="text-slate-400 font-normal text-xs">/ <?= htmlspecialchars((string)($planLimits['max_rooms']), ENT_QUOTES, 'UTF-8') ?> Rooms limit</span></span>
                             </div>
                             <div>
                                 <span class="text-indigo-300 block uppercase font-bold text-[9px] tracking-wider">Team Occupancy</span>
-                                <span class="font-extrabold text-white text-base mt-1 block"><?= $staffCount ?> <span class="text-slate-400 font-normal text-xs">/ <?= $planLimits['max_staff'] ?> Seats limit</span></span>
+                                <span class="font-extrabold text-white text-base mt-1 block"><?= htmlspecialchars((string)($staffCount), ENT_QUOTES, 'UTF-8') ?> <span class="text-slate-400 font-normal text-xs">/ <?= htmlspecialchars((string)($planLimits['max_staff']), ENT_QUOTES, 'UTF-8') ?> Seats limit</span></span>
                             </div>
                         </div>
                     </div>
@@ -1537,21 +1683,21 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         <h3 class="font-bold text-brand-900 text-sm">Active Feature Entitlements</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                             <div class="flex items-center gap-2 p-3 bg-brand-50 rounded-xl border border-brand-200/50">
-                                <i class="ph <?= ($planLimits['features']['ocr_google_vision'] ?? false) ? 'ph-check-circle text-emerald-500' : 'ph-x-circle text-slate-400' ?> text-lg"></i>
+                                <i class="ph <?= htmlspecialchars((string)(($planLimits['features']['ocr_google_vision'] ?? false) ? 'ph-check-circle text-emerald-500' : 'ph-x-circle text-slate-400'), ENT_QUOTES, 'UTF-8') ?> text-lg"></i>
                                 <div>
                                     <span class="font-bold text-brand-800">Google Vision ID Scanner (OCR)</span>
                                     <p class="text-[10px] text-slate-500">Extract check-in ID card details automatically</p>
                                 </div>
                             </div>
                             <div class="flex items-center gap-2 p-3 bg-brand-50 rounded-xl border border-brand-200/50">
-                                <i class="ph <?= ($planLimits['features']['whatsapp_automations'] ?? false) ? 'ph-check-circle text-emerald-500' : 'ph-x-circle text-slate-400' ?> text-lg"></i>
+                                <i class="ph <?= htmlspecialchars((string)(($planLimits['features']['whatsapp_automations'] ?? false) ? 'ph-check-circle text-emerald-500' : 'ph-x-circle text-slate-400'), ENT_QUOTES, 'UTF-8') ?> text-lg"></i>
                                 <div>
                                     <span class="font-bold text-brand-800">WhatsApp Automated Alerts</span>
                                     <p class="text-[10px] text-slate-500">Send instant alerts to checking-in guests</p>
                                 </div>
                             </div>
                             <div class="flex items-center gap-2 p-3 bg-brand-50 rounded-xl border border-brand-200/50">
-                                <i class="ph <?= ($planLimits['features']['custom_domain_mapping'] ?? false) ? 'ph-check-circle text-emerald-500' : 'ph-x-circle text-slate-400' ?> text-lg"></i>
+                                <i class="ph <?= htmlspecialchars((string)(($planLimits['features']['custom_domain_mapping'] ?? false) ? 'ph-check-circle text-emerald-500' : 'ph-x-circle text-slate-400'), ENT_QUOTES, 'UTF-8') ?> text-lg"></i>
                                 <div>
                                     <span class="font-bold text-brand-800">Custom Domain Mapping</span>
                                     <p class="text-[10px] text-slate-500">Map a private domain name to your workspace</p>
@@ -1583,15 +1729,15 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                             </thead>
                             <tbody>
                                 <tr class="border-b border-slate-100 hover:bg-slate-50">
-                                    <td class="px-4 py-3 text-slate-500 font-mono"><?= date('Y-m-d') ?></td>
+                                    <td class="px-4 py-3 text-slate-500 font-mono"><?= htmlspecialchars((string)(date('Y-m-d')), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-4 py-3 font-bold text-brand-900">Monthly Plan Subscription Renewal</td>
-                                    <td class="px-4 py-3 font-mono">₹<?= number_format((float)$planLimits['price'], 2) ?></td>
+                                    <td class="px-4 py-3 font-mono">₹<?= htmlspecialchars((string)(number_format((float)$planLimits['price'], 2)), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-50 text-emerald-600 border border-emerald-200">Paid</span></td>
                                 </tr>
                                 <tr class="border-b border-slate-100 hover:bg-slate-50">
-                                    <td class="px-4 py-3 text-slate-500 font-mono"><?= date('Y-m-d', strtotime('-1 month')) ?></td>
+                                    <td class="px-4 py-3 text-slate-500 font-mono"><?= htmlspecialchars((string)(date('Y-m-d', strtotime('-1 month'))), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-4 py-3 font-bold text-brand-900">Monthly Plan Subscription Renewal</td>
-                                    <td class="px-4 py-3 font-mono">₹<?= number_format((float)$planLimits['price'], 2) ?></td>
+                                    <td class="px-4 py-3 font-mono">₹<?= htmlspecialchars((string)(number_format((float)$planLimits['price'], 2)), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-50 text-emerald-600 border border-emerald-200">Paid</span></td>
                                 </tr>
                             </tbody>
@@ -1644,7 +1790,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         <div class="relative">
                             <select name="category_id" id="room_category_id" required class="w-full bg-brand-50 rounded-none border border-brand-200 focus:shadow-minimal transition-all p-3.5 transition-all outline-none font-bold text-brand-900 text-lg appearance-none">
                                 <?php foreach($categories as $c): ?>
-                                    <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
+                                    <option value="<?= htmlspecialchars((string)($c['id']), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($c['name'])) ?></option>
                                 <?php endforeach; ?>
                             </select>
                             <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
@@ -1717,7 +1863,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                                 <?php if (!empty($customRoles)): ?>
                                     <optgroup label="Custom Roles">
                                     <?php foreach ($customRoles as $cr): ?>
-                                        <option value="custom_<?= $cr['id'] ?>"><?= htmlspecialchars($cr['name']) ?></option>
+                                        <option value="custom_<?= htmlspecialchars((string)($cr['id']), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($cr['name'])) ?></option>
                                     <?php endforeach; ?>
                                     </optgroup>
                                 <?php else: ?>
@@ -1766,8 +1912,8 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <?php foreach (AuthHelper::getAllPermissions() as $key => $label): ?>
                             <label class="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 cursor-pointer transition-all">
-                                <input type="checkbox" name="permissions[]" value="<?= htmlspecialchars($key) ?>" class="w-5 h-5 accent-indigo-600 rounded">
-                                <span class="text-sm font-bold text-slate-700"><?= htmlspecialchars($label) ?></span>
+                                <input type="checkbox" name="permissions[]" value="<?= htmlspecialchars((string)($key)) ?>" class="w-5 h-5 accent-indigo-600 rounded">
+                                <span class="text-sm font-bold text-slate-700"><?= htmlspecialchars((string)($label)) ?></span>
                             </label>
                             <?php endforeach; ?>
                         </div>
@@ -1784,11 +1930,11 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
 
     <script>
         const SETTINGS_DATA = {
-            firstCategoryId: <?= !empty($categories) ? $categories[0]['id'] : '""' ?>,
+            firstCategoryId: <?= htmlspecialchars((string)(!empty($categories) ? $categories[0]['id'] : '""'), ENT_QUOTES, 'UTF-8') ?>,
             firstCategoryName: <?= !empty($categories) ? json_encode(addslashes($categories[0]['name'])) : '""' ?>
         };
     </script>
-    <script src="/js/settings.js?v=<?= time() ?>"></script>
+    <script src="/js/settings.js?v=<?= htmlspecialchars((string)(time()), ENT_QUOTES, 'UTF-8') ?>"></script>
     <!-- Logo Cropping Modal -->
     <div id="cropModal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 opacity-0 transition-opacity duration-300">
         <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden transform scale-95 transition-transform duration-300">
@@ -1809,6 +1955,36 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
     </div>
 
     <script>
+    async function saveFinanceConfig(e) {
+        e.preventDefault();
+        const inc = document.getElementById('finance_income_categories').value.split(',').map(s => s.trim()).filter(s => s);
+        const exp = document.getElementById('finance_expense_categories').value.split(',').map(s => s.trim()).filter(s => s);
+        
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        try {
+            const res = await fetch('/api/admin/save_settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                body: JSON.stringify({
+                    FINANCE_INCOME_CATEGORIES: JSON.stringify(inc.length ? inc : ['Misc']),
+                    FINANCE_EXPENSE_CATEGORIES: JSON.stringify(exp.length ? exp : ['Misc'])
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('Finance Configuration saved successfully.');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showToast('Error: ' + data.error);
+            }
+        } catch(e) {
+            showToast('Connection error');
+        }
+    }
+
     async function saveDeepCleanFreq() {
         const val = document.getElementById('deep_clean_frequency').value;
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
@@ -2012,6 +2188,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
     async function submitGuestPortalSettings(e) {
         e.preventDefault();
         const upsell = document.getElementById('portal_upsell_enabled').checked;
+        const pos = document.getElementById('portal_pos_enabled').checked;
         const housekeeping = document.getElementById('portal_housekeeping_enabled').checked;
         const checkout = document.getElementById('portal_self_checkout_enabled').checked;
         const fee = document.getElementById('portal_early_late_fee').value;
@@ -2028,6 +2205,10 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
         const transfer = document.getElementById('portal_upsell_transfer_price').value;
         
         const otp = document.getElementById('portal_otp_enabled').checked;
+        const wifiSsid = document.getElementById('portal_wifi_ssid').value.trim();
+        const wifiPassword = document.getElementById('portal_wifi_password').value.trim();
+        const helpDeskNo = document.getElementById('portal_help_desk_no').value.trim();
+        const localAttractions = document.getElementById('portal_local_attractions').value.trim();
         
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
@@ -2040,6 +2221,7 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                 },
                 body: JSON.stringify({
                     upsell_enabled: upsell,
+                    pos_enabled: pos,
                     housekeeping_enabled: housekeeping,
                     self_checkout_enabled: checkout,
                     early_late_fee: fee,
@@ -2051,7 +2233,11 @@ $otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_
                     pre_arrival_doc: doc,
                     upsell_breakfast_price: breakfast,
                     upsell_transfer_price: transfer,
-                    otp_enabled: otp
+                    otp_enabled: otp,
+                    wifi_ssid: wifiSsid,
+                    wifi_password: wifiPassword,
+                    help_desk_no: helpDeskNo,
+                    local_attractions: localAttractions
                 })
             });
             const data = await res.json();

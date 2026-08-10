@@ -61,9 +61,9 @@ $monthEnd = date('Y-m-t');
                         <button onclick="setDates('yearToDate')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-brand-100 text-brand-900 hover:bg-brand-200 transition-colors">Year To Date</button>
                     </div>
                     <div class="flex items-center gap-3">
-                        <input type="date" id="global_start" value="<?= $monthStart ?>" class="bg-brand-50 border border-brand-200 rounded-lg px-3 py-1.5 text-sm font-bold text-brand-900 outline-none focus:border-brand-500">
+                        <input type="date" id="global_start" value="<?= htmlspecialchars((string)($monthStart), ENT_QUOTES, 'UTF-8') ?>" class="bg-brand-50 border border-brand-200 rounded-lg px-3 py-1.5 text-sm font-bold text-brand-900 outline-none focus:border-brand-500">
                         <span class="text-brand-500 font-bold">to</span>
-                        <input type="date" id="global_end" value="<?= $monthEnd ?>" class="bg-brand-50 border border-brand-200 rounded-lg px-3 py-1.5 text-sm font-bold text-brand-900 outline-none focus:border-brand-500">
+                        <input type="date" id="global_end" value="<?= htmlspecialchars((string)($monthEnd), ENT_QUOTES, 'UTF-8') ?>" class="bg-brand-50 border border-brand-200 rounded-lg px-3 py-1.5 text-sm font-bold text-brand-900 outline-none focus:border-brand-500">
                         <button onclick="applyGlobalDates()" class="bg-brand-accent text-brand-900 px-4 py-1.5 rounded-lg text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2">
                             <i class="ph-bold ph-arrows-clockwise"></i> Refresh
                         </button>
@@ -96,6 +96,7 @@ $monthEnd = date('Y-m-t');
                 <div class="flex-1 w-full">
                     <select id="report_type" onchange="loadSpecificReport()" class="w-full bg-transparent p-2 outline-none font-black text-brand-900 text-lg md:text-xl appearance-none cursor-pointer">
                         <option value="daily_manager">Daily Manager's Report</option>
+                        <option value="cashier_shift">Daily Cashier Shift Report</option>
                         <option value="business_insights">Business Intelligence & Insights</option>
                         <option value="room_performance">Room Performance & Popularity</option>
                         <option value="revpar">RevPAR & ADR Timeline</option>
@@ -104,6 +105,9 @@ $monthEnd = date('Y-m-t');
                         <option value="expense_report">Total Expense Report</option>
                         <option value="rate_plan_revenue">Rate Plan Revenue</option>
                         <option value="police_register">Police / Guest Registration</option>
+                        <option value="tax_report">Tax Liability (GST)</option>
+                        <option value="accounts_receivable">Accounts Receivable / Pending Dues</option>
+                        <option value="booking_source">Booking Source Analytics</option>
                         <option disabled>──────────</option>
                         <option value="pos_revenue">POS Revenue by Outlet</option>
                         <option value="pos_items">Top Selling POS Items</option>
@@ -417,7 +421,7 @@ $monthEnd = date('Y-m-t');
                     renderBusinessInsights(currentData);
                 } else {
                     renderTable(type, currentData);
-                    const chartTypes = ['occupancy', 'revpar', 'payment_matrix', 'rate_plan_revenue', 'expense_report', 'room_performance', 'pos_revenue', 'pos_items', 'pos_pl'];
+                    const chartTypes = ['occupancy', 'revpar', 'payment_matrix', 'rate_plan_revenue', 'expense_report', 'room_performance', 'pos_revenue', 'pos_items', 'pos_pl', 'booking_source', 'tax_report', 'cashier_shift'];
                     if (chartTypes.includes(type)) {
                         renderChart(type, currentData);
                     }
@@ -578,6 +582,46 @@ $monthEnd = date('Y-m-t');
                     data: {
                         labels: data.map(d => `Room ${d.room_number}`),
                         datasets: [{ label: 'Revenue', data: data.map(d => d.total_revenue), backgroundColor: '#3b82f6' }]
+                    },
+                    options: getChartOptions(true)
+                };
+            }
+            else if (type === 'cashier_shift') {
+                chartConfig = {
+                    type: 'bar',
+                    data: {
+                        labels: data.map(d => d.payment_method),
+                        datasets: [
+                            { label: 'Receipts', data: data.map(d => d.total_receipts), backgroundColor: '#10b981' },
+                            { label: 'Payouts', data: data.map(d => Math.abs(d.total_payouts)), backgroundColor: '#ef4444' }
+                        ]
+                    },
+                    options: getChartOptions()
+                };
+            }
+            else if (type === 'booking_source') {
+                chartConfig = {
+                    type: 'doughnut',
+                    data: {
+                        labels: data.map(d => d.source),
+                        datasets: [{ data: data.map(d => d.total_revenue), backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'], borderWidth: 0 }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '70%',
+                        plugins: {
+                            legend: { display: true, position: 'bottom', labels: { color: '#0f172a', font: { family: 'inherit', weight: 'bold', size: 11 }, padding: 20 } }
+                        }
+                    }
+                };
+            }
+            else if (type === 'tax_report') {
+                chartConfig = {
+                    type: 'bar',
+                    data: {
+                        labels: data.map(d => formatReportDate(d.date)),
+                        datasets: [{ label: 'Total Tax', data: data.map(d => d.total_tax), backgroundColor: '#10b981' }]
                     },
                     options: getChartOptions(true)
                 };

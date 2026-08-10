@@ -1,8 +1,8 @@
 <?php
-require_once __DIR__ . '/../../pms_core/config.php';
-require_once __DIR__ . '/../../pms_core/Database.php';
-require_once __DIR__ . '/../session.php'; // Ensures authentication
-require_once __DIR__ . '/../../pms_core/AuthHelper.php';
+require_once __DIR__ . '/../../../pms_core/config.php';
+require_once __DIR__ . '/../../../pms_core/Database.php';
+require_once __DIR__ . '/../../../pms_core/AuthHelper.php';
+AuthHelper::requireLogin();
 
 header('Content-Type: application/json');
 $db = Database::getInstance()->getConnection();
@@ -38,6 +38,13 @@ if ($action === 'mark_read') {
         $stmt = $db->prepare("UPDATE admin_notifications SET is_read = 1 WHERE property_id = ? AND is_read = 0");
         $stmt->execute([$propertyId]);
     }
+    echo json_encode(['success' => true]);
+    exit;
+}
+
+if ($action === 'delete_all') {
+    $stmt = $db->prepare("DELETE FROM admin_notifications WHERE property_id = ? AND is_read = 1");
+    $stmt->execute([$propertyId]);
     echo json_encode(['success' => true]);
     exit;
 }

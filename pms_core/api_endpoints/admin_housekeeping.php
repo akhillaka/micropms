@@ -37,6 +37,9 @@ ApiHandler::run(function(\PDO $db) {
             'checklist_items' => []
         ]);
     } elseif ($action === 'mark_clean' || $action === 'mark_deep_clean') {
+        if (!AuthHelper::can('update_room_status')) {
+            ApiResponse::error('Unauthorized to update room status', 403);
+        }
         $roomId = (int)($data['room_id'] ?? 0);
         if ($roomId <= 0) {
             ApiResponse::error('Invalid room_id');
@@ -51,6 +54,9 @@ ApiHandler::run(function(\PDO $db) {
         AuditLogger::log((int)($_SESSION['user_id'] ?? 0), 'UPDATE_HK_STATUS', 'ROOMS', $roomId, ['status' => 'clean', 'deep_clean' => ($action === 'mark_deep_clean')]);
         ApiResponse::success();
     } elseif ($action === 'mark_dirty') {
+        if (!AuthHelper::can('update_room_status')) {
+            ApiResponse::error('Unauthorized to update room status', 403);
+        }
         $roomId = (int)($data['room_id'] ?? 0);
         if ($roomId <= 0) {
             ApiResponse::error('Invalid room_id');

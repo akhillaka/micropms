@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
 if (!AuthHelper::can('create_booking')) {
-    header('Location: admin/login.php');
+    header('Location: /login');
     exit;
 }
 
@@ -11,7 +11,8 @@ require_once __DIR__ . '/../pms_core/config.php';
 $db = Database::getInstance()->getConnection();
 load_db_settings($db);
 
-$pmStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods'");
+$propertyId = AuthHelper::getPropertyId();
+$pmStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = " . (int)$propertyId);
 $pmJson = $pmStmt->fetchColumn();
 $paymentMethods = $pmJson ? json_decode($pmJson, true) : [];
 if (empty($paymentMethods)) {
@@ -21,6 +22,13 @@ $isOwner = (AuthHelper::getRole() === 'owner') ? 'true' : 'false';
 
 // Default auto-fetched check-in & check-out dates and times
 $nowTs = time();
+$prefillDate = $_GET['prefill_date'] ?? '';
+if (!empty($prefillDate)) {
+    $prefillTs = strtotime($prefillDate);
+    if ($prefillTs > 0) {
+        $nowTs = $prefillTs;
+    }
+}
 $minutes = (int)date('i', $nowTs);
 $roundedMin = (int)(ceil($minutes / 30) * 30);
 $roundedTs = $nowTs + (($roundedMin - $minutes) * 60);
@@ -53,6 +61,7 @@ function renderTimeOptions(string $selectedVal = ''): string {
 <head>
     <script>
         window.IS_ADMIN = <?= $isOwner ?>;
+        window.PREFILL_ROOM_ID = <?= json_encode($_GET['prefill_room'] ?? null) ?>;
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -306,7 +315,7 @@ function renderTimeOptions(string $selectedVal = ''): string {
                         <div class="relative w-36">
                             <select id="payment_method" class="w-full input-glass rounded-xl p-2.5 text-xs font-semibold text-slate-800 appearance-none">
                                 <?php foreach ($paymentMethods as $pm): ?>
-                                    <option value="<?= htmlspecialchars($pm) ?>"><?= htmlspecialchars($pm) ?></option>
+                                    <option value="<?= htmlspecialchars((string)($pm)) ?>"><?= htmlspecialchars((string)($pm)) ?></option>
                                 <?php endforeach; ?>
                             </select>
                             <i class="ph ph-caret-down absolute right-3.5 top-3 text-slate-400 pointer-events-none text-xs"></i>
@@ -729,6 +738,15 @@ function renderTimeOptions(string $selectedVal = ''): string {
                 `;
                 container.appendChild(div);
             });
+
+            // If PREFILL_ROOM_ID is set, select it automatically after render
+            if (window.PREFILL_ROOM_ID) {
+                const roomBtn = document.querySelector(`[data-room-id="${window.PREFILL_ROOM_ID}"]`);
+                if (roomBtn) {
+                    roomBtn.click();
+                }
+                window.PREFILL_ROOM_ID = null; // Clear it so it doesn't auto-click on date changes
+            }
         }
         window.toggleRoom = (roomId, roomNumber, catId, btnEl) => {
             const selectedPlanInput = document.querySelector(`input[name="rate_plan_${catId}"]:checked`);
@@ -1135,6 +1153,15 @@ function renderTimeOptions(string $selectedVal = ''): string {
                 document.getElementById('guest-suggestions').classList.add('hidden');
             }
         });
+
+        // Trigger availability check automatically if prefilled parameters are in the URL on load
+        if (window.PREFILL_ROOM_ID) {
+            document.addEventListener('DOMContentLoaded', () => {
+                setTimeout(() => {
+                    checkAvailability();
+                }, 100);
+            });
+        }
     </script>
 </body>
 </html>

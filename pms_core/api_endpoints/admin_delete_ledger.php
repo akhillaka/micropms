@@ -10,7 +10,7 @@ require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 
 
 ApiHandler::run(function(\PDO $db) {
-    AuthHelper::requirePermission('edit_folio');
+    AuthHelper::requirePermission('void_folio_item');
 $data = json_decode(file_get_contents('php://input'), true);
 $ledgerId = $data['ledger_id'] ?? 0;
 if (!$ledgerId) {
@@ -44,7 +44,7 @@ if (!$ledgerId) {
         $displayId = $info['display_id'] ?: 'RCPT-' . $ledgerId;
         
         if ($canDelete) {
-            // Hard delete
+            // Hard delete for owner/admin
             $delFinStmt = $db->prepare("DELETE FROM finance_transactions WHERE booking_id = :bid AND description LIKE :desc AND property_id = :pid");
             $delFinStmt->execute([
                 'bid' => $bId,
@@ -55,37 +55,16 @@ if (!$ledgerId) {
             $stmt = $db->prepare("DELETE FROM folio_ledger WHERE id = :id AND property_id = :pid");
             $stmt->execute(['id' => $ledgerId, 'pid' => $currentPropertyId]);
         } else {
-            // Role based immutability - post a rebate instead
-            $rebateAmount = -(float)$info['amount'];
-            
-            // Insert rebate into folio_ledger
-            $rebateStmt = $db->prepare("
-                INSERT INTO folio_ledger (property_id, booking_id, amount, description, transaction_type, created_at)
-                VALUES (:pid, :bid, :amt, :desc, 'REBATE', NOW())
-            ");
-            $rebateStmt->execute([
-                'pid' => $currentPropertyId,
+            // Role based immutability - Void (Zero Out) the entry instead of deleting
+            $voidFinStmt = $db->prepare("UPDATE finance_transactions SET amount = 0, description = CONCAT('[VOID] ', description) WHERE booking_id = :bid AND description LIKE :desc AND property_id = :pid");
+            $voidFinStmt->execute([
                 'bid' => $bId,
-                'amt' => $rebateAmount,
-                'desc' => "Rebate for: " . $info['description'] . " (Ref: {$displayId})",
+                'desc' => "%{$displayId}%",
+                'pid' => $currentPropertyId
             ]);
-            $newLedgerId = $db->lastInsertId();
-            SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$newLedgerId, 'SEQ_RECEIPT_FORMAT', 'display_id');
-            
-            // Insert rebate into finance_transactions if it was a payment
-            if ($rebateAmount > 0) { // meaning original was negative (payment)
-                $finStmt = $db->prepare("
-                    INSERT INTO finance_transactions (property_id, booking_id, type, category, amount, payment_method, description, recorded_by, created_at)
-                    VALUES (:pid, :bid, 'EXPENSE', 'REFUND', :amt, 'CASH', :desc, :uid, NOW())
-                ");
-                $finStmt->execute([
-                    'pid' => $currentPropertyId,
-                    'bid' => $bId,
-                    'amt' => $rebateAmount, // Rebate payment is an expense (giving money back)
-                    'desc' => "Refund for: " . $info['description'],
-                    'uid' => $_SESSION['user_id'] ?? null
-                ]);
-            }
+
+            $voidStmt = $db->prepare("UPDATE folio_ledger SET amount = 0, cgst_amount = 0, sgst_amount = 0, description = CONCAT('[VOID] ', description), deleted_at = NOW() WHERE id = :id AND property_id = :pid");
+            $voidStmt->execute(['id' => $ledgerId, 'pid' => $currentPropertyId]);
         }
     }
 
@@ -94,7 +73,7 @@ if (!$ledgerId) {
     if ($canDelete) {
         $tgMsg = "🗑️ <b>Folio Entry Deleted</b>\n\nLedger #{$ledgerId} has been removed.";
     } else {
-        $tgMsg = "↩️ <b>Folio Entry Rebated</b>\n\nLedger #{$ledgerId} has been voided via Rebate.";
+        $tgMsg = "↩️ <b>Folio Entry Voided</b>\n\nLedger #{$ledgerId} has been voided (amount zeroed).";
     }
     
     $context = [

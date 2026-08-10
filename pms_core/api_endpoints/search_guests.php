@@ -14,14 +14,15 @@ ApiHandler::run(function(\PDO $db) {
     $escapedQ = str_replace(['%', '_'], ['\\%', '\\_'], $q);
     $searchTerm = "%{$escapedQ}%";
     
+    $propertyId = AuthHelper::getPropertyId();
     $sql = "SELECT g.id, g.name as guest_name, g.phone as guest_phone 
             FROM guests g 
-            WHERE g.phone LIKE :q1 OR LOWER(g.name) LIKE LOWER(:q2) 
+            WHERE g.property_id = :pid AND (g.phone LIKE :q1 OR LOWER(g.name) LIKE LOWER(:q2)) 
             ORDER BY g.created_at DESC 
             LIMIT 5";
     
     $stmt = $db->prepare($sql);
-    $stmt->execute(['q1' => $searchTerm, 'q2' => $searchTerm]);
+    $stmt->execute(['pid' => $propertyId, 'q1' => $searchTerm, 'q2' => $searchTerm]);
     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     ApiResponse::success(['guests' => $results]);

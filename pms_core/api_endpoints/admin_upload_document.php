@@ -1,36 +1,29 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../pms_core/AuthHelper.php';
-header('Content-Type: application/json');
+require_once __DIR__ . '/../../pms_core/ApiHandler.php';
+require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/Database.php';
-require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 
-AuthHelper::requireLogin();
+ApiHandler::run(function(\PDO $db) {
+    if (!isset($_POST['doc_type'])) {
+        ApiResponse::error('Missing params');
+    }
 
-if (!isset($_POST['doc_type'])) {
-    echo json_encode(['success' => false, 'message' => 'Missing params']);
-    exit;
-}
+    $bookingId = $_POST['booking_id'] ?? null;
+    $guestId = $_POST['guest_id'] ?? null;
+    $docType = $_POST['doc_type'];
 
-CsrfToken::requireValid();
-
-$bookingId = $_POST['booking_id'] ?? null;
-$guestId = $_POST['guest_id'] ?? null;
-$docType = $_POST['doc_type'];
-
-if (!$bookingId && !$guestId) {
-    echo json_encode(['success' => false, 'message' => 'booking_id or guest_id required']);
-    exit;
-}
+    if (!$bookingId && !$guestId) {
+        ApiResponse::error('booking_id or guest_id required');
+    }
 
 $bookingDocMap = ['id_proof_front', 'id_proof_back', 'guest_photo'];
 $guestDocMap = ['id_proof_front', 'id_proof_back', 'photo'];
-if (!in_array($docType, array_merge($bookingDocMap, $guestDocMap))) {
-    echo json_encode(['success' => false, 'message' => 'Invalid doc type']);
-    exit;
-}
+    if (!in_array($docType, array_merge($bookingDocMap, $guestDocMap))) {
+        ApiResponse::error('Invalid doc type');
+    }
 
 if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
     $errorCode = $_FILES['file']['error'] ?? 'no_file';
@@ -43,10 +36,9 @@ if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
         UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
         UPLOAD_ERR_EXTENSION => 'Upload stopped by extension'
     ];
-    $errorMsg = $errorMessages[$errorCode] ?? "Unknown error (code: $errorCode)";
-    echo json_encode(['success' => false, 'message' => "File upload error: $errorMsg"]);
-    exit;
-}
+        $errorMsg = $errorMessages[$errorCode] ?? "Unknown error (code: $errorCode)";
+        ApiResponse::error("File upload error: $errorMsg");
+    }
 
 $ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
 $allowed = ['jpg', 'jpeg', 'png', 'pdf'];
@@ -61,20 +53,18 @@ if (!in_array($ext, $allowed)) {
         'application/pdf' => 'pdf'
     ];
     
-    if (isset($mimeToExt[$mimeType])) {
-        $ext = $mimeToExt[$mimeType];
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Invalid file type: ' . $mimeType]);
-        exit;
+        if (isset($mimeToExt[$mimeType])) {
+            $ext = $mimeToExt[$mimeType];
+        } else {
+            ApiResponse::error('Invalid file type: ' . $mimeType);
+        }
     }
-}
 
 $filename = uniqid($docType . '_') . '.' . $ext;
-$uploadDir = realpath(__DIR__ . '/../uploads');
-if (!$uploadDir || !is_writable($uploadDir)) {
-    echo json_encode(['success' => false, 'message' => 'Upload directory not found or not writable: ' . __DIR__ . '/../uploads']);
-    exit;
-}
+    $uploadDir = realpath(__DIR__ . '/../uploads');
+    if (!$uploadDir || !is_writable($uploadDir)) {
+        ApiResponse::error('Upload directory not found or not writable: ' . __DIR__ . '/../uploads');
+    }
 $dest = $uploadDir . '/' . $filename;
 
 if (move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
@@ -126,15 +116,29 @@ if (move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
         }
     }
     
-    $db = Database::getInstance()->getConnection();
-    
-    if ($bookingId) {
-        $guestStmt = $db->prepare("SELECT guest_id FROM bookings WHERE id = :id");
-        $guestStmt->execute(['id' => $bookingId]);
-        $linkedGuestId = $guestStmt->fetchColumn();
+        $propertyId = AuthHelper::getPropertyId();
         
-        if ($linkedGuestId) {
-            // Fix #9: use explicit allow-list map to prevent column-name injection
+        if ($bookingId) {
+            $guestStmt = $db->prepare("SELECT guest_id FROM bookings WHERE id = :id AND property_id = :prop_id");
+            $guestStmt->execute(['id' => $bookingId, 'prop_id' => $propertyId]);
+            $linkedGuestId = $guestStmt->fetchColumn();
+            
+            if ($linkedGuestId) {
+                $guestColMap = [
+                    'id_proof_front' => 'id_proof_front',
+                    'id_proof_back'  => 'id_proof_back',
+                    'guest_photo'    => 'photo',
+                    'photo'          => 'photo',
+                ];
+                $guestCol = $guestColMap[$docType] ?? null;
+                if ($guestCol) {
+                    $syncStmt = $db->prepare("UPDATE guests SET `{$guestCol}` = :f WHERE id = :id AND property_id = :prop_id");
+                    $syncStmt->execute(['f' => $filename, 'id' => $linkedGuestId, 'prop_id' => $propertyId]);
+                }
+            }
+        }
+        
+        if ($guestId) {
             $guestColMap = [
                 'id_proof_front' => 'id_proof_front',
                 'id_proof_back'  => 'id_proof_back',
@@ -143,34 +147,19 @@ if (move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
             ];
             $guestCol = $guestColMap[$docType] ?? null;
             if ($guestCol) {
-                $syncStmt = $db->prepare("UPDATE guests SET `{$guestCol}` = :f WHERE id = :id");
-                $syncStmt->execute(['f' => $filename, 'id' => $linkedGuestId]);
+                $stmt = $db->prepare("UPDATE guests SET `{$guestCol}` = :f WHERE id = :id AND property_id = :prop_id");
+                $stmt->execute(['f' => $filename, 'id' => $guestId, 'prop_id' => $propertyId]);
             }
         }
+        
+        AuditLogger::log($_SESSION['user_id'] ?? null, 'UPLOAD_DOCUMENT', $bookingId ? 'BOOKING' : 'SYSTEM', $bookingId ?: $guestId, [
+            'doc_type' => $docType,
+            'filename' => $filename,
+            'guest_id' => $guestId
+        ], $propertyId);
+        
+        ApiResponse::success(['filename' => $filename]);
+    } else {
+        ApiResponse::error('Failed to move file');
     }
-    
-    if ($guestId) {
-        // Fix #9: use explicit allow-list map to prevent column-name injection
-        $guestColMap = [
-            'id_proof_front' => 'id_proof_front',
-            'id_proof_back'  => 'id_proof_back',
-            'guest_photo'    => 'photo',
-            'photo'          => 'photo',
-        ];
-        $guestCol = $guestColMap[$docType] ?? null;
-        if ($guestCol) {
-            $stmt = $db->prepare("UPDATE guests SET `{$guestCol}` = :f WHERE id = :id");
-            $stmt->execute(['f' => $filename, 'id' => $guestId]);
-        }
-    }
-    
-    AuditLogger::log($_SESSION['user_id'] ?? null, 'UPLOAD_DOCUMENT', $bookingId ? 'BOOKING' : 'SYSTEM', $bookingId ?: $guestId, [
-        'doc_type' => $docType,
-        'filename' => $filename,
-        'guest_id' => $guestId
-    ]);
-    
-    echo json_encode(['success' => true, 'filename' => $filename]);
-} else {
-    echo json_encode(['success' => false, 'message' => 'Failed to move file']);
-}
+});

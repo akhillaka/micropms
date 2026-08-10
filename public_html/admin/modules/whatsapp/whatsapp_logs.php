@@ -98,13 +98,11 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, ">
-    <title><?= $pageTitle ?></title>
+    <title><?= htmlspecialchars((string)($pageTitle), ENT_QUOTES, 'UTF-8') ?></title>
     <?php include __DIR__ . '/../../components/ui_head.php'; ?>
 </head>
 <body class="bg-brand-50 text-brand-900 font-sans antialiased min-h-screen flex flex-col md:flex-row">
-    
-    <?php include __DIR__ . '/../../components/desktop_nav.php'; ?>
-    <?php include __DIR__ . '/../../components/mobile_nav.php'; ?>
+
 
     <main class="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
         
@@ -119,6 +117,7 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                         <p class="text-sm font-medium text-brand-900/60 mt-1">Track automation triggers & errors</p>
                     </div>
                 </div>
+                <?php include __DIR__ . '/../../components/desktop_nav.php'; ?>
             </div>
         </header>
 
@@ -129,14 +128,14 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                 <form method="GET" class="card-minimal p-4 flex flex-col md:flex-row gap-4 mb-4">
                     <div class="flex-1">
                         <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Search Phone Number</label>
-                        <input type="text" name="phone" value="<?= htmlspecialchars($searchPhone) ?>" placeholder="e.g. 919876543210" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-lg text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
+                        <input type="text" name="phone" value="<?= htmlspecialchars((string)($searchPhone)) ?>" placeholder="e.g. 919876543210" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-lg text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
                     </div>
                     <div class="w-full md:w-48">
                         <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Status</label>
                         <select name="status" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-lg text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
                             <option value="">All Statuses</option>
-                            <option value="success" <?= $filterStatus === 'success' ? 'selected' : '' ?>>Success</option>
-                            <option value="failed" <?= $filterStatus === 'failed' ? 'selected' : '' ?>>Failed</option>
+                            <option value="success" <?= htmlspecialchars((string)($filterStatus === 'success' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Success</option>
+                            <option value="failed" <?= htmlspecialchars((string)($filterStatus === 'failed' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Failed</option>
                         </select>
                     </div>
                     <div class="w-full md:w-48">
@@ -144,7 +143,7 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                         <select name="event" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-lg text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
                             <option value="">All Events</option>
                             <?php foreach($uniqueEvents as $ue): ?>
-                                <option value="<?= htmlspecialchars($ue) ?>" <?= $filterEvent === $ue ? 'selected' : '' ?>><?= htmlspecialchars($ue) ?></option>
+                                <option value="<?= htmlspecialchars((string)($ue)) ?>" <?= htmlspecialchars((string)($filterEvent === $ue ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>><?= htmlspecialchars((string)($ue)) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -175,16 +174,18 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                             <tbody class="divide-y divide-brand-200 text-sm font-medium">
                                 <?php if (empty($logs)): ?>
                                     <tr>
-                                        <td colspan="6" class="p-8 text-center text-brand-500">No delivery logs found.</td>
+                                        <td colspan="7" class="p-12 text-center text-brand-900/50 font-medium text-sm">
+                                            <i class="ph ph-chat-circle-slash text-4xl mb-3 block opacity-50"></i>
+                                            No delivery logs found matching your criteria.
+                                        </td>
                                     </tr>
                                 <?php else: ?>
                                     <?php foreach ($logs as $log): ?>
                                     <tr class="hover:bg-brand-50/50 transition-colors">
-                                        <td class="p-4 text-brand-900/70"><?= date('M j, Y h:i A', strtotime($log['created_at'])) ?></td>
-                                        <td class="p-4"><span class="bg-brand-100 border border-brand-200 px-2 py-1 rounded text-xs"><?= htmlspecialchars($log['event_key']) ?></span></td>
-                                        <td class="p-4"><?= htmlspecialchars($log['template_name']) ?></td>
-                                        <td class="p-4 font-mono text-xs"><?= htmlspecialchars($log['phone_number']) ?></td>
-                                        <td class="p-4">
+                                        <td class="p-4 text-brand-900/70"><?= htmlspecialchars((string)(date('M j, Y h:i A', strtotime($log['created_at']))), ENT_QUOTES, 'UTF-8') ?></td>
+                                        <td class="p-4"><span class="bg-brand-100 border border-brand-200 px-2 py-1 rounded text-xs"><?= htmlspecialchars((string)($log['event_key'])) ?></span></td>
+                                        <td class="p-4"><?= htmlspecialchars((string)($log['template_name'])) ?></td>
+                                        <td class="p-4 font-mono text-xs"><?= htmlspecialchars((string)($log['phone_number'])) ?></td>
                                         <td class="p-4">
                                             <?php if ($log['status'] === 'success'): ?>
                                                 <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-brutal-green/20 text-green-800 border border-brutal-green">
@@ -205,9 +206,9 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                                                         $needsSync = true;
                                                     }
                                                 ?>
-                                                <span class="meta-status-badge inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border <?= $ms === 'read' ? 'bg-blue-100 text-blue-800 border-blue-300' : ($ms === 'delivered' ? 'bg-green-100 text-green-800 border-green-300' : ($ms === 'failed' ? 'bg-red-100 text-red-800 border-red-300' : 'bg-slate-100 text-slate-700 border-slate-300')) ?>"
-                                                      data-log-id="<?= $log['id'] ?>" 
-                                                      data-needs-sync="<?= $needsSync ? 'true' : 'false' ?>">
+                                                <span class="meta-status-badge inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border <?= htmlspecialchars((string)($ms === 'read' ? 'bg-blue-100 text-blue-800 border-blue-300' : ($ms === 'delivered' ? 'bg-green-100 text-green-800 border-green-300' : ($ms === 'failed' ? 'bg-red-100 text-red-800 border-red-300' : 'bg-slate-100 text-slate-700 border-slate-300'))), ENT_QUOTES, 'UTF-8') ?>"
+                                                      data-log-id="<?= htmlspecialchars((string)($log['id']), ENT_QUOTES, 'UTF-8') ?>" 
+                                                      data-needs-sync="<?= htmlspecialchars((string)($needsSync ? 'true' : 'false'), ENT_QUOTES, 'UTF-8') ?>">
                                                     
                                                     <?php if ($needsSync): ?>
                                                         <i class="ph ph-spinner animate-spin"></i> Syncing...
@@ -215,7 +216,7 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                                                         <?php if ($ms === 'read'): ?><i class="ph-fill ph-checks"></i> Read
                                                         <?php elseif ($ms === 'delivered'): ?><i class="ph-fill ph-check-circle"></i> Delivered
                                                         <?php elseif ($ms === 'failed'): ?><i class="ph-fill ph-warning-circle"></i> Failed
-                                                        <?php else: ?><i class="ph ph-clock"></i> <?= ucfirst($ms) ?>
+                                                        <?php else: ?><i class="ph ph-clock"></i> <?= htmlspecialchars((string)(ucfirst($ms)), ENT_QUOTES, 'UTF-8') ?>
                                                         <?php endif; ?>
                                                     <?php endif; ?>
                                                     
@@ -245,14 +246,14 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                                                         <i class="ph-fill ph-warning-circle text-red-600 text-lg shrink-0 mt-0.5"></i>
                                                         <div>
                                                             <div class="font-bold text-red-900 mb-1">
-                                                                Error Code: <?= htmlspecialchars($code ?: 'Unknown') ?>
+                                                                Error Code: <?= htmlspecialchars((string)($code ?: 'Unknown')) ?>
                                                             </div>
                                                             <div class="text-red-700 font-medium mb-1">
-                                                                <?= htmlspecialchars($log['error_message']) ?>
+                                                                <?= htmlspecialchars((string)($log['error_message'])) ?>
                                                             </div>
                                                             <?php if ($friendlyExplanation): ?>
                                                                 <div class="mt-2 text-red-800 bg-red-100/50 p-2 rounded text-[11px] leading-relaxed border border-red-100">
-                                                                    <strong>💡 Explanation:</strong> <?= $friendlyExplanation ?>
+                                                                    <strong>💡 Explanation:</strong> <?= htmlspecialchars((string)($friendlyExplanation), ENT_QUOTES, 'UTF-8') ?>
                                                                 </div>
                                                             <?php endif; ?>
                                                         </div>
@@ -270,11 +271,15 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                     </div>
                 </div>
 
-                <?php if ($totalPages > 1): ?>
+                <?php if ($totalPages > 1): 
+                    $queryParams = $_GET;
+                    unset($queryParams['page']);
+                    $queryStr = empty($queryParams) ? '' : '&' . http_build_query($queryParams);
+                ?>
                 <div class="flex justify-center gap-2 mt-6">
                     <?php for ($i = 1; $i <= $totalPages; $i++): ?>
-                        <a href="?page=<?= $i ?>" class="w-10 h-10 flex items-center justify-center rounded-xl font-bold text-sm border <?= $page === $i ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-200 hover:bg-brand-50' ?> transition-colors">
-                            <?= $i ?>
+                        <a href="?page=<?= htmlspecialchars((string)($i), ENT_QUOTES, 'UTF-8') ?><?= htmlspecialchars((string)($queryStr), ENT_QUOTES, 'UTF-8') ?>" class="w-10 h-10 flex items-center justify-center rounded-xl font-bold text-sm border <?= htmlspecialchars((string)($page === $i ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-200 hover:bg-brand-50'), ENT_QUOTES, 'UTF-8') ?> transition-colors">
+                            <?= htmlspecialchars((string)($i), ENT_QUOTES, 'UTF-8') ?>
                         </a>
                     <?php endfor; ?>
                 </div>
@@ -325,6 +330,6 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
             });
         });
     </script>
-
+    <?php include __DIR__ . '/../../components/mobile_nav.php'; ?>
 </body>
 </html>

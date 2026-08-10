@@ -24,5 +24,5 @@ try {
     // Remove this file after installation for security
     // unlink(__FILE__);
 } catch (Exception $e) {
-    echo "<p style='color:red;'>Error during setup: " . htmlspecialchars($e->getMessage()) . "</p>";
+    echo "<p style='color:red;'>Error during setup: " . htmlspecialchars((string)($e->getMessage())) . "</p>";
 }

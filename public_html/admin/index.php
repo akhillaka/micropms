@@ -4,15 +4,35 @@ require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
 CsrfToken::checkTimeout();
 
+require_once __DIR__ . '/../../pms_core/Database.php';
+require_once __DIR__ . '/../../pms_core/config.php';
+$db = Database::getInstance()->getConnection();
+
 if (isset($_GET['hotelId'])) {
-    AuthHelper::setPropertyId((int)$_GET['hotelId']);
+    $targetId = (int)$_GET['hotelId'];
+    if ($targetId > 0 && isset($_SESSION['user_id'])) {
+        $isSuperAdmin = (($_SESSION['access_level'] ?? '') === 'superadmin' || ($_SESSION['role'] ?? '') === 'superadmin');
+        $primaryPropId = (int)($_SESSION['primary_property_id'] ?? 0);
+        
+        $hasAccess = false;
+        if ($isSuperAdmin || $primaryPropId === $targetId) {
+            $hasAccess = true;
+        } else {
+            try {
+                $stmt = $db->prepare("SELECT COUNT(*) FROM staff_properties WHERE staff_id = ? AND property_id = ?");
+                $stmt->execute([$_SESSION['user_id'], $targetId]);
+                $hasAccess = ((int)$stmt->fetchColumn() > 0);
+            } catch (\PDOException $e) {}
+        }
+        
+        if ($hasAccess) {
+            AuthHelper::setPropertyId($targetId);
+        }
+    }
     header('Location: index.php');
     exit;
 }
 
-require_once __DIR__ . '/../../pms_core/Database.php';
-require_once __DIR__ . '/../../pms_core/config.php';
-$db = Database::getInstance()->getConnection();
 $todayStr = date('Y-m-d');
 $hour = (int)date('H');
 $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good evening');
@@ -21,122 +41,22 @@ $staffName = ucfirst(strtolower($staffName));
 
 $propertyId = AuthHelper::getPropertyId();
 
-// Fetch all bookings for active display (include pending_amount via folio)
-$allBookings = $db->prepare("
-    SELECT b.*, r.room_number, c.name as category_name, g.name as guest_name, g.phone as guest_phone, g.photo as guest_photo,
-        COALESCE((
-            SELECT SUM(fl.amount) FROM folio_ledger fl WHERE fl.booking_id = b.id
-        ), 0) AS ledger_balance
-    FROM bookings b 
-    JOIN rooms r ON b.room_id = r.id 
-    JOIN room_categories c ON r.category_id = c.id 
-    LEFT JOIN guests g ON b.guest_id = g.id 
-    WHERE b.property_id = :pid
-    ORDER BY b.check_in ASC
-");
-$allBookings->execute(['pid' => $propertyId]);
-$allBookings = $allBookings->fetchAll();
+require_once __DIR__ . '/../../pms_core/services/DashboardService.php';
+$dashboardService = new DashboardService();
 
-// Categorize bookings for summary counts
-$summaryCounts = [
-    'active' => 0,
-    'in_house' => 0,
-    'arrivals' => 0,
-    'departures' => 0,
-    'cancelled' => 0,
-    'on_hold' => 0
-];
+$allBookings = $dashboardService->getAllBookings();
+$summaryCounts = $dashboardService->getSummaryCounts($allBookings);
 
-foreach ($allBookings as $b) {
-    $biDate = substr($b['check_in'], 0, 10);
-    $boDate = substr($b['check_out'], 0, 10);
-    $status = $b['booking_status'];
-    $paymentStatus = $b['payment_status'];
+$occStats = $dashboardService->getOccupancyStats();
+$totalRoomsCount = $occStats['total_rooms'];
+$occupiedTodayCount = $occStats['occupied_today'];
+$occupancyPct = $occStats['percentage'];
 
-    if ($status === 'booked' || $status === 'checked_in') $summaryCounts['active']++;
-    if ($status === 'checked_in') $summaryCounts['in_house']++;
-    if ($status === 'booked' && $biDate === $todayStr) $summaryCounts['arrivals']++;
-    if ($status === 'checked_in' && $boDate === $todayStr) $summaryCounts['departures']++;
-    if ($status === 'cancelled') $summaryCounts['cancelled']++;
-    if ($paymentStatus === 'pending_hold') $summaryCounts['on_hold']++;
-}
+$revenueToday = $dashboardService->getRevenueToday();
+$availabilityData = $dashboardService->getAvailabilityData();
 
-// Occupancy KPI: total rooms vs occupied today
-$trStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = :pid");
-$trStmt->execute(['pid' => $propertyId]);
-$totalRoomsCount = (int)$trStmt->fetchColumn();
-
-$occStmt = $db->prepare("
-    SELECT COUNT(DISTINCT room_id) FROM bookings 
-    WHERE property_id = :pid
-      AND ((booking_status = 'checked_in')
-       OR (booking_status = 'booked' AND DATE(check_in) <= :today1 AND DATE(check_out) > :today2))
-");
-$occStmt->execute(['pid' => $propertyId, 'today1' => $todayStr, 'today2' => $todayStr]);
-$occupiedTodayCount = (int)$occStmt->fetchColumn();
-$occupancyPct = $totalRoomsCount > 0 ? round(($occupiedTodayCount / $totalRoomsCount) * 100) : 0;
-
-// Revenue KPI: today's payments collected
-$revStmt = $db->prepare("
-    SELECT COALESCE(SUM(ABS(fl.amount)),0) FROM folio_ledger fl 
-    JOIN bookings b ON fl.booking_id = b.id
-    WHERE fl.amount < 0 AND DATE(fl.recorded_at) = :today AND b.property_id = :pid
-");
-$revStmt->execute(['today' => $todayStr, 'pid' => $propertyId]);
-$revenueToday = (float)$revStmt->fetchColumn();
-
-// Fetch Room Categories and availability in optimized bulk queries (No N+1)
-$catStmt = $db->prepare("SELECT * FROM room_categories WHERE property_id = :pid ORDER BY name ASC");
-$catStmt->execute(['pid' => $propertyId]);
-$categories = $catStmt->fetchAll();
-
-$roomCounts = [];
-$rcStmt = $db->prepare("SELECT category_id, COUNT(*) as total FROM rooms WHERE property_id = :pid GROUP BY category_id");
-$rcStmt->execute(['pid' => $propertyId]);
-foreach ($rcStmt->fetchAll() as $row) {
-    $roomCounts[$row['category_id']] = (int)$row['total'];
-}
-
-$occCounts = [];
-$occStmtBatch = $db->prepare("
-    SELECT r.category_id, COUNT(DISTINCT b.room_id) as occupied
-    FROM bookings b
-    JOIN rooms r ON b.room_id = r.id
-    WHERE b.property_id = :pid
-      AND b.booking_status IN ('booked', 'checked_in')
-      AND DATE(b.check_in) <= :today1 AND DATE(b.check_out) > :today2
-    GROUP BY r.category_id
-");
-$occStmtBatch->execute(['pid' => $propertyId, 'today1' => $todayStr, 'today2' => $todayStr]);
-foreach ($occStmtBatch->fetchAll() as $row) {
-    $occCounts[$row['category_id']] = (int)$row['occupied'];
-}
-
-$prices = [];
-$priceStmtBatch = $db->query("SELECT category_id, price FROM sliding_rates WHERE hours = 24");
-foreach ($priceStmtBatch->fetchAll() as $row) {
-    $prices[$row['category_id']] = (float)$row['price'];
-}
-
-$availabilityData = [];
-foreach ($categories as $cat) {
-    $catId = $cat['id'];
-    $total = $roomCounts[$catId] ?? 0;
-    $occupied = $occCounts[$catId] ?? 0;
-    $available = max(0, $total - $occupied);
-    $catOccPct = $total > 0 ? round(($occupied / $total) * 100) : 0;
-
-    $price = $prices[$catId] ?? 1500.00;
-
-    $availabilityData[] = [
-        'name' => $cat['name'],
-        'total' => $total,
-        'occupied' => $occupied,
-        'available' => $available,
-        'occ_pct' => $catOccPct,
-        'price' => $price
-    ];
-}
+// Housekeeping KPI
+$pendingHkCount = $dashboardService->getPendingHousekeepingCount();
 
 // Active Property resolution for SaaS view
 $activePropertyId = AuthHelper::getPropertyId();
@@ -159,10 +79,11 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <?= CsrfToken::meta() ?>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, ">
-    <title>Property Dashboard | MicroPMS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="<?= htmlspecialchars((string)(CsrfToken::generate())) ?>">
+    <meta name="property-id" content="<?= htmlspecialchars((string)(AuthHelper::getPropertyId()), ENT_QUOTES, 'UTF-8') ?>">
+    <title><?= htmlspecialchars((string)($hotelName)) ?> | MicroPMS</title>
     
     <?php include __DIR__ . '/components/mobile_nav.php'; ?>
     <?php include __DIR__ . '/components/ui_head.php'; ?>
@@ -220,7 +141,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
     <?php if ($activePropertyId > 1 && AuthHelper::isSuperAdmin()): ?>
         <div class="bg-blue-700 text-white px-4 py-2.5 text-center text-xs font-bold flex items-center justify-center gap-2">
             <i class="ph ph-eye"></i>
-            <span>SaaS VIEW: Currently viewing dashboard for <strong><?= htmlspecialchars($hotelName) ?></strong> (Property ID: <?= $activePropertyId ?>)</span>
+            <span>SaaS VIEW: Currently viewing dashboard for <strong><?= htmlspecialchars((string)($hotelName)) ?></strong> (Property ID: <?= htmlspecialchars((string)($activePropertyId), ENT_QUOTES, 'UTF-8') ?>)</span>
             <form method="POST" action="/saas-admin/index.php" class="inline">
                 <input type="hidden" name="action" value="switch_context">
                 <input type="hidden" name="property_id" value="1">
@@ -234,7 +155,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
         <header class="bg-white/90 backdrop-blur-md px-6 py-3.5 flex items-center justify-between border-b border-slate-200/80 sticky top-0 z-50 shadow-xs mb-6">
             <div class="flex items-center gap-3">
                 <?php if($hotelLogo): ?>
-                <img src="data:image/png;base64,<?= htmlspecialchars($hotelLogo) ?>" alt="Logo" class="w-10 h-10 rounded-xl object-cover shadow-xs border border-slate-200">
+                <img src="data:image/png;base64,<?= htmlspecialchars((string)($hotelLogo)) ?>" alt="Logo" class="w-10 h-10 rounded-xl object-cover shadow-xs border border-slate-200">
                 <?php else: ?>
                 <div class="w-10 h-10 bg-brand-900 rounded-xl flex items-center justify-center text-white shadow-sm shadow-brand-900/20">
                     <i class="ph ph-buildings text-xl"></i>
@@ -242,12 +163,12 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                 <?php endif; ?>
                 <div>
                     <div class="flex items-center gap-2">
-                        <h1 class="text-base font-bold text-slate-900 leading-tight font-display"><?= htmlspecialchars($hotelName) ?></h1>
+                        <h1 class="text-base font-bold text-slate-900 leading-tight font-display"><?= htmlspecialchars((string)($hotelName)) ?></h1>
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Live
                         </span>
                     </div>
-                    <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Property Dashboard</span>
+                    <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">ID: <?= htmlspecialchars((string)($activePropertyId), ENT_QUOTES, 'UTF-8') ?> | Property Dashboard</span>
                 </div>
             </div>
             
@@ -255,10 +176,10 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                 <!-- User Session Pill -->
                 <div class="hidden lg:flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs font-semibold text-slate-700">
                     <div class="w-6 h-6 rounded-lg bg-brand-100 text-brand-800 font-bold flex items-center justify-center text-[10px] uppercase font-display">
-                        <?= strtoupper(substr($staffName, 0, 2)) ?>
+                        <?= htmlspecialchars((string)(strtoupper(substr($staffName, 0, 2))), ENT_QUOTES, 'UTF-8') ?>
                     </div>
-                    <span><?= htmlspecialchars($staffName) ?></span>
-                    <span class="text-[9px] uppercase tracking-wider font-extrabold px-1.5 py-0.5 rounded-md bg-slate-200/60 text-slate-600"><?= htmlspecialchars(AuthHelper::getRole() ?? 'staff') ?></span>
+                    <span><?= htmlspecialchars((string)($staffName)) ?></span>
+                    <span class="text-[9px] uppercase tracking-wider font-extrabold px-1.5 py-0.5 rounded-md bg-slate-200/60 text-slate-600"><?= htmlspecialchars((string)(AuthHelper::getRole() ?? 'staff')) ?></span>
                 </div>
 
                 <?php if(AuthHelper::can('create_booking')): ?>
@@ -274,8 +195,8 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             <!-- Greeting & Search Banner -->
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-xl font-extrabold text-slate-900 tracking-tight font-display flex items-center gap-2"><?= htmlspecialchars($greeting) ?>, <?= htmlspecialchars($staffName) ?> <i class="ph ph-hand-waving text-amber-500 text-2xl"></i></h2>
-                    <p class="text-xs text-slate-500 font-semibold mt-0.5">Property summary for <span class="text-slate-800 font-bold"><?= date('l, d M Y') ?></span></p>
+                    <h2 class="text-xl font-extrabold text-slate-900 tracking-tight font-display flex items-center gap-2"><?= htmlspecialchars((string)($greeting)) ?>, <?= htmlspecialchars((string)($staffName)) ?> <i class="ph ph-hand-waving text-amber-500 text-2xl"></i></h2>
+                    <p class="text-xs text-slate-500 font-semibold mt-0.5">Property summary for <span class="text-slate-800 font-bold"><?= htmlspecialchars((string)(date('l, d M Y')), ENT_QUOTES, 'UTF-8') ?></span></p>
                 </div>
                 <div class="relative w-full md:w-80">
                     <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg"></i>
@@ -292,8 +213,8 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                     </div>
                     <div>
                         <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Occupancy</p>
-                        <p class="text-xl font-extrabold text-slate-900 leading-tight"><?= $occupancyPct ?>%</p>
-                        <p class="text-[10px] text-slate-400"><?= $occupiedTodayCount ?>/<?= $totalRoomsCount ?> rooms</p>
+                        <p class="text-xl font-extrabold text-slate-900 leading-tight"><?= htmlspecialchars((string)($occupancyPct), ENT_QUOTES, 'UTF-8') ?>%</p>
+                        <p class="text-[10px] text-slate-400"><?= htmlspecialchars((string)($occupiedTodayCount), ENT_QUOTES, 'UTF-8') ?>/<?= htmlspecialchars((string)($totalRoomsCount), ENT_QUOTES, 'UTF-8') ?> rooms</p>
                     </div>
                 </div>
                 <div class="kpi-tile flex items-center gap-3">
@@ -302,7 +223,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                     </div>
                     <div>
                         <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Today's Revenue</p>
-                        <p class="text-xl font-extrabold text-slate-900 leading-tight">₹<?= number_format($revenueToday) ?></p>
+                        <p class="text-xl font-extrabold text-slate-900 leading-tight">₹<?= htmlspecialchars((string)(number_format($revenueToday)), ENT_QUOTES, 'UTF-8') ?></p>
                         <p class="text-[10px] text-slate-400">collected today</p>
                     </div>
                 </div>
@@ -312,7 +233,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                     </div>
                     <div>
                         <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Arrivals Today</p>
-                        <p class="text-xl font-extrabold text-slate-900 leading-tight"><?= $summaryCounts['arrivals'] ?></p>
+                        <p class="text-xl font-extrabold text-slate-900 leading-tight"><?= htmlspecialchars((string)($summaryCounts['arrivals']), ENT_QUOTES, 'UTF-8') ?></p>
                         <p class="text-[10px] text-slate-400">check-ins due</p>
                     </div>
                 </div>
@@ -322,7 +243,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                     </div>
                     <div>
                         <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Departures</p>
-                        <p class="text-xl font-extrabold text-slate-900 leading-tight"><?= $summaryCounts['departures'] ?></p>
+                        <p class="text-xl font-extrabold text-slate-900 leading-tight"><?= htmlspecialchars((string)($summaryCounts['departures']), ENT_QUOTES, 'UTF-8') ?></p>
                         <p class="text-[10px] text-slate-400">check-outs due</p>
                     </div>
                 </div>
@@ -332,27 +253,27 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             <div class="flex gap-3 overflow-x-auto pb-2 scroll-x">
                 <div onclick="filterBookings('active', this)" class="metric-tile active">
                     <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">All Active</span>
-                    <span class="text-2xl font-extrabold text-slate-800 mt-2 block"><?= $summaryCounts['active'] ?></span>
+                    <span class="text-2xl font-extrabold text-slate-800 mt-2 block"><?= htmlspecialchars((string)($summaryCounts['active']), ENT_QUOTES, 'UTF-8') ?></span>
                 </div>
                 <div onclick="filterBookings('in_house', this)" class="metric-tile">
                     <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">In House</span>
-                    <span class="text-2xl font-extrabold text-emerald-600 mt-2 block"><?= $summaryCounts['in_house'] ?></span>
+                    <span class="text-2xl font-extrabold text-emerald-600 mt-2 block"><?= htmlspecialchars((string)($summaryCounts['in_house']), ENT_QUOTES, 'UTF-8') ?></span>
                 </div>
                 <div onclick="filterBookings('arrivals', this)" class="metric-tile">
                     <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Arrivals</span>
-                    <span class="text-2xl font-extrabold text-amber-600 mt-2 block"><?= $summaryCounts['arrivals'] ?></span>
+                    <span class="text-2xl font-extrabold text-amber-600 mt-2 block"><?= htmlspecialchars((string)($summaryCounts['arrivals']), ENT_QUOTES, 'UTF-8') ?></span>
                 </div>
                 <div onclick="filterBookings('departures', this)" class="metric-tile">
                     <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Departures</span>
-                    <span class="text-2xl font-extrabold text-indigo-600 mt-2 block"><?= $summaryCounts['departures'] ?></span>
+                    <span class="text-2xl font-extrabold text-indigo-600 mt-2 block"><?= htmlspecialchars((string)($summaryCounts['departures']), ENT_QUOTES, 'UTF-8') ?></span>
                 </div>
                 <div onclick="filterBookings('cancelled', this)" class="metric-tile">
                     <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Cancellations</span>
-                    <span class="text-2xl font-extrabold text-rose-600 mt-2 block"><?= $summaryCounts['cancelled'] ?></span>
+                    <span class="text-2xl font-extrabold text-rose-600 mt-2 block"><?= htmlspecialchars((string)($summaryCounts['cancelled']), ENT_QUOTES, 'UTF-8') ?></span>
                 </div>
                 <div onclick="filterBookings('on_hold', this)" class="metric-tile">
                     <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">On Hold</span>
-                    <span class="text-2xl font-extrabold text-slate-500 mt-2 block"><?= $summaryCounts['on_hold'] ?></span>
+                    <span class="text-2xl font-extrabold text-slate-500 mt-2 block"><?= htmlspecialchars((string)($summaryCounts['on_hold']), ENT_QUOTES, 'UTF-8') ?></span>
                 </div>
             </div>
 
@@ -392,21 +313,21 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                     <div class="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
                         <div class="bg-slate-50/50 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
                             <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Availability Today</h3>
-                            <span class="text-[10px] font-bold text-slate-500"><?= $occupancyPct ?>% occupied</span>
+                            <span class="text-[10px] font-bold text-slate-500"><?= htmlspecialchars((string)($occupancyPct), ENT_QUOTES, 'UTF-8') ?>% occupied</span>
                         </div>
                         <div class="p-4 space-y-3">
                             <?php foreach ($availabilityData as $avail): ?>
                             <div>
                                 <div class="flex items-center justify-between mb-1">
-                                    <span class="text-xs font-bold text-slate-700"><?= htmlspecialchars($avail['name']) ?></span>
+                                    <span class="text-xs font-bold text-slate-700"><?= htmlspecialchars((string)($avail['name'])) ?></span>
                                     <div class="flex items-center gap-2">
-                                        <span class="text-[10px] font-semibold text-slate-400"><?= $avail['occupied'] ?>/<?= $avail['total'] ?></span>
-                                        <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full <?= $avail['available'] > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700' ?>"><?= $avail['available'] ?> free</span>
-                                        <span class="text-[10px] font-bold text-slate-500">₹<?= number_format($avail['price']) ?></span>
+                                        <span class="text-[10px] font-semibold text-slate-400"><?= htmlspecialchars((string)($avail['occupied']), ENT_QUOTES, 'UTF-8') ?>/<?= htmlspecialchars((string)($avail['total']), ENT_QUOTES, 'UTF-8') ?></span>
+                                        <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full <?= htmlspecialchars((string)($avail['available'] > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($avail['available']), ENT_QUOTES, 'UTF-8') ?> free</span>
+                                        <span class="text-[10px] font-bold text-slate-500">₹<?= htmlspecialchars((string)(number_format($avail['price'])), ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                 </div>
                                 <div class="occ-bar">
-                                    <div class="occ-bar-fill <?= $avail['occ_pct'] >= 90 ? 'bg-rose-400' : ($avail['occ_pct'] >= 60 ? 'bg-amber-400' : 'bg-emerald-400') ?>" style="width:<?= $avail['occ_pct'] ?>%"></div>
+                                    <div class="occ-bar-fill <?= htmlspecialchars((string)($avail['occ_pct'] >= 90 ? 'bg-rose-400' : ($avail['occ_pct'] >= 60 ? 'bg-amber-400' : 'bg-emerald-400')), ENT_QUOTES, 'UTF-8') ?>" style="width:<?= htmlspecialchars((string)($avail['occ_pct']), ENT_QUOTES, 'UTF-8') ?>%"></div>
                                 </div>
                             </div>
                             <?php endforeach; ?>
@@ -419,7 +340,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                             <div class="flex items-center gap-2">
                                 <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Room Cleaning</h3>
                                 <?php if($dirtyCount > 0): ?>
-                                <span class="text-[9px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full"><?= $dirtyCount ?> dirty</span>
+                                <span class="text-[9px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full"><?= htmlspecialchars((string)($dirtyCount), ENT_QUOTES, 'UTF-8') ?> dirty</span>
                                 <?php endif; ?>
                             </div>
                             <div class="flex items-center gap-2">
@@ -449,23 +370,23 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                                     $needsDeepClean = (time() - $lastDeepClean) > ($deepCleanFreq * 86400);
                                 }
                             ?>
-                            <div class="flex items-center justify-between p-2.5 border border-slate-100 rounded-xl hover:shadow-sm transition-all bg-white" id="hk-room-<?= $room['id'] ?>">
+                            <div class="flex items-center justify-between p-2.5 border border-slate-100 rounded-xl hover:shadow-sm transition-all bg-white" id="hk-room-<?= htmlspecialchars((string)($room['id']), ENT_QUOTES, 'UTF-8') ?>">
                                 <div>
-                                    <span class="font-extrabold text-slate-800 text-xs">Room <?= htmlspecialchars($room['room_number']) ?></span>
-                                    <span class="text-[9px] text-slate-400 block mt-0.5"><?= htmlspecialchars($room['category_name']) ?></span>
+                                    <span class="font-extrabold text-slate-800 text-xs">Room <?= htmlspecialchars((string)($room['room_number'])) ?></span>
+                                    <span class="text-[9px] text-slate-400 block mt-0.5"><?= htmlspecialchars((string)($room['category_name'])) ?></span>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <?php if ($needsDeepClean): ?>
                                     <span title="Requires Deep Clean" class="text-rose-500"><i class="ph ph-sparkle text-lg"></i></span>
                                     <?php endif; ?>
-                                    <span class="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border <?= $badgeColor ?>"><?= str_replace('_', ' ', $room['state']) ?></span>
+                                    <span class="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border <?= htmlspecialchars((string)($badgeColor), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)(str_replace('_', ' ', $room['state'])), ENT_QUOTES, 'UTF-8') ?></span>
                                     <?php if ($isDirty): ?>
                                         <?php if ($needsDeepClean): ?>
-                                        <button onclick="quickDeepCleanRoom(<?= $room['id'] ?>)" title="Mark Deep Cleaned" class="w-7 h-7 border border-rose-200 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 active:scale-95 transition-all shadow-sm">
+                                        <button onclick="quickDeepCleanRoom(<?= htmlspecialchars((string)($room['id']), ENT_QUOTES, 'UTF-8') ?>)" title="Mark Deep Cleaned" class="w-7 h-7 border border-rose-200 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 active:scale-95 transition-all shadow-sm">
                                             <i class="ph ph-sparkle text-xs"></i>
                                         </button>
                                         <?php endif; ?>
-                                        <button onclick="quickCleanRoom(<?= $room['id'] ?>)" title="Mark Clean" class="w-7 h-7 border border-amber-200 rounded-full bg-amber-500 text-white flex items-center justify-center hover:bg-amber-600 active:scale-95 transition-all shadow-sm">
+                                        <button onclick="quickCleanRoom(<?= htmlspecialchars((string)($room['id']), ENT_QUOTES, 'UTF-8') ?>)" title="Mark Clean" class="w-7 h-7 border border-amber-200 rounded-full bg-amber-500 text-white flex items-center justify-center hover:bg-amber-600 active:scale-95 transition-all shadow-sm">
                                             <i class="ph ph-broom text-xs"></i>
                                         </button>
                                     <?php endif; ?>
@@ -532,7 +453,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
         function renderBookingCards() {
             const container = document.getElementById('bookings-cards-container');
             const badge = document.getElementById('list-count-badge');
-            const todayStr = '<?= $todayStr ?>';
+            const todayStr = '<?= htmlspecialchars((string)($todayStr), ENT_QUOTES, 'UTF-8') ?>';
             
             let filtered = bookingsData.filter(b => {
                 // If there's a search term, search globally across all categories
@@ -625,12 +546,14 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             }).join('');
         }
 
+        const propertyId = document.querySelector('meta[name="property-id"]')?.getAttribute('content');
+        
         async function quickCleanRoom(roomId, silent = false) {
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
             try {
                 const res = await fetch('/api/admin/room_action', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken, 'X-Tenant-Id': propertyId },
                     body: JSON.stringify({ room_id: roomId, action: 'mark_clean' })
                 });
                 const data = await res.json();
@@ -657,7 +580,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             try {
                 const res = await fetch('/api/admin/room_action', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken, 'X-Tenant-Id': propertyId },
                     body: JSON.stringify({ room_id: roomId, action: 'mark_deep_clean' })
                 });
                 const data = await res.json();
@@ -690,6 +613,25 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             showToast(`${count} room(s) marked clean!`, 'success');
         }
 
+        async function markNoShow(bookingId) {
+            if(!confirm("Mark this booking as No-Show?")) return;
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            try {
+                const res = await fetch('/api/admin/booking_status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken, 'X-Tenant-Id': propertyId },
+                    body: JSON.stringify({ booking_id: bookingId, status: 'cancelled' })
+                });
+                const data = await res.json();
+                if(data.success) {
+                    showToast('Booking marked as No-Show', 'success');
+                    setTimeout(() => location.reload(), 1200);
+                } else {
+                    showToast('Error: ' + data.message, 'error');
+                }
+            } catch(e) { showToast('Connection error', 'error'); }
+        }
+
         async function quickCheckin(bookingId) {
             if (!await pmsConfirm('Process check-in for this booking?', 'Confirm Check-in', 'info')) return;
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
@@ -697,7 +639,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             try {
                 const res = await fetch('/api/admin/booking_status', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken, 'X-Tenant-Id': propertyId },
                     body: JSON.stringify({ booking_id: bookingId, action: 'check_in', reason: 'Quick check-in from Property Dashboard' })
                 });
                 const data = await res.json();
@@ -725,7 +667,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             try {
                 const res = await fetch('/api/admin/booking_status', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken, 'X-Tenant-Id': propertyId },
                     body: JSON.stringify({ booking_id: bookingId, action: 'check_out', reason: 'Quick checkout from Property Dashboard' })
                 });
                 const data = await res.json();
@@ -748,7 +690,9 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
 
         async function loadActions() {
             try {
-                const res = await fetch('/api/admin/actions');
+                const res = await fetch('/api/admin/actions', {
+                    headers: { 'X-Tenant-Id': propertyId }
+                });
                 const data = await res.json();
                 const container = document.getElementById('actions-container');
                 const badge = document.getElementById('actions-count-badge');

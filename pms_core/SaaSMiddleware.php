@@ -32,16 +32,47 @@ class SaaSMiddleware {
             if ($isSuperAdmin || $requestedId === $sessionPropertyId) {
                 $propertyId = $requestedId;
             } else {
-                $propertyId = $sessionPropertyId;
+                // Verify if staff is mapped to this property in staff_properties
+                try {
+                    $stmt = $db->prepare("SELECT COUNT(*) FROM staff_properties WHERE staff_id = ? AND property_id = ?");
+                    $stmt->execute([$_SESSION['user_id'] ?? 0, $requestedId]);
+                    if ((int)$stmt->fetchColumn() > 0) {
+                        $propertyId = $requestedId;
+                    } else {
+                        $propertyId = $sessionPropertyId;
+                    }
+                } catch (\PDOException $e) {
+                    $propertyId = $sessionPropertyId;
+                }
             }
         } elseif (isset($_SERVER['HTTP_HOST'])) {
-            $propertyId = SaaSBillingEngine::resolveDomainTenant($db, $_SERVER['HTTP_HOST']);
+            $resolvedId = SaaSBillingEngine::resolveDomainTenant($db, $_SERVER['HTTP_HOST']);
+            $propertyId = ($resolvedId !== null) ? $resolvedId : AuthHelper::getPropertyId();
         } else {
             $propertyId = AuthHelper::getPropertyId();
         }
 
         // Set context in session / helper
         AuthHelper::setPropertyId($propertyId);
+
+        // Fetch custom permissions for this property context if not superadmin
+        if (isset($_SESSION['user_id']) && !AuthHelper::isSuperAdmin()) {
+            try {
+                $stmt = $db->prepare("
+                    SELECT pr.permissions 
+                    FROM roles pr
+                    INNER JOIN staff_properties sp ON pr.id = sp.role_id
+                    WHERE sp.staff_id = ? AND sp.property_id = ?
+                ");
+                $stmt->execute([$_SESSION['user_id'], $propertyId]);
+                $perms = $stmt->fetchColumn();
+                if ($perms) {
+                    $_SESSION['custom_permissions'] = json_decode($perms, true) ?? [];
+                } else {
+                    $_SESSION['custom_permissions'] = [];
+                }
+            } catch (\PDOException $e) {}
+        }
 
         // Superadmin bypasses all property-level restrictions
         if (AuthHelper::isSuperAdmin()) {
@@ -51,11 +82,15 @@ class SaaSMiddleware {
         // Enforce property-level subscription/suspension checks
         if ($propertyId > 0) {
             try {
-                $stmt = $db->prepare("SELECT is_active, subscription_status, valid_until FROM properties WHERE id = ?");
+                $stmt = $db->prepare("SELECT is_active, subscription_status, valid_until, timezone FROM properties WHERE id = ?");
                 $stmt->execute([$propertyId]);
                 $prop = $stmt->fetch(\PDO::FETCH_ASSOC);
 
                 if ($prop) {
+                    if (!empty($prop['timezone'])) {
+                        date_default_timezone_set($prop['timezone']);
+                    }
+                    
                     // Check suspension
                     if ((int)$prop['is_active'] === 0) {
                         http_response_code(403);

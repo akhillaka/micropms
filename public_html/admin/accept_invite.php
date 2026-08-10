@@ -91,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $invitation) {
             </span>
             <h2 class="text-2xl font-black text-white tracking-tight">Join Workspace</h2>
             <?php if ($invitation): ?>
-                <p class="text-slate-400 text-xs mt-1">You have been invited to join <strong><?= htmlspecialchars($invitation['property_name']) ?></strong> as a <strong><?= htmlspecialchars(ucfirst($invitation['role'])) ?></strong></p>
+                <p class="text-slate-400 text-xs mt-1">You have been invited to join <strong><?= htmlspecialchars((string)($invitation['property_name'])) ?></strong> as a <strong><?= htmlspecialchars((string)(ucfirst($invitation['role']))) ?></strong></p>
             <?php endif; ?>
         </div>
 
@@ -105,13 +105,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $invitation) {
         <?php else: ?>
             <?php if ($error): ?>
                 <div class="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-xl text-xs font-bold text-center mb-4">
-                    ⚠️ <?= htmlspecialchars($error) ?>
+                    ⚠️ <?= htmlspecialchars((string)($error)) ?>
                 </div>
             <?php endif; ?>
 
             <?php if ($invitation): ?>
                 <form method="POST" class="space-y-4">
-                    <input type="hidden" name="token" value="<?= htmlspecialchars($token) ?>">
+                    <input type="hidden" name="token" value="<?= htmlspecialchars((string)($token)) ?>">
                     
                     <div>
                         <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Username / Login Name</label>

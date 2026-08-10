@@ -47,6 +47,9 @@ class VoiceController {
     this.currentLang = lang;
     localStorage.setItem('pms_voice_lang', lang);
     this._loadVoices(); // Reload voices for new language
+    if (window.VoiceCommands) {
+        window.VoiceCommands.setLanguage(lang);
+    }
   }
 
   /**

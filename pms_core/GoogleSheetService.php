@@ -7,9 +7,23 @@ class GoogleSheetService {
     /**
      * Send HTTP POST to Google Apps Script Webhook
      */
-    public static function sendWebhook($payload) {
-        $webhookUrl = defined('GOOGLE_SHEETS_WEBHOOK_URL') ? GOOGLE_SHEETS_WEBHOOK_URL : '';
-        $isEnabled = defined('GOOGLE_SHEETS_ENABLED') ? (GOOGLE_SHEETS_ENABLED === 'true' || GOOGLE_SHEETS_ENABLED === true || GOOGLE_SHEETS_ENABLED === '1') : false;
+    public static function sendWebhook($payload, $propertyId = null) {
+        if ($propertyId === null) {
+            require_once __DIR__ . '/AuthHelper.php';
+            $propertyId = AuthHelper::getPropertyId();
+        }
+
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ? AND key_name IN ('GOOGLE_SHEETS_WEBHOOK_URL', 'GOOGLE_SHEETS_ENABLED')");
+        $stmt->execute([$propertyId]);
+        
+        $settings = [];
+        while ($row = $stmt->fetch()) {
+            $settings[$row['key_name']] = $row['key_value'];
+        }
+
+        $webhookUrl = $settings['GOOGLE_SHEETS_WEBHOOK_URL'] ?? (defined('GOOGLE_SHEETS_WEBHOOK_URL') ? GOOGLE_SHEETS_WEBHOOK_URL : '');
+        $isEnabled = isset($settings['GOOGLE_SHEETS_ENABLED']) ? ($settings['GOOGLE_SHEETS_ENABLED'] === 'true' || $settings['GOOGLE_SHEETS_ENABLED'] === '1') : (defined('GOOGLE_SHEETS_ENABLED') ? (GOOGLE_SHEETS_ENABLED === 'true' || GOOGLE_SHEETS_ENABLED === true || GOOGLE_SHEETS_ENABLED === '1') : false);
 
         if (!$isEnabled || empty($webhookUrl) || filter_var($webhookUrl, FILTER_VALIDATE_URL) === false) {
             return false;
@@ -85,7 +99,7 @@ class GoogleSheetService {
             'action' => 'sync_row',
             'sheet_type' => 'booking',
             'data' => $data
-        ]);
+        ], 0, $data['property_id'] ?? null);
         return true;
     }
 
@@ -101,7 +115,7 @@ class GoogleSheetService {
             'action' => 'sync_row',
             'sheet_type' => 'payment',
             'data' => $data
-        ]);
+        ], 0, $data['property_id'] ?? null);
         return true;
     }
 
@@ -117,18 +131,19 @@ class GoogleSheetService {
             'action' => 'sync_row',
             'sheet_type' => 'expense',
             'data' => $data
-        ]);
+        ], 0, $data['property_id'] ?? null);
         return true;
     }
 
     /**
      * Bulk sync bookings, payments, or expenses
      */
-    public static function bulkSync($pdo, $type = 'all') {
+    public static function bulkSync($pdo, $propertyId, $type = 'all') {
         $items = [];
 
         if ($type === 'all' || $type === 'booking') {
-            $stmt = $pdo->query("SELECT id FROM bookings ORDER BY id ASC");
+            $stmt = $pdo->prepare("SELECT id FROM bookings WHERE property_id = ? ORDER BY id ASC");
+            $stmt->execute([$propertyId]);
             while ($row = $stmt->fetch()) {
                 $bData = self::buildBookingData($pdo, $row['id']);
                 if ($bData) {
@@ -138,7 +153,9 @@ class GoogleSheetService {
         }
 
         if ($type === 'all' || $type === 'payment') {
-            $stmt = $pdo->query("SELECT id FROM folio_ledger WHERE transaction_type IN ('cash','card','online','payment') ORDER BY id ASC");
+            // Need to join bookings to get property_id
+            $stmt = $pdo->prepare("SELECT l.id FROM folio_ledger l JOIN bookings b ON l.booking_id = b.id WHERE b.property_id = ? AND l.transaction_type IN ('cash','card','online','payment') ORDER BY l.id ASC");
+            $stmt->execute([$propertyId]);
             while ($row = $stmt->fetch()) {
                 $pData = self::buildPaymentData($pdo, $row['id']);
                 if ($pData) {
@@ -148,7 +165,8 @@ class GoogleSheetService {
         }
 
         if ($type === 'all' || $type === 'expense') {
-            $stmt = $pdo->query("SELECT id FROM finance_transactions WHERE type = 'expense' ORDER BY id ASC");
+            $stmt = $pdo->prepare("SELECT id FROM finance_transactions WHERE property_id = ? AND type = 'expense' ORDER BY id ASC");
+            $stmt->execute([$propertyId]);
             while ($row = $stmt->fetch()) {
                 $eData = self::buildExpenseData($pdo, $row['id']);
                 if ($eData) {
@@ -170,7 +188,7 @@ class GoogleSheetService {
             QueueService::push('google_sheets', [
                 'action' => 'bulk_sync',
                 'items' => $chunk
-            ]);
+            ], 0, $propertyId);
             $totalSynced += count($chunk);
         }
 
@@ -215,6 +233,7 @@ class GoogleSheetService {
         $staffUser = self::getBookingStaffUser($pdo, $bookingId);
 
         return [
+            "property_id"            => (int)$b['property_id'], // hidden from sheet, used for routing
             "Booking ID"             => $b['display_id'] ?: ("BKG-" . $b['id']),
             "Folio No"                => $b['offline_folio_id'] ?: ("FOL-" . $b['id']),
             "Room No"                => $b['room_number'] ?: "-",

@@ -1,6 +1,20 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/../pms_core/config.php';
+require_once __DIR__ . '/../pms_core/Database.php';
+
+$propertyName = 'Your Reservation';
+$hotelId = (int)($_GET['hotelId'] ?? 0);
+if ($hotelId > 0) {
+    try {
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT name FROM properties WHERE id = ?");
+        $stmt->execute([$hotelId]);
+        if ($prop = $stmt->fetch()) {
+            $propertyName = $prop['name'];
+        }
+    } catch (\Exception $e) {}
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -44,7 +58,7 @@ require_once __DIR__ . '/../pms_core/config.php';
             <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg mb-4">
                 <i class="ph ph-buildings text-3xl text-white"></i>
             </div>
-            <h1 class="text-2xl font-extrabold text-slate-800 tracking-tight">Find Your Reservation</h1>
+            <h1 class="text-2xl font-extrabold text-slate-800 tracking-tight">Find <?= htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') ?></h1>
             <p class="text-sm font-medium text-slate-500">Enter your booking details to access the guest portal.</p>
         </div>
 
@@ -105,6 +119,10 @@ require_once __DIR__ . '/../pms_core/config.php';
                     btn.innerHTML = '<i class="ph ph-check-circle text-lg"></i> Redirecting...';
                     btn.classList.replace('bg-blue-600', 'bg-emerald-500');
                     btn.classList.replace('hover:bg-blue-700', 'hover:bg-emerald-600');
+                    
+                    // Store token securely in sessionStorage and redirect with it for first-load verification
+                    sessionStorage.setItem('guest_portal_token', data.token);
+                    sessionStorage.setItem('guest_portal_booking_id', data.booking_id);
                     
                     setTimeout(() => {
                         window.location.href = `guest_portal.php?id=${data.booking_id}&token=${data.token}`;

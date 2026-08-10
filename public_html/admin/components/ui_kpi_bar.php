@@ -45,8 +45,8 @@ $kpiDirtyCount = (int)$db->query("SELECT COUNT(*) FROM rooms WHERE state = 'dirt
         </div>
         <div>
             <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Occupancy</p>
-            <p class="text-lg font-extrabold text-slate-900 leading-tight"><?= $kpiOccupancyPct ?>%</p>
-            <p class="text-[9px] text-slate-500 font-semibold"><?= $kpiOccupiedCount ?>/<?= $kpiTotalRooms ?> rooms</p>
+            <p class="text-lg font-extrabold text-slate-900 leading-tight"><?= htmlspecialchars((string)($kpiOccupancyPct), ENT_QUOTES, 'UTF-8') ?>%</p>
+            <p class="text-[9px] text-slate-500 font-semibold"><?= htmlspecialchars((string)($kpiOccupiedCount), ENT_QUOTES, 'UTF-8') ?>/<?= htmlspecialchars((string)($kpiTotalRooms), ENT_QUOTES, 'UTF-8') ?> rooms</p>
         </div>
     </div>
     
@@ -57,7 +57,7 @@ $kpiDirtyCount = (int)$db->query("SELECT COUNT(*) FROM rooms WHERE state = 'dirt
         </div>
         <div>
             <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Today's Rev</p>
-            <p class="text-lg font-extrabold text-slate-900 leading-tight">₹<?= number_format($kpiRevenueToday) ?></p>
+            <p class="text-lg font-extrabold text-slate-900 leading-tight">₹<?= htmlspecialchars((string)(number_format($kpiRevenueToday)), ENT_QUOTES, 'UTF-8') ?></p>
             <p class="text-[9px] text-slate-500 font-semibold">collected today</p>
         </div>
     </div>
@@ -69,7 +69,7 @@ $kpiDirtyCount = (int)$db->query("SELECT COUNT(*) FROM rooms WHERE state = 'dirt
         </div>
         <div>
             <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Pending</p>
-            <p class="text-lg font-extrabold text-slate-900 leading-tight"><?= $kpiPendingActions ?></p>
+            <p class="text-lg font-extrabold text-slate-900 leading-tight"><?= htmlspecialchars((string)($kpiPendingActions), ENT_QUOTES, 'UTF-8') ?></p>
             <p class="text-[9px] text-slate-500 font-semibold">arrivals/departures</p>
         </div>
     </div>
@@ -81,7 +81,7 @@ $kpiDirtyCount = (int)$db->query("SELECT COUNT(*) FROM rooms WHERE state = 'dirt
         </div>
         <div>
             <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Dirty Rooms</p>
-            <p class="text-lg font-extrabold text-slate-900 leading-tight"><?= $kpiDirtyCount ?></p>
+            <p class="text-lg font-extrabold text-slate-900 leading-tight"><?= htmlspecialchars((string)($kpiDirtyCount), ENT_QUOTES, 'UTF-8') ?></p>
             <p class="text-[9px] text-slate-500 font-semibold">rooms to clean</p>
         </div>
     </div>

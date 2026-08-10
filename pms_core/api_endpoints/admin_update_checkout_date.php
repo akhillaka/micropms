@@ -25,6 +25,10 @@ ApiHandler::run(function(\PDO $db) {
     }
 
     $newCheckOut = date('Y-m-d H:i:s', strtotime($data['new_checkout_date']));
+    
+    if (strtotime($newCheckOut) <= strtotime($booking['check_in'])) {
+        throw new Exception("New checkout date cannot be earlier than or equal to the check-in date ({$booking['check_in']}).");
+    }
     $isOverride = ($booking['price_override'] !== null);
     
     // Lock the room row to prevent race conditions

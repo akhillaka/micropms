@@ -45,7 +45,7 @@ try {
 }
 
 if ($setupComplete) {
-    header('Location: /admin/login.php');
+    header('Location: /login');
     exit;
 }
 
@@ -144,15 +144,11 @@ if ($action === 'create_property' && $dbConnected) {
     }
 
     try {
-        $code = strtoupper(preg_replace('/[^A-Z0-9]/', '', strtoupper($name)));
-        $code = substr($code, 0, 10) . '_' . substr(bin2hex(random_bytes(3)), 0, 6);
-
         $stmt = $db->prepare("
-            INSERT INTO properties (property_code, name, email, phone, address, city, state, timezone, currency, plan, subscription_status, valid_until, is_active)
-            VALUES (:code, :name, :email, :phone, :address, :city, :state, :tz, :cur, 'enterprise', 'active', DATE_ADD(NOW(), INTERVAL 3650 DAY), 1)
+            INSERT INTO properties (name, email, phone, address, city, state, timezone, currency, plan, subscription_status, valid_until, is_active)
+            VALUES (:name, :email, :phone, :address, :city, :state, :tz, :cur, 'enterprise', 'active', DATE_ADD(NOW(), INTERVAL 3650 DAY), 1)
         ");
         $stmt->execute([
-            'code'    => $code,
             'name'    => $name,
             'email'   => $email,
             'phone'   => $phone,
@@ -163,6 +159,12 @@ if ($action === 'create_property' && $dbConnected) {
             'cur'     => $currency,
         ]);
         $propertyId = (int)$db->lastInsertId();
+
+        // Create default admin role with all permissions
+        require_once $pmsCorePath . '/AuthHelper.php';
+        $allPermissions = array_keys(AuthHelper::getAllPermissions());
+        $roleStmt = $db->prepare("INSERT INTO roles (property_id, name, permissions) VALUES (?, 'admin', ?)");
+        $roleStmt->execute([$propertyId, json_encode($allPermissions)]);
 
         // Update system settings
         $db->prepare("UPDATE system_settings SET key_value=:tz WHERE key_name='DEFAULT_TIMEZONE'")->execute(['tz' => $timezone]);
@@ -368,7 +370,7 @@ if ($dbConnected) $step = 2;
             <?php if ($dbConnected): ?>
                 <div class="db-status ok">
                     <i class="ph ph-check-circle check-icon"></i>
-                    Database connected successfully to <strong><?= htmlspecialchars($_ENV['DB_NAME'] ?? 'pms_db') ?></strong>
+                    Database connected successfully to <strong><?= htmlspecialchars((string)($_ENV['DB_NAME'] ?? 'pms_db')) ?></strong>
                 </div>
             <?php else: ?>
                 <div class="db-status error">

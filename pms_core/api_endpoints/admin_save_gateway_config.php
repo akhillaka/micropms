@@ -1,13 +1,13 @@
 <?php
 require_once __DIR__ . '/../../pms_core/ApiHandler.php';
+require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/Database.php';
 
-ApiHandler::handle(function($data, $auth) {
-    if ($auth['role'] !== 'owner') {
-        throw new Exception("Only property owners can configure payment gateways", 403);
-    }
+ApiHandler::run(function(\PDO $db) {
+    AuthHelper::requirePermission('manage_payment_gateways');
 
-    $propId = $auth['property_id'];
+    $data = json_decode(file_get_contents('php://input'), true) ?? $_POST ?? [];
+    $propId = AuthHelper::getPropertyId();
     $gateway = $data['gateway'] ?? '';
     $mode = $data['mode'] ?? 'test';
     $keyId = trim($data['key_id'] ?? '');
@@ -16,10 +16,8 @@ ApiHandler::handle(function($data, $auth) {
     $saltIndex = trim($data['salt_index'] ?? '1');
 
     if (!in_array($gateway, ['razorpay', 'phonepe'])) {
-        throw new Exception("Invalid gateway specified");
+        ApiResponse::error("Invalid gateway specified");
     }
-
-    $db = Database::getInstance()->getConnection();
     
     $extraConfig = null;
     if ($gateway === 'phonepe') {
@@ -49,8 +47,7 @@ ApiHandler::handle(function($data, $auth) {
         $isActive
     ]);
 
-    return [
-        'success' => true,
+    ApiResponse::success([
         'message' => ucfirst($gateway) . ' configuration saved successfully.'
-    ];
+    ]);
 });

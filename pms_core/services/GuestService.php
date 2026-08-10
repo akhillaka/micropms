@@ -134,11 +134,11 @@ class GuestService {
                    COALESCE(SUM(b.total_amount), 0) as lifetime_spent,
                    MAX(b.check_in) as last_visit
             FROM guests g
-            LEFT JOIN bookings b ON g.id = b.guest_id AND b.payment_status != 'cancelled' AND b.property_id = :prop_id
-            WHERE g.id = :id AND g.property_id = :prop_id
+            LEFT JOIN bookings b ON g.id = b.guest_id AND b.payment_status != 'cancelled' AND b.property_id = :prop_id1
+            WHERE g.id = :id AND g.property_id = :prop_id2
             GROUP BY g.id
         ");
-        $stmt->execute(['id' => $guestId, 'prop_id' => $propId]);
+        $stmt->execute(['id' => $guestId, 'prop_id1' => $propId, 'prop_id2' => $propId]);
         return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     }
 

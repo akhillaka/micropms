@@ -19,12 +19,12 @@ require_once __DIR__ . '/../../pms_core/PhoneHelper.php';
 $propertyId = AuthHelper::getPropertyId();
 
 // Base WHERE
-$whereClause = "1=1";
+$whereClause = "g.property_id = :property_id2";
 $params = [];
 if (!empty($search)) {
     $cleanPhone = PhoneHelper::clean($search);
     $phoneSearch = !empty($cleanPhone) ? "%$cleanPhone%" : "%$search%";
-    $whereClause = "(LOWER(g.name) LIKE LOWER(:search1) OR g.phone LIKE :search2 OR LOWER(g.email) LIKE LOWER(:search3))";
+    $whereClause .= " AND (LOWER(g.name) LIKE LOWER(:search1) OR g.phone LIKE :search2 OR LOWER(g.email) LIKE LOWER(:search3))";
     $params['search1'] = "%$search%";
     $params['search2'] = $phoneSearch;
     $params['search3'] = "%$search%";
@@ -40,6 +40,7 @@ switch ($sort) {
 }
 
 $params['property_id'] = $propertyId;
+$params['property_id2'] = $propertyId;
 
 // Count total matching
 $countQuery = "
@@ -120,7 +121,7 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
                     </div>
                     <div>
                         <div class="text-[10px] font-bold text-brand-500 uppercase tracking-widest mb-1">Total Guests</div>
-                        <div class="text-2xl font-black text-brand-900"><?= number_format($totalGuestsAll) ?></div>
+                        <div class="text-2xl font-black text-brand-900"><?= htmlspecialchars((string)(number_format($totalGuestsAll)), ENT_QUOTES, 'UTF-8') ?></div>
                     </div>
                 </div>
                 <div class="card-minimal p-5 flex items-center gap-4">
@@ -129,7 +130,7 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
                     </div>
                     <div>
                         <div class="text-[10px] font-bold text-brand-500 uppercase tracking-widest mb-1">Lifetime Value</div>
-                        <div class="text-2xl font-black text-brand-900">₹<?= number_format((float)$totalSpentAll, 2) ?></div>
+                        <div class="text-2xl font-black text-brand-900">₹<?= htmlspecialchars((string)(number_format((float)$totalSpentAll, 2)), ENT_QUOTES, 'UTF-8') ?></div>
                     </div>
                 </div>
                 <div class="card-minimal p-5 flex items-center gap-4">
@@ -138,7 +139,7 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
                     </div>
                     <div>
                         <div class="text-[10px] font-bold text-brand-500 uppercase tracking-widest mb-1">Returning Rate</div>
-                        <div class="text-2xl font-black text-brand-900"><?= $returningPct ?>% <span class="text-sm font-medium text-brand-500">(<?= number_format($returningGuests) ?>)</span></div>
+                        <div class="text-2xl font-black text-brand-900"><?= htmlspecialchars((string)($returningPct), ENT_QUOTES, 'UTF-8') ?>% <span class="text-sm font-medium text-brand-500">(<?= htmlspecialchars((string)(number_format($returningGuests)), ENT_QUOTES, 'UTF-8') ?>)</span></div>
                     </div>
                 </div>
             </div>
@@ -149,17 +150,17 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
                     <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Search Guest</label>
                     <div class="relative">
                         <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-brand-400 text-lg"></i>
-                        <input type="text" name="search" id="live-search" autocomplete="off" value="<?= htmlspecialchars($search) ?>" placeholder="Name, phone, or email..." class="w-full bg-brand-50 border border-brand-200 pl-10 pr-3 py-2.5 rounded-xl text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
+                        <input type="text" name="search" id="live-search" autocomplete="off" value="<?= htmlspecialchars((string)($search)) ?>" placeholder="Name, phone, or email..." class="w-full bg-brand-50 border border-brand-200 pl-10 pr-3 py-2.5 rounded-xl text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
                         <div id="search-dropdown" class="absolute left-0 right-0 top-full mt-1 bg-white border border-brand-200 rounded-xl shadow-lg z-50 hidden max-h-60 overflow-y-auto divide-y divide-brand-100"></div>
                     </div>
                 </div>
                 <div class="w-full md:w-48">
                     <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Sort By</label>
                     <select name="sort" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-xl text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
-                        <option value="last_visit_desc" <?= $sort === 'last_visit_desc' ? 'selected' : '' ?>>Recent Visit</option>
-                        <option value="spent_desc" <?= $sort === 'spent_desc' ? 'selected' : '' ?>>Highest Spent</option>
-                        <option value="stays_desc" <?= $sort === 'stays_desc' ? 'selected' : '' ?>>Most Stays</option>
-                        <option value="name_asc" <?= $sort === 'name_asc' ? 'selected' : '' ?>>Name (A-Z)</option>
+                        <option value="last_visit_desc" <?= htmlspecialchars((string)($sort === 'last_visit_desc' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Recent Visit</option>
+                        <option value="spent_desc" <?= htmlspecialchars((string)($sort === 'spent_desc' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Highest Spent</option>
+                        <option value="stays_desc" <?= htmlspecialchars((string)($sort === 'stays_desc' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Most Stays</option>
+                        <option value="name_asc" <?= htmlspecialchars((string)($sort === 'name_asc' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Name (A-Z)</option>
                     </select>
                 </div>
                 <div class="flex gap-2">
@@ -192,46 +193,46 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
                                 <td class="px-6 py-4">
                                     <div class="flex items-center gap-3">
                                         <div class="w-10 h-10 rounded-full bg-brand-900 text-white flex items-center justify-center font-bold text-lg shadow-minimal">
-                                            <?= strtoupper(substr($g['name'] ?: '?', 0, 1)) ?>
+                                            <?= htmlspecialchars((string)(strtoupper(substr($g['name'] ?: '?', 0, 1))), ENT_QUOTES, 'UTF-8') ?>
                                         </div>
                                         <div>
                                             <p class="font-bold text-brand-900 text-sm flex items-center gap-2">
-                                                <?= htmlspecialchars($g['name']) ?>
+                                                <?= htmlspecialchars((string)($g['name'])) ?>
                                                 <?php if(!empty($g['tags'])): ?>
                                                     <?php foreach(explode(',', $g['tags']) as $tag): $t = trim($tag); if(!$t) continue; ?>
-                                                        <span class="px-2 py-0.5 text-[9px] font-black uppercase rounded-full tracking-wider <?= $t === 'VIP' ? 'bg-amber-100 text-amber-800 border border-amber-300' : ($t === 'Corporate' ? 'bg-blue-100 text-blue-800 border border-blue-300' : 'bg-purple-100 text-purple-800 border border-purple-300') ?>">
-                                                            <?= htmlspecialchars($t) ?>
+                                                        <span class="px-2 py-0.5 text-[9px] font-black uppercase rounded-full tracking-wider <?= htmlspecialchars((string)($t === 'VIP' ? 'bg-amber-100 text-amber-800 border border-amber-300' : ($t === 'Corporate' ? 'bg-blue-100 text-blue-800 border border-blue-300' : 'bg-purple-100 text-purple-800 border border-purple-300')), ENT_QUOTES, 'UTF-8') ?>">
+                                                            <?= htmlspecialchars((string)($t)) ?>
                                                         </span>
                                                     <?php endforeach; ?>
                                                 <?php endif; ?>
                                             </p>
-                                            <p class="text-[11px] text-brand-500 font-medium"><?= htmlspecialchars($g['city'] . ($g['state'] ? ', '.$g['state'] : '')) ?: 'No Location' ?></p>
+                                            <p class="text-[11px] text-brand-500 font-medium"><?= htmlspecialchars((string)($g['city'] . ($g['state'] ? ', '.$g['state'] : ''))) ?: 'No Location' ?></p>
                                         </div>
                                     </div>
                                 </td>
                                 <td class="px-6 py-4">
                                     <div class="flex items-center gap-2 text-sm font-medium text-brand-900">
-                                        <i class="ph ph-phone text-brand-400"></i> <?= htmlspecialchars($g['phone'] ?: 'N/A') ?>
+                                        <i class="ph ph-phone text-brand-400"></i> <?= htmlspecialchars((string)($g['phone'] ?: 'N/A')) ?>
                                     </div>
                                     <?php if($g['email']): ?>
                                     <div class="flex items-center gap-2 text-[11px] text-brand-500 font-medium mt-0.5">
-                                        <i class="ph ph-envelope text-brand-400"></i> <?= htmlspecialchars($g['email']) ?>
+                                        <i class="ph ph-envelope text-brand-400"></i> <?= htmlspecialchars((string)($g['email'])) ?>
                                     </div>
                                     <?php endif; ?>
                                 </td>
                                 <td class="px-6 py-4 text-center">
                                     <span class="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold bg-brand-100 text-brand-900">
-                                        <?= $g['total_bookings'] ?>
+                                        <?= htmlspecialchars((string)($g['total_bookings']), ENT_QUOTES, 'UTF-8') ?>
                                     </span>
                                 </td>
                                 <td class="px-6 py-4 text-right">
-                                    <div class="text-sm font-black text-brand-900">₹<?= number_format((float)$g['total_spent'], 2) ?></div>
+                                    <div class="text-sm font-black text-brand-900">₹<?= htmlspecialchars((string)(number_format((float)$g['total_spent'], 2)), ENT_QUOTES, 'UTF-8') ?></div>
                                 </td>
                                 <td class="px-6 py-4 text-right">
-                                    <div class="text-xs font-bold text-brand-900"><?= $g['last_visit'] ? date('M j, Y', strtotime($g['last_visit'])) : 'Never' ?></div>
+                                    <div class="text-xs font-bold text-brand-900"><?= htmlspecialchars((string)($g['last_visit'] ? date('M j, Y', strtotime($g['last_visit'])) : 'Never'), ENT_QUOTES, 'UTF-8') ?></div>
                                 </td>
                                 <td class="px-6 py-4 text-right">
-                                    <a href="guest_profile.php?id=<?= $g['id'] ?>" class="inline-flex items-center gap-1.5 text-brand-900 bg-white border border-brand-200 hover:border-brand-900 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm">
+                                    <a href="guest_profile.php?id=<?= htmlspecialchars((string)($g['id']), ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-1.5 text-brand-900 bg-white border border-brand-200 hover:border-brand-900 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm">
                                         <i class="ph ph-user-circle"></i> View Profile
                                     </a>
                                 </td>
@@ -260,13 +261,13 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
                 $q['page'] = $page + 1;
                 $nextUrl = '?' . http_build_query($q);
                 ?>
-                <a href="<?= $page > 1 ? $prevUrl : '#' ?>" class="px-4 py-2 text-sm font-bold rounded-xl <?= $page > 1 ? 'bg-brand-50 text-brand-900 hover:bg-brand-100' : 'text-brand-300 cursor-not-allowed' ?> transition-colors flex items-center gap-2">
+                <a href="<?= htmlspecialchars((string)($page > 1 ? $prevUrl : '#'), ENT_QUOTES, 'UTF-8') ?>" class="px-4 py-2 text-sm font-bold rounded-xl <?= htmlspecialchars((string)($page > 1 ? 'bg-brand-50 text-brand-900 hover:bg-brand-100' : 'text-brand-300 cursor-not-allowed'), ENT_QUOTES, 'UTF-8') ?> transition-colors flex items-center gap-2">
                     <i class="ph ph-caret-left"></i> Previous
                 </a>
                 <span class="px-4 py-2 text-xs font-bold text-brand-500 uppercase tracking-widest">
-                    Page <?= $page ?> of <?= $totalPages ?>
+                    Page <?= htmlspecialchars((string)($page), ENT_QUOTES, 'UTF-8') ?> of <?= htmlspecialchars((string)($totalPages), ENT_QUOTES, 'UTF-8') ?>
                 </span>
-                <a href="<?= $page < $totalPages ? $nextUrl : '#' ?>" class="px-4 py-2 text-sm font-bold rounded-xl <?= $page < $totalPages ? 'bg-brand-50 text-brand-900 hover:bg-brand-100' : 'text-brand-300 cursor-not-allowed' ?> transition-colors flex items-center gap-2">
+                <a href="<?= htmlspecialchars((string)($page < $totalPages ? $nextUrl : '#'), ENT_QUOTES, 'UTF-8') ?>" class="px-4 py-2 text-sm font-bold rounded-xl <?= htmlspecialchars((string)($page < $totalPages ? 'bg-brand-50 text-brand-900 hover:bg-brand-100' : 'text-brand-300 cursor-not-allowed'), ENT_QUOTES, 'UTF-8') ?> transition-colors flex items-center gap-2">
                     Next <i class="ph ph-caret-right"></i>
                 </a>
             </div>

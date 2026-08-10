@@ -224,6 +224,44 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::success(['data' => $result]);
             break;
             
+        case 'cashier_shift':
+            $sql = "
+                SELECT 
+                    payment_method,
+                    SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as receipts,
+                    SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as payouts
+                FROM (
+                    SELECT 'income' as type, payment_method, ABS(amount) as amount FROM folio_ledger WHERE amount < 0 AND DATE(recorded_at) >= :sd1 AND DATE(recorded_at) <= :ed1 AND property_id = :p1
+                    UNION ALL
+                    SELECT type, payment_method, amount FROM finance_transactions WHERE DATE(recorded_at) >= :sd2 AND DATE(recorded_at) <= :ed2 AND property_id = :p2
+                ) as combined
+                GROUP BY payment_method
+                ORDER BY receipts DESC
+            ";
+            
+            $stmt = $db->prepare($sql);
+            $stmt->execute([
+                'sd1' => substr($start_date, 0, 10), 
+                'ed1' => substr($end_date, 0, 10), 
+                'sd2' => substr($start_date, 0, 10), 
+                'ed2' => substr($end_date, 0, 10), 
+                'p1' => $propertyId, 
+                'p2' => $propertyId
+            ]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $res = [];
+            foreach ($rows as $r) {
+                $pm = empty($r['payment_method']) ? 'Unspecified' : $r['payment_method'];
+                $res[] = [
+                    'payment_method' => $pm,
+                    'total_receipts' => (float)$r['receipts'],
+                    'total_payouts' => (float)$r['payouts'],
+                    'net_collection' => (float)$r['receipts'] - (float)$r['payouts']
+                ];
+            }
+            ApiResponse::success(['data' => $res]);
+            break;
+            
         case 'expense_report':
             $sql = "
                 SELECT recorded_at as date, category, description, amount, payment_method
@@ -470,42 +508,57 @@ ApiHandler::run(function(\PDO $db) {
             }
             
             $result = [];
-            while($current <= $last) {
+            // Pre-fill date buckets
+            $dateBuckets = [];
+            while ($current <= $last) {
                 $d_str = date('Y-m-d', $current);
-                $occupiedRooms = [];
-                $dailyRoomRevenue = 0.0;
-                foreach($bookings as $b) {
-                    $b_in = substr((string)$b['check_in'], 0, 10);
-                    $b_out = substr((string)$b['check_out'], 0, 10);
-                    
-                    $isOccupied = ($d_str >= $b_in && $d_str < $b_out) || ($b_in === $b_out && $d_str === $b_in);
-                    if ($isOccupied) {
-                        $occupiedRooms[$b['room_id']] = true;
-                        
-                        $checkInTs = strtotime($b['check_in']);
-                        $checkOutTs = strtotime($b['check_out']);
-                        $numDays = max(1, round(($checkOutTs - $checkInTs) / 86400));
-                        $dailyRate = (float)$b['total_room_charges'] / $numDays;
-                        $dailyRoomRevenue += $dailyRate;
-                    }
-                }
-                
-                $occupiedCount = count($occupiedRooms);
-                $occ_percent = $totalRooms > 0 ? ($occupiedCount / $totalRooms) * 100 : 0.0;
-                $adr = $occupiedCount > 0 ? $dailyRoomRevenue / $occupiedCount : 0.0;
-                $revpar = $totalRooms > 0 ? $dailyRoomRevenue / $totalRooms : 0.0;
-                
-                $result[] = [
+                $dateBuckets[$d_str] = [
                     'date' => $d_str,
                     'total_rooms' => $totalRooms,
-                    'occupied_rooms' => $occupiedCount,
-                    'occupancy_percent' => round($occ_percent, 1),
-                    'room_revenue' => round($dailyRoomRevenue, 2),
-                    'adr' => round($adr, 2),
-                    'revpar' => round($revpar, 2)
+                    'occupied_rooms' => 0,
+                    'occupancy_percent' => 0.0,
+                    'room_revenue' => 0.0,
+                    'adr' => 0.0,
+                    'revpar' => 0.0,
+                    'unique_rooms' => []
                 ];
-                
                 $current = strtotime("+1 day", $current);
+            }
+
+            // Bucketize bookings
+            foreach ($bookings as $b) {
+                $b_in = substr((string)$b['check_in'], 0, 10);
+                $b_out = substr((string)$b['check_out'], 0, 10);
+                
+                $checkInTs = strtotime($b['check_in']);
+                $checkOutTs = strtotime($b['check_out']);
+                $numDays = max(1, round(($checkOutTs - $checkInTs) / 86400));
+                $dailyRate = (float)$b['total_room_charges'] / $numDays;
+
+                $currB = strtotime($b_in);
+                $endB = strtotime($b_out);
+                
+                while ($currB < $endB || ($currB === $endB && $b_in === $b_out)) {
+                    $d_str = date('Y-m-d', $currB);
+                    if (isset($dateBuckets[$d_str])) {
+                        $dateBuckets[$d_str]['unique_rooms'][$b['room_id']] = true;
+                        $dateBuckets[$d_str]['room_revenue'] += $dailyRate;
+                    }
+                    if ($currB === $endB && $b_in === $b_out) break; // Hourly stay handled
+                    $currB = strtotime("+1 day", $currB);
+                }
+            }
+
+            // Calculate final metrics per day
+            foreach ($dateBuckets as $d_str => &$metrics) {
+                $occupiedCount = count($metrics['unique_rooms']);
+                $metrics['occupied_rooms'] = $occupiedCount;
+                $metrics['occupancy_percent'] = $totalRooms > 0 ? round(($occupiedCount / $totalRooms) * 100, 1) : 0.0;
+                $metrics['adr'] = $occupiedCount > 0 ? round($metrics['room_revenue'] / $occupiedCount, 2) : 0.0;
+                $metrics['revpar'] = $totalRooms > 0 ? round($metrics['room_revenue'] / $totalRooms, 2) : 0.0;
+                $metrics['room_revenue'] = round($metrics['room_revenue'], 2);
+                unset($metrics['unique_rooms']); // clean up
+                $result[] = $metrics;
             }
             
             ApiResponse::success(['data' => $result]);
@@ -540,32 +593,42 @@ ApiHandler::run(function(\PDO $db) {
             }
             
             $result = [];
-            while($current <= $last) {
+            $dateBuckets = [];
+            while ($current <= $last) {
                 $d_str = date('Y-m-d', $current);
-                $occupiedRooms = [];
-                foreach($bookings as $b) {
-                    $b_in = substr((string)$b['check_in'], 0, 10);
-                    $b_out = substr((string)$b['check_out'], 0, 10);
-                    
-                    // Overnight stays cover the check_in day up to the day before check_out
-                    // Hourly stays (check-in and check-out on the same day) count for that day
-                    $isOccupied = ($d_str >= $b_in && $d_str < $b_out) || ($b_in === $b_out && $d_str === $b_in);
-                    if ($isOccupied) {
-                        $occupiedRooms[$b['room_id']] = true;
-                    }
-                }
-                
-                $occupiedCount = count($occupiedRooms);
-                $occ_percent = $totalRooms > 0 ? round(($occupiedCount / $totalRooms) * 100, 1) : 0.0;
-                
-                $result[] = [
+                $dateBuckets[$d_str] = [
                     'date' => $d_str,
                     'total_rooms' => $totalRooms,
-                    'occupied' => $occupiedCount,
-                    'occupancy_percent' => $occ_percent
+                    'occupied' => 0,
+                    'occupancy_percent' => 0.0,
+                    'unique_rooms' => []
                 ];
-                
                 $current = strtotime("+1 day", $current);
+            }
+
+            foreach ($bookings as $b) {
+                $b_in = substr((string)$b['check_in'], 0, 10);
+                $b_out = substr((string)$b['check_out'], 0, 10);
+                
+                $currB = strtotime($b_in);
+                $endB = strtotime($b_out);
+                
+                while ($currB < $endB || ($currB === $endB && $b_in === $b_out)) {
+                    $d_str = date('Y-m-d', $currB);
+                    if (isset($dateBuckets[$d_str])) {
+                        $dateBuckets[$d_str]['unique_rooms'][$b['room_id']] = true;
+                    }
+                    if ($currB === $endB && $b_in === $b_out) break;
+                    $currB = strtotime("+1 day", $currB);
+                }
+            }
+
+            foreach ($dateBuckets as $d_str => &$metrics) {
+                $occupiedCount = count($metrics['unique_rooms']);
+                $metrics['occupied'] = $occupiedCount;
+                $metrics['occupancy_percent'] = $totalRooms > 0 ? round(($occupiedCount / $totalRooms) * 100, 1) : 0.0;
+                unset($metrics['unique_rooms']);
+                $result[] = $metrics;
             }
             
             ApiResponse::success(['data' => $result]);
@@ -679,6 +742,77 @@ ApiHandler::run(function(\PDO $db) {
                     'peak_checkouts' => $peakCheckouts
                 ]
             ]);
+            break;
+
+        case 'tax_report':
+            $sql = "
+                SELECT 
+                    DATE(fl.recorded_at) as date,
+                    SUM(fl.cgst_amount) as cgst_collected,
+                    SUM(fl.sgst_amount) as sgst_collected,
+                    SUM(fl.cgst_amount + fl.sgst_amount) as total_tax
+                FROM folio_ledger fl
+                JOIN bookings b ON fl.booking_id = b.id
+                WHERE b.property_id = :pid
+                  AND fl.transaction_type IN ('ROOM_CHARGE', 'INCIDENTAL')
+                  AND fl.recorded_at >= :start AND fl.recorded_at <= :end
+                GROUP BY DATE(fl.recorded_at)
+                ORDER BY DATE(fl.recorded_at) DESC
+            ";
+            $data = [];
+            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
+                $data[] = $row;
+            }
+            ApiResponse::success(['data' => $data]);
+            break;
+
+        case 'accounts_receivable':
+            $sql = "
+                SELECT 
+                    b.id as booking_id,
+                    g.name as guest_name,
+                    b.check_in,
+                    b.check_out,
+                    b.booking_status,
+                    SUM(CASE WHEN fl.amount > 0 THEN fl.amount ELSE 0 END) as total_charges,
+                    SUM(CASE WHEN fl.amount < 0 THEN ABS(fl.amount) ELSE 0 END) as total_paid
+                FROM bookings b
+                LEFT JOIN guests g ON b.guest_id = g.id
+                LEFT JOIN folio_ledger fl ON b.id = fl.booking_id
+                WHERE b.property_id = :pid
+                  AND b.booking_status IN ('checked_out', 'checked_in')
+                GROUP BY b.id, g.name, b.check_in, b.check_out, b.booking_status
+                HAVING (total_charges - total_paid) > 0.01
+                ORDER BY (total_charges - total_paid) DESC
+            ";
+            $data = [];
+            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId]) as $row) {
+                $row['pending_dues'] = round((float)$row['total_charges'] - (float)$row['total_paid'], 2);
+                $row['total_charges'] = round((float)$row['total_charges'], 2);
+                $row['total_paid'] = round((float)$row['total_paid'], 2);
+                $data[] = $row;
+            }
+            ApiResponse::success(['data' => $data]);
+            break;
+
+        case 'booking_source':
+            $sql = "
+                SELECT 
+                    COALESCE(NULLIF(booking_source, ''), 'Direct/Walk-in') as source,
+                    COUNT(id) as total_bookings,
+                    SUM(total_amount) as total_revenue
+                FROM bookings
+                WHERE property_id = :pid
+                  AND check_in >= :start AND check_in <= :end
+                  AND booking_status != 'cancelled'
+                GROUP BY COALESCE(NULLIF(booking_source, ''), 'Direct/Walk-in')
+                ORDER BY total_revenue DESC
+            ";
+            $data = [];
+            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId, 'start' => $start_date, 'end' => $end_date]) as $row) {
+                $data[] = $row;
+            }
+            ApiResponse::success(['data' => $data]);
             break;
 
         case 'save_custom_report':

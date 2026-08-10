@@ -9,6 +9,26 @@
 // Resolve hotel branding (set by config.php load_db_settings)
 $_pms_hotel_name = defined('PROPERTY_NAME') ? PROPERTY_NAME : 'MicroPMS';
 $_pms_hotel_logo = defined('PROPERTY_LOGO_BASE64') ? PROPERTY_LOGO_BASE64 : '';
+
+$nightAuditActions = [];
+try {
+    if (class_exists('AuthHelper') && class_exists('Database')) {
+        $propId = AuthHelper::getPropertyId();
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("
+            SELECT a.*, r.room_number, g.name as guest_name 
+            FROM night_audit_actions a 
+            JOIN bookings b ON a.booking_id = b.id 
+            JOIN rooms r ON b.room_id = r.id 
+            LEFT JOIN guests g ON b.guest_id = g.id
+            WHERE a.property_id = ? AND a.status = 'pending'
+        ");
+        $stmt->execute([$propId]);
+        $nightAuditActions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+} catch (\Exception $e) {
+    // Ignore if tables not yet setup
+}
 ?>
 <!-- Phosphor Icons -->
 <script src="https://unpkg.com/@phosphor-icons/web"></script>
@@ -588,3 +608,78 @@ $_pms_hotel_logo = defined('PROPERTY_LOGO_BASE64') ? PROPERTY_LOGO_BASE64 : '';
     });
 </script>
 <script src="/js/ui.js"></script>
+
+<?php if (!empty($nightAuditActions)): ?>
+<?php
+    $canBypass = false;
+    if (class_exists('AuthHelper') && in_array(AuthHelper::getRole(), ['admin', 'owner'])) {
+        $canBypass = true;
+    }
+?>
+<!-- Night Audit Action Center Modal -->
+<div id="night-audit-action-center" class="fixed inset-0 z-[9999] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden transform transition-all">
+        
+        <!-- Header -->
+        <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-error-50">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-error-100 text-error-600 flex items-center justify-center">
+                    <i class="ph ph-warning-circle text-xl"></i>
+                </div>
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900">Night Audit Action Center</h2>
+                    <p class="text-sm text-slate-600">You have <?= count($nightAuditActions) ?> unresolved issue(s) from the last audit.</p>
+                </div>
+            </div>
+            <?php if ($canBypass): ?>
+            <button onclick="document.getElementById('night-audit-action-center').remove()" class="text-slate-400 hover:text-slate-600 transition-colors">
+                <i class="ph ph-x text-xl"></i>
+            </button>
+            <?php endif; ?>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6 overflow-y-auto bg-slate-50 flex-1">
+            <div class="space-y-4">
+                <?php foreach ($nightAuditActions as $action): ?>
+                <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="px-2 py-0.5 rounded text-xs font-semibold bg-warning-100 text-warning-700">
+                                <?= htmlspecialchars(str_replace('_', ' ', strtoupper($action['issue_type']))) ?>
+                            </span>
+                            <span class="text-sm font-semibold text-slate-900">Room <?= htmlspecialchars($action['room_number']) ?></span>
+                        </div>
+                        <p class="text-sm text-slate-700"><strong>Guest:</strong> <?= htmlspecialchars($action['guest_name'] ?? 'Unknown') ?></p>
+                        <p class="text-sm text-slate-600"><?= htmlspecialchars($action['description']) ?></p>
+                    </div>
+                    <div class="flex-shrink-0">
+                        <a href="/admin/bookings.php?id=<?= $action['booking_id'] ?>" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
+                            <span>Open Folio</span>
+                            <i class="ph ph-arrow-right"></i>
+                        </a>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            
+            <div class="mt-6 rounded-lg bg-blue-50 p-4 flex items-start gap-3 border border-blue-100">
+                <i class="ph ph-info text-blue-500 text-lg mt-0.5"></i>
+                <div class="text-sm text-blue-800">
+                    <p class="font-semibold mb-1">Why am I seeing this?</p>
+                    <p>The system prevents new bookings from being created until overnight issues are resolved. Please settle the folios and check out the guests.</p>
+                </div>
+            </div>
+        </div>
+        
+        <?php if ($canBypass): ?>
+        <!-- Footer -->
+        <div class="px-6 py-4 border-t border-slate-100 bg-white flex justify-end">
+            <button onclick="document.getElementById('night-audit-action-center').remove()" class="text-sm font-medium text-slate-500 hover:text-slate-700 underline underline-offset-4">
+                Bypass & Continue (Admin)
+            </button>
+        </div>
+        <?php endif; ?>
+    </div>
+</div>
+<?php endif; ?>

@@ -358,7 +358,6 @@ INSERT IGNORE INTO `housekeeping_checklist_items` (`id`, `item_text`, `is_mandat
 -- SaaS Control Plane Integration Schema
 CREATE TABLE IF NOT EXISTS `properties` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `property_code` varchar(50) NOT NULL UNIQUE,
   `name` varchar(150) NOT NULL,
   `address` text DEFAULT NULL,
   `city` varchar(100) DEFAULT NULL,
@@ -382,7 +381,18 @@ CREATE TABLE IF NOT EXISTS `properties` (
   PRIMARY KEY (`id`),
   KEY `idx_prop_custom_domain` (`custom_domain`),
   KEY `idx_prop_stripe` (`stripe_customer_id`, `stripe_subscription_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB AUTO_INCREMENT=1000 DEFAULT CHARSET=utf8mb4;
+
+-- Create roles master table for granular RBAC permissions
+CREATE TABLE IF NOT EXISTS `roles` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `property_id` INT NOT NULL,
+  `name` VARCHAR(100) NOT NULL,
+  `permissions` JSON NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_roles_property` (`property_id`),
+  FOREIGN KEY (`property_id`) REFERENCES `properties`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `team_invitations` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -608,7 +618,6 @@ CREATE INDEX IF NOT EXISTS idx_maint_dates ON room_maintenance(room_id, start_da
 -- 1. Create properties master table
 CREATE TABLE IF NOT EXISTS `properties` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `property_code` VARCHAR(50) NOT NULL UNIQUE,
   `name` VARCHAR(150) NOT NULL,
   `address` TEXT DEFAULT NULL,
   `city` VARCHAR(100) DEFAULT NULL,
@@ -620,10 +629,9 @@ CREATE TABLE IF NOT EXISTS `properties` (
   `gstin` VARCHAR(20) DEFAULT NULL,
   `is_active` TINYINT(1) DEFAULT 1,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB AUTO_INCREMENT=1000 DEFAULT CHARSET=utf8mb4;
 
 -- Seed default primary property
-INSERT IGNORE INTO `properties` (`id`, `property_code`, `name`) VALUES (1, 'PROP-DEFAULT', 'Primary Hotel Property');
 
 -- 2. Add property_id to staff_users
 ALTER TABLE `staff_users` ADD COLUMN IF NOT EXISTS `property_id` INT DEFAULT 1;
@@ -670,7 +678,7 @@ ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `razorpay_key_id` VARCHAR(100)
 ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `razorpay_key_secret` VARCHAR(100) DEFAULT NULL;
 
 -- Update default property 1 to enterprise unlimited
-UPDATE `properties` SET `plan` = 'enterprise', `max_rooms` = 999, `subscription_status` = 'active' WHERE `id` = 1;
+-- UPDATE `properties` SET `plan` = 'enterprise', `max_rooms` = 999, `subscription_status` = 'active' WHERE `id` = 1;
 -- MicroPMS Migration 010: Critical Schema Fixes
 -- Addresses: missing tables, missing columns, ENUM fix, missing indexes
 -- Safe to run multiple times (uses IF NOT EXISTS / ADD COLUMN IF NOT EXISTS)

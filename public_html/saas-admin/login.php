@@ -8,9 +8,8 @@ require_once __DIR__ . '/../../pms_core/ErrorTracker.php';
 
 $db = Database::getInstance()->getConnection();
 
-// Block non-superadmin
 if (isset($_SESSION['saas_admin_id'])) {
-    header('Location: index.php');
+    header('Location: /saas-admin/index');
     exit;
 }
 
@@ -65,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['saas_admin_username']  = $user['username'];
             $_SESSION['saas_admin_role']      = 'superadmin';
 
-            header('Location: index.php');
+            header('Location: /saas-admin/index');
             exit;
         } else {
             $error = 'Invalid superadmin credentials.';
@@ -171,7 +170,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if ($error): ?>
             <div class="flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl p-3.5 mb-5">
                 <i class="ph ph-warning-circle text-lg flex-shrink-0"></i>
-                <span><?= htmlspecialchars($error) ?></span>
+                <span><?= htmlspecialchars((string)($error)) ?></span>
             </div>
         <?php endif; ?>
 

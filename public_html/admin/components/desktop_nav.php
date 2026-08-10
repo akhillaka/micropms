@@ -16,7 +16,10 @@
         <div id="notifications-menu" class="absolute right-0 top-12 w-80 bg-white rounded-2xl border border-slate-100 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] py-2 z-50 animate-fade-up max-h-[80vh] overflow-y-auto hidden">
             <div class="px-4 py-3 border-b border-slate-50 flex justify-between items-center">
                 <h3 class="font-bold text-sm text-slate-800">Notifications</h3>
-                <button onclick="markAllNotificationsRead()" class="text-xs text-brand-600 hover:text-brand-800 font-medium">Mark all read</button>
+                <div class="flex gap-2">
+                    <button onclick="markAllNotificationsRead()" class="text-xs text-brand-600 hover:text-brand-800 font-medium">Mark all read</button>
+                    <button onclick="deleteAllNotifications()" class="text-xs text-red-500 hover:text-red-700 font-medium ml-2 border-l pl-2 border-slate-200">Clear All</button>
+                </div>
             </div>
             <div id="notif-list" class="divide-y divide-slate-50">
                 <div class="px-4 py-8 text-center text-sm text-slate-400">Loading...</div>
@@ -41,6 +44,7 @@
         
         <?php if(AuthHelper::can('housekeeping')): ?>
             <a href="<?php echo $adminBaseUrl; ?>modules/housekeeping/rooms_calendar.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-calendar-blank text-lg text-slate-400"></i> Rooms Calendar</a>
+            <a href="<?php echo $adminBaseUrl; ?>modules/housekeeping/service_requests.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-bell text-lg text-amber-500"></i> Service Requests</a>
         <?php endif; ?>
         
         <?php if(AuthHelper::can('manage_guests')): ?>
@@ -71,6 +75,8 @@
             <p class="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Settings</p>
             
             <a href="<?php echo $adminBaseUrl; ?>settings.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-gear text-lg text-indigo-500"></i> Property Configuration</a>
+            <a href="<?php echo $adminBaseUrl; ?>guest_portal_settings.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-device-mobile text-lg text-amber-500"></i> Guest Portal Banners</a>
+            <a href="<?php echo $adminBaseUrl; ?>settings.php?tab=roles" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-shield-check text-lg text-indigo-500"></i> Staff & Roles</a>
         <?php endif; ?>
         
         <!-- System Section -->
@@ -137,6 +143,44 @@
         }
     }
 
+    function playNotificationSound() {
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Note 1 (D5)
+            const osc1 = audioCtx.createOscillator();
+            const gain1 = audioCtx.createGain();
+            osc1.connect(gain1);
+            gain1.connect(audioCtx.destination);
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(587.33, audioCtx.currentTime);
+            gain1.gain.setValueAtTime(0.12, audioCtx.currentTime);
+            gain1.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+            
+            osc1.start();
+            osc1.stop(audioCtx.currentTime + 0.4);
+            
+            // Note 2 (A5, delayed)
+            setTimeout(() => {
+                const osc2 = audioCtx.createOscillator();
+                const gain2 = audioCtx.createGain();
+                osc2.connect(gain2);
+                gain2.connect(audioCtx.destination);
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(880.00, audioCtx.currentTime);
+                gain2.gain.setValueAtTime(0.12, audioCtx.currentTime);
+                gain2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+                
+                osc2.start();
+                osc2.stop(audioCtx.currentTime + 0.5);
+            }, 100);
+        } catch (e) {
+            console.warn('AudioContext failed:', e);
+        }
+    }
+
+    let lastMaxNotifId = null;
+
     function fetchNotifications() {
         fetch('<?php echo $adminBaseUrl; ?>api/notifications.php?action=list')
             .then(res => res.json())
@@ -152,7 +196,25 @@
                     const list = document.getElementById('notif-list');
                     if (data.notifications.length === 0) {
                         list.innerHTML = '<div class="px-4 py-8 text-center text-sm text-slate-400">No new notifications</div>';
+                        lastMaxNotifId = 0;
                         return;
+                    }
+                    
+                    // Filter unread notification IDs
+                    const unreadNotifications = data.notifications.filter(n => n.is_read == 0);
+                    if (unreadNotifications.length > 0) {
+                        const maxUnreadId = Math.max(...unreadNotifications.map(n => parseInt(n.id)));
+                        if (lastMaxNotifId !== null && maxUnreadId > lastMaxNotifId) {
+                            playNotificationSound();
+                            // Find the new notification to show a toast
+                            const latestNotif = unreadNotifications.find(n => parseInt(n.id) === maxUnreadId);
+                            if (latestNotif && typeof showToast === 'function') {
+                                showToast(`New Alert: ${latestNotif.title}`, 'info');
+                            }
+                        }
+                        lastMaxNotifId = maxUnreadId;
+                    } else {
+                        lastMaxNotifId = 0;
                     }
                     
                     list.innerHTML = data.notifications.map(n => `
@@ -179,6 +241,16 @@
         fetch('<?php echo $adminBaseUrl; ?>api/notifications.php?action=mark_read', {
             method: 'POST'
         }).then(() => fetchNotifications());
+    }
+
+    function deleteAllNotifications() {
+        if (!confirm('Are you sure you want to delete all read notifications?')) return;
+        fetch('<?php echo $adminBaseUrl; ?>api/notifications.php?action=delete_all', {
+            method: 'POST'
+        }).then(() => {
+            if (typeof showToast === 'function') showToast('Notifications cleared');
+            fetchNotifications();
+        });
     }
 
     // Auto-poll notifications every 60 seconds

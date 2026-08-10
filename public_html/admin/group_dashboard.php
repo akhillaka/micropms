@@ -1,5 +1,4 @@
 <?php
-declare(strict_types=1);
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -20,11 +19,11 @@ $userId = (int)$_SESSION['user_id'];
 try {
     if (AuthHelper::isSuperAdmin()) {
         // Super-Admins have access to all hotels
-        $stmt = $db->query("SELECT id as property_id, name, property_code, plan, address, city, state, is_active FROM properties ORDER BY id ASC");
+        $stmt = $db->query("SELECT id as property_id, name, plan, address, city, state, is_active FROM properties ORDER BY id ASC");
         $assignedHotels = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } else {
         $stmt = $db->prepare("
-            SELECT DISTINCT p.id as property_id, p.name, p.property_code, p.plan, p.address, p.city, p.state, p.is_active 
+            SELECT DISTINCT p.id as property_id, p.name, p.plan, p.address, p.city, p.state, p.is_active
             FROM properties p
             LEFT JOIN staff_properties sp ON p.id = sp.property_id AND sp.staff_id = ?
             JOIN staff_users su ON su.id = ?
@@ -69,9 +68,9 @@ if (count($assignedHotels) === 0) {
             <!-- Brand Logo -->
             <div class="flex items-center gap-2">
                 <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-extrabold text-lg">
-                    S
+                    M
                 </div>
-                <span class="font-extrabold text-white text-lg tracking-tight">stayflexi</span>
+                <span class="font-extrabold text-white text-lg tracking-tight">MicroPMS</span>
             </div>
 
             <!-- Navigation Links -->
@@ -110,7 +109,7 @@ if (count($assignedHotels) === 0) {
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
             <div>
                 <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Welcome to your group dashboard</h1>
-                <p class="text-slate-500 text-sm mt-1">You have <?= count($assignedHotels) ?> <?= count($assignedHotels) === 1 ? 'property' : 'properties' ?>.</p>
+                <p class="text-slate-500 text-sm mt-1">You have <?= htmlspecialchars((string)(count($assignedHotels)), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)(count($assignedHotels) === 1 ? 'property' : 'properties'), ENT_QUOTES, 'UTF-8') ?>.</p>
             </div>
             
             <div class="flex items-center gap-3 flex-wrap">
@@ -143,7 +142,7 @@ if (count($assignedHotels) === 0) {
         <!-- CARDS GRID -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="propertiesContainer">
             <?php foreach ($assignedHotels as $hotel): ?>
-                <div class="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.06)] overflow-hidden transition-all duration-300 group flex flex-col justify-between property-card" data-name="<?= htmlspecialchars(strtolower($hotel['name'])) ?>" data-code="<?= htmlspecialchars(strtolower($hotel['property_code'])) ?>">
+                <div class="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.06)] overflow-hidden transition-all duration-300 group flex flex-col justify-between property-card" data-name="<?= htmlspecialchars(strtolower((string)$hotel['name'])) ?>" data-code="<?= htmlspecialchars(strtolower((string)$hotel['property_id'])) ?>">
                     
                     <div class="p-6 space-y-4">
                         <!-- Card Banner/Header with status -->
@@ -157,25 +156,25 @@ if (count($assignedHotels) === 0) {
                             <!-- Placeholder Logo graphics -->
                             <div class="text-center p-4">
                                 <div class="w-14 h-14 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-black text-xl mx-auto shadow-sm">
-                                    <?= htmlspecialchars(substr($hotel['name'], 0, 1)) ?>
+                                    <?= htmlspecialchars((string)(substr($hotel['name'], 0, 1))) ?>
                                 </div>
-                                <div class="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mt-2"><?= htmlspecialchars($hotel['plan']) ?> tier</div>
+                                <div class="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mt-2"><?= htmlspecialchars((string)($hotel['plan'])) ?> tier</div>
                             </div>
                         </div>
 
                         <!-- Info details -->
                         <div class="space-y-1">
-                            <h2 class="text-lg font-extrabold text-slate-900 group-hover:text-indigo-600 transition"><?= htmlspecialchars($hotel['name']) ?></h2>
-                            <p class="text-xs font-bold text-slate-500 font-mono"><?= htmlspecialchars($hotel['property_code']) ?></p>
+                            <h2 class="text-lg font-extrabold text-slate-900 group-hover:text-indigo-600 transition"><?= htmlspecialchars((string)($hotel['name'])) ?></h2>
+                            <p class="text-xs font-bold text-slate-500 font-mono">ID: <?= htmlspecialchars((string)($hotel['property_id'])) ?></p>
                             <p class="text-xs text-slate-400 line-clamp-2 min-h-[2rem]">
-                                <?= htmlspecialchars($hotel['address'] ?: 'Address not configured') ?><?= !empty($hotel['city']) ? ', ' . htmlspecialchars($hotel['city']) : '' ?>
+                                <?= htmlspecialchars((string)($hotel['address'] ?: 'Address not configured')) ?><?= !empty($hotel['city']) ? ', ' . htmlspecialchars((string)($hotel['city'])) : '' ?>
                             </p>
                         </div>
                     </div>
 
                     <!-- Card footer button to open dashboard -->
                     <div class="p-6 pt-0">
-                        <a href="index.php?hotelId=<?= $hotel['property_id'] ?>" class="block w-full text-center py-2.5 bg-slate-50 hover:bg-indigo-600 hover:text-white border border-slate-100 hover:border-indigo-600 text-slate-700 font-bold rounded-xl text-xs transition duration-200">
+                        <a href="index.php?hotelId=<?= htmlspecialchars((string)($hotel['property_id']), ENT_QUOTES, 'UTF-8') ?>" class="block w-full text-center py-2.5 bg-slate-50 hover:bg-indigo-600 hover:text-white border border-slate-100 hover:border-indigo-600 text-slate-700 font-bold rounded-xl text-xs transition duration-200">
                             Enter Dashboard
                         </a>
                     </div>
