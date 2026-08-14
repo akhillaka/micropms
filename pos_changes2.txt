@@ -1,0 +1,4 @@
+Add POS tab and modals to index.html
+
+Insert POS screen and modal HTML in index.html
+

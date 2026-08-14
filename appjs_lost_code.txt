@@ -1,0 +1,188 @@
+--- START 4145 ---
+    summary += `\nTotal: ₹${total.toFixed(2)}`;
+    
+    const isConfirmed = await this.pmsConfirm(summary, `Post to Room ${this.posRoomLabel}?`);
+    if (!isConfirmed) return;
+--- START 4131 ---
+    let total = 0;
+    this.posCart.forEach(c => { total += (c.price * c.quantity); });
+    
+    const isConfirmed = await new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay active';
+      overlay.style.zIndex = '500';
+      
+      let itemsHtml = this.posCart.map(c => `
+        <div style="display: flex; justify-content: space-between; font-size: 0.95rem; font-weight: 700; margin-bottom: 8px;">
+          <span>${c.quantity}x ${c.name}</span>
+          <span>₹${(c.price * c.quantity).toFixed(2)}</span>
+        </div>
+      `).join('');
+
+      overlay.innerHTML = `
+        <div style="margin: auto; max-width: 350px; width: 90%;">
+          <div class="modal-content-box" style="border-radius: var(--border-radius-lg); padding: 24px;">
+            <div style="text-align: center; margin-bottom: 16px;">
+              <i class="lucide-shopping-cart" style="font-size: 2.5rem; color: var(--color-brand);"></i>
+              <h3 style="font-weight: 800; font-size: 1.2rem; margin-top: 8px;">Review Order</h3>
+              <p style="color: var(--color-text-secondary); font-size: 0.85rem; font-weight: 700;">Post to Room ${this.posRoomLabel}</p>
+            </div>
+            
+            <div style="background: var(--color-glass); padding: 16px; border-radius: var(--border-radius-md); margin-bottom: 16px; max-height: 200px; overflow-y: auto;">
+              ${itemsHtml}
+              <div style="border-top: 2px dashed var(--color-border); margin-top: 12px; padding-top: 12px; display: flex; justify-content: space-between; font-size: 1.1rem; font-weight: 900; color: var(--color-brand);">
+                <span>Total</span>
+                <span>₹${total.toFixed(2)}</span>
+              </div>
+            </div>
+            
+            <div style="display: flex; gap: 12px;">
+              <button class="btn-large btn-outline cancel-btn" style="flex: 1; border-color: var(--color-text-muted); color: var(--color-text-muted);">Cancel</button>
+              <button class="btn-large btn-success confirm-btn" style="flex: 1;">Place Order</button>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(overlay);
+      
+      overlay.querySelector('.cancel-btn').onclick = () => {
+        overlay.remove();
+        resolve(false);
+      };
+      
+      overlay.querySelector('.confirm-btn').onclick = () => {
+        overlay.remove();
+        resolve(true);
+      };
+    });
+
+    if (!isConfirmed) return;
+--- START 4300 ---
+  // --- SERVICE REQUESTS ---
+  showServiceRequestModal(alert) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay active';
+    overlay.style.zIndex = '500';
+    
+    overlay.innerHTML = `
+      <div style="margin: auto; max-width: 320px; width: 90%;">
+        <div class="modal-content-box" style="border-radius: var(--border-radius-lg); text-align: center; padding: 24px;">
+          <div style="font-size: 2.5rem; margin-bottom: 12px;">🛎️</div>
+          <h3 style="font-weight: 800; font-size: 1.2rem; margin-bottom: 8px;">Service Request</h3>
+          <p style="color: var(--color-text-secondary); font-weight: 600; margin-bottom: 12px; font-size: 0.95rem;">${escapeHtml(alert.message)}</p>
+          
+          <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button class="btn-large btn-outline cancel-req" style="flex: 1; border-color: var(--color-danger); color: var(--color-danger);">
+              Reject
+            </button>
+            <button class="btn-large btn-success approve-req" style="flex: 1;">
+              Approve
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(overlay);
+    
+    overlay.onclick = (e) => {
+      if (e.target === overlay) overlay.remove();
+    };
+
+    overlay.querySelector('.cancel-req').onclick = () => {
+      this.handleServiceRequestAction(alert.request_id, 'rejected');
+      overlay.remove();
+    };
+    
+    overlay.querySelector('.approve-req').onclick = () => {
+      this.handleServiceRequestAction(alert.request_id, 'completed');
+      overlay.remove();
+    };
+  }
+
+  async handleServiceRequestAction(requestId, status) {
+    this.showLoading('Updating request...');
+    try {
+      const res = await this.apiCall('api/service_requests.php?action=update_status', {
+        request_id: requestId,
+        status: status
+      });
+      this.hideLoading();
+      if (res && res.success) {
+        this.showToast(res.message, 'success');
+        this.loadDashboardData();
+      } else {
+        this.showToast(res?.message || 'Failed to update request', 'danger');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.showToast(e.message, 'danger');
+    }
+  }
+
+}
+--- START 4300 ---
+  // --- SERVICE REQUESTS ---
+  showServiceRequestModal(alert) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay active';
+    overlay.style.zIndex = '500';
+    
+    overlay.innerHTML = `
+      <div style="margin: auto; max-width: 320px; width: 90%;">
+        <div class="modal-content-box" style="border-radius: var(--border-radius-lg); text-align: center; padding: 24px;">
+          <div style="font-size: 2.5rem; margin-bottom: 12px;">🛎️</div>
+          <h3 style="font-weight: 800; font-size: 1.2rem; margin-bottom: 8px;">Service Request</h3>
+          <p style="color: var(--color-text-secondary); font-weight: 600; margin-bottom: 12px; font-size: 0.95rem;">${escapeHtml(alert.message)}</p>
+          
+          <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button class="btn-large btn-outline cancel-req" style="flex: 1; border-color: var(--color-danger); color: var(--color-danger);">
+              Reject
+            </button>
+            <button class="btn-large btn-success approve-req" style="flex: 1;">
+              Approve
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(overlay);
+    
+    overlay.onclick = (e) => {
+      if (e.target === overlay) overlay.remove();
+    };
+
+    overlay.querySelector('.cancel-req').onclick = () => {
+      this.handleServiceRequestAction(alert.request_id, 'rejected');
+      overlay.remove();
+    };
+    
+    overlay.querySelector('.approve-req').onclick = () => {
+      this.handleServiceRequestAction(alert.request_id, 'completed');
+      overlay.remove();
+    };
+  }
+
+  async handleServiceRequestAction(requestId, status) {
+    this.showLoading('Updating request...');
+    try {
+      const res = await this.apiCall('api/service_requests.php?action=update_status', {
+        request_id: requestId,
+        status: status
+      });
+      this.hideLoading();
+      if (res && res.success) {
+        this.showToast(res.message, 'success');
+        this.loadDashboardData();
+      } else {
+        this.showToast(res?.message || 'Failed to update request', 'danger');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.showToast(e.message, 'danger');
+    }
+  }
+
+}

@@ -1,0 +1,7 @@
+Update app.js with POS and edit functions
+
+Replace native confirm with await this.pmsConfirm in posCheckout
+    summary += `\nTotal: ₹${total.toFixed(2)}`;
+    
+    const isConfirmed = await this.pmsConfirm(summary, `Post to Room ${this.posRoomLabel}?`);
+    if (!isConfirmed) return;

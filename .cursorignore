@@ -1,0 +1,135 @@
+# =============================================================================
+# MicroPMS / Hotel PMS — Cursor index exclusions
+# Prioritize: reservations, rooms, billing/folio, guest CRM, check-in/out APIs
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Dependencies & Package Managers
+# -----------------------------------------------------------------------------
+node_modules/
+vendor/
+bower_components/
+.php-cs-fixer.cache
+composer.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+skills-lock.json
+
+# -----------------------------------------------------------------------------
+# Build Outputs & Distributables
+# -----------------------------------------------------------------------------
+dist/
+build/
+out/
+.cache/
+.parcel-cache/
+.next/
+.turbo/
+coverage/
+deployment.zip
+*.min.js
+*.min.css
+public_html/css/*.map
+
+# -----------------------------------------------------------------------------
+# Environment & Secret Files
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa*
+id_ed25519*
+secrets.*
+credentials.json
+service-account*.json
+cookies.txt
+cookie.txt
+csrf.txt
+
+# -----------------------------------------------------------------------------
+# Database Files & Local Backups
+# -----------------------------------------------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+*.sql.gz
+*.dump
+current_schema.sql
+pms_core/schema_reset.sql
+dump_db.php
+query.php
+fix_db.php
+rewrite_finance.php
+setup_audit_table.php
+fix_admin_notifications.php
+pms_core/patch_constraints.php
+pms_core/add_signature_col.php
+pms_core/*.sqlite
+pms_core/*.db
+
+# -----------------------------------------------------------------------------
+# Logs & Diagnostic Data
+# -----------------------------------------------------------------------------
+*.log
+logs/
+pms_core/*.log
+public_html/*.log
+.cursor/debug-*.log
+output.html
+posCheckout.txt
+posCheckout3.txt
+pos_changes.txt
+pos_changes2.txt
+pos_checkout_code.txt
+appjs_lost_code.txt
+
+# -----------------------------------------------------------------------------
+# OS & IDE Settings
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# -----------------------------------------------------------------------------
+# Vendor / third-party libraries (keep PMS business logic indexed)
+# -----------------------------------------------------------------------------
+pms_core/libs/
+.agent/
+.agents/
+
+# -----------------------------------------------------------------------------
+# Hotel PMS — large/binary & operational data
+# -----------------------------------------------------------------------------
+public_html/uploads/
+pms_core/uploads/
+*.pdf
+*.xlsx
+*.xls
+*.csv
+!db_migrations/*.sql
+public_html/admin/*.bak
+*.bak
+test_finance.html
+test_finance.php
+public_html/test_finance.php
+public_html/test_api.php
+public_html/install.php
+test_night_audit_full.php
+test_settings.php
+tests/full_test_suite.php
+design-plans/
+design-system/
+
+# Local/session test artifacts
+test_session_setup.txt

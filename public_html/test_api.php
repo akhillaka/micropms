@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../pms_core/HttpScriptGuard.php';
 session_start();
 $_SESSION['user_id'] = 2; // Assuming staff
 $_SESSION['property_id'] = 1;
