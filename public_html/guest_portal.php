@@ -21,7 +21,7 @@ GuestAccessToken::assert($bookingId, $token, false);
 // Fetch booking & property info
 $stmt = $db->prepare("
     SELECT b.*, p.name as property_name, p.logo_url, g.name as guest_name, g.email as guest_email, g.phone as guest_phone, g.digital_signature,
-           rc.name as room_type, b.rate_plan_name, r.room_number
+           rc.name as room_type, r.room_number, r.category_id as room_category_id
     FROM bookings b
     JOIN properties p ON b.property_id = p.id
     LEFT JOIN guests g ON b.guest_id = g.id
@@ -260,10 +260,135 @@ try {
     $checkout = new DateTime();
 }
 $now = new DateTime();
-$totalDays = max(1, $checkin->diff($checkout)->days);
-$daysRemaining = max(0, $now->diff($checkout)->days);
-$progress = $totalDays > 0 ? (1 - ($daysRemaining / $totalDays)) * 100 : 100;
-$progress = max(0, min(100, $progress));
+$stayDiff = $checkin->diff($checkout);
+$stayHours = ($stayDiff->days * 24) + $stayDiff->h;
+if ($stayDiff->i > 0) {
+    $stayHours++;
+}
+$stayDays = intdiv(max(0, $stayHours), 24);
+$stayRemHours = max(0, $stayHours) % 24;
+$durationParts = [];
+if ($stayDays > 0) {
+    $durationParts[] = $stayDays . ' night' . ($stayDays === 1 ? '' : 's');
+}
+if ($stayRemHours > 0) {
+    $durationParts[] = $stayRemHours . ' hour' . ($stayRemHours === 1 ? '' : 's');
+}
+$stayDurationLabel = $durationParts !== [] ? implode(' ', $durationParts) : '0 hours';
+$totalDays = max(1, $stayDays > 0 ? $stayDays : 1);
+$staySeconds = max(1, $checkout->getTimestamp() - $checkin->getTimestamp());
+$elapsedSeconds = max(0, min($staySeconds, $now->getTimestamp() - $checkin->getTimestamp()));
+$progress = max(0, min(100, ($elapsedSeconds / $staySeconds) * 100));
+$roomNumberLabel = trim((string)($booking['room_number'] ?? '')) !== '' ? (string)$booking['room_number'] : 'TBA';
+$roomTypeLabel = trim((string)($booking['room_type'] ?? '')) !== '' ? (string)$booking['room_type'] : 'Room';
+$ratePlanLabel = trim((string)($booking['rate_plan_name'] ?? '')) !== '' ? (string)$booking['rate_plan_name'] : 'Standard';
+$adultsCount = (int)($booking['adults'] ?? 0);
+$childrenCount = (int)($booking['children'] ?? 0);
+$occupancyLabel = '';
+if ($adultsCount > 0 || $childrenCount > 0) {
+    $occ = [];
+    if ($adultsCount > 0) {
+        $occ[] = $adultsCount . ' adult' . ($adultsCount === 1 ? '' : 's');
+    }
+    if ($childrenCount > 0) {
+        $occ[] = $childrenCount . ' child' . ($childrenCount === 1 ? '' : 'ren');
+    }
+    $occupancyLabel = implode(', ', $occ);
+}
+$statusKey = (string)($booking['booking_status'] ?? '');
+$rateSlabs = [];
+$appliedSlab = null;
+$categoryId = (int)($booking['room_category_id'] ?? 0);
+if ($categoryId > 0) {
+    $planName = trim((string)($booking['rate_plan_name'] ?? ''));
+    if ($planName !== '') {
+        $slabStmt = $db->prepare("SELECT hours, price, rate_plan_name FROM sliding_rates WHERE category_id = ? AND property_id = ? AND rate_plan_name = ? ORDER BY hours ASC");
+        $slabStmt->execute([$categoryId, $propId, $planName]);
+    } else {
+        $slabStmt = $db->prepare("SELECT hours, price, rate_plan_name FROM sliding_rates WHERE category_id = ? AND property_id = ? ORDER BY hours ASC");
+        $slabStmt->execute([$categoryId, $propId]);
+    }
+    $rateSlabs = $slabStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($rateSlabs as $slab) {
+        if ((int)$slab['hours'] >= max(1, $stayHours)) {
+            $appliedSlab = $slab;
+            break;
+        }
+    }
+    if ($appliedSlab === null && $rateSlabs !== []) {
+        $appliedSlab = $rateSlabs[count($rateSlabs) - 1];
+    }
+}
+$renderStayCard = static function (bool $withProgress) use (
+    $checkin, $checkout, $stayDurationLabel, $stayHours, $roomNumberLabel, $roomTypeLabel,
+    $ratePlanLabel, $occupancyLabel, $rateSlabs, $appliedSlab, $progress, $statusKey
+): void { ?>
+            <div class="glass-panel stay-card mb-4">
+                <div class="stay-times">
+                    <div class="stay-time-box">
+                        <p class="stay-kicker">Check-in</p>
+                        <p class="stay-date"><?= htmlspecialchars($checkin->format('d M Y')) ?></p>
+                        <p class="stay-clock"><?= htmlspecialchars($checkin->format('g:i A')) ?></p>
+                    </div>
+                    <div class="stay-time-box">
+                        <p class="stay-kicker">Check-out</p>
+                        <p class="stay-date"><?= htmlspecialchars($checkout->format('d M Y')) ?></p>
+                        <p class="stay-clock"><?= htmlspecialchars($checkout->format('g:i A')) ?></p>
+                    </div>
+                </div>
+                <dl class="stay-meta">
+                    <div class="stay-meta-row">
+                        <dt>Duration</dt>
+                        <dd><?= htmlspecialchars($stayDurationLabel) ?><?php if ($stayHours > 0): ?> <span class="stay-hours">(<?= (int)$stayHours ?>h)</span><?php endif; ?></dd>
+                    </div>
+                    <div class="stay-meta-row">
+                        <dt>Room</dt>
+                        <dd><?= htmlspecialchars($roomNumberLabel) ?></dd>
+                    </div>
+                    <div class="stay-meta-row">
+                        <dt>Room type</dt>
+                        <dd><?= htmlspecialchars($roomTypeLabel) ?></dd>
+                    </div>
+                    <div class="stay-meta-row">
+                        <dt>Rate plan</dt>
+                        <dd><?= htmlspecialchars($ratePlanLabel) ?></dd>
+                    </div>
+                    <?php if ($occupancyLabel !== ''): ?>
+                    <div class="stay-meta-row">
+                        <dt>Guests</dt>
+                        <dd><?= htmlspecialchars($occupancyLabel) ?></dd>
+                    </div>
+                    <?php endif; ?>
+                </dl>
+                <?php if ($rateSlabs !== []): ?>
+                <div class="stay-plan">
+                    <p class="stay-kicker">Rate plan details</p>
+                    <ul>
+                        <?php foreach ($rateSlabs as $slab):
+                            $isApplied = $appliedSlab && (int)$appliedSlab['hours'] === (int)$slab['hours'] && (float)$appliedSlab['price'] === (float)$slab['price'];
+                        ?>
+                        <li class="<?= $isApplied ? 'is-applied' : '' ?>">
+                            <span><?= (int)$slab['hours'] ?> hour<?= (int)$slab['hours'] === 1 ? '' : 's' ?></span>
+                            <span>₹<?= number_format((float)$slab['price'], 2) ?></span>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <?php if ($appliedSlab): ?>
+                    <p class="stay-applied">This stay uses the <?= (int)$appliedSlab['hours'] ?> hour slab (₹<?= number_format((float)$appliedSlab['price'], 2) ?>).</p>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+                <?php if ($withProgress): ?>
+                <p class="text-xs font-medium text-slate-500 mb-2 mt-4">Stay progress</p>
+                <div class="progress-container mb-3">
+                    <div class="progress-bar" style="width: <?= $progress ?>%"></div>
+                </div>
+                <?php if ($statusKey === 'checked_in'): ?>
+                <p id="checkoutCountdown" class="text-sm font-bold text-blue-600">Checkout countdown…</p>
+                <?php endif; ?>
+                <?php endif; ?>
+            </div>
+<?php };
 $hasActiveGateway = $balance > 0.05 && !empty($activeGateways);
 $helpDesk = trim((string)get_db_setting($db, 'GUEST_PORTAL_HELP_DESK_NO', $propId, ''));
 $propPhone = $helpDesk !== '' ? $helpDesk : (defined('PROPERTY_PHONE') ? (string)PROPERTY_PHONE : '');
@@ -271,7 +396,6 @@ $propEmail = defined('PROPERTY_EMAIL') ? (string)PROPERTY_EMAIL : '';
 $waDigits = preg_replace('/[^0-9]/', '', $propPhone);
 $waHref = $waDigits !== '' ? 'https://wa.me/' . $waDigits : '';
 $telHref = $propPhone !== '' ? 'tel:' . preg_replace('/[^0-9+]/', '', $propPhone) : '';
-$statusKey = (string)($booking['booking_status'] ?? '');
 $statusLabel = [
     'checked_in' => 'In house',
     'booked' => 'Arriving',
@@ -311,9 +435,9 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                 </div>
                 <p class="text-xs text-slate-500 font-medium truncate">
                     <?= htmlspecialchars($booking['guest_name'] ?: 'Guest') ?>
-                    · Room <?= htmlspecialchars($booking['room_number'] ?: 'TBA') ?>
+                    · <?= htmlspecialchars($roomTypeLabel) ?> <?= htmlspecialchars($roomNumberLabel) ?>
                 </p>
-                <p class="text-[11px] text-slate-500 font-semibold"><?= $checkin->format('d M') ?> – <?= $checkout->format('d M Y') ?></p>
+                <p class="text-[11px] text-slate-500 font-semibold"><?= $checkin->format('d M, g:i A') ?> – <?= $checkout->format('d M Y, g:i A') ?></p>
             </div>
         </header>
 
@@ -360,6 +484,7 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
         <?php if ($booking['booking_status'] === 'booked'): ?>
             <!-- Self Check-in View -->
             <div id="view-checkin" class="view-section">
+                <?php $renderStayCard(false); ?>
                 <div class="glass-panel p-5 mb-6">
                     <h2 class="text-lg font-bold text-gray-800 mb-2">Self Check-in</h2>
                     <p class="text-xs text-slate-500 mb-4">Verify your details and upload ID to complete check-in.</p>
@@ -470,27 +595,7 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
             </script>
         <?php else: ?>
         <div id="view-home" class="view-section">
-            <div class="glass-panel p-5 mb-4">
-                <div class="flex justify-between items-end mb-4">
-                    <div>
-                        <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Your stay</p>
-                        <p class="text-lg font-bold text-slate-900">
-                            <?= $checkin->format('M d') ?> – <?= $checkout->format('M d') ?>
-                        </p>
-                    </div>
-                    <div class="text-right bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
-                        <p class="text-xs font-bold text-slate-500">Nights</p>
-                        <p class="text-xl font-bold text-slate-900"><?= (int)$totalDays ?></p>
-                    </div>
-                </div>
-                <p class="text-xs font-medium text-slate-500 mb-2">Stay progress</p>
-                <div class="progress-container mb-3">
-                    <div class="progress-bar" style="width: <?= $progress ?>%"></div>
-                </div>
-                <?php if ($statusKey === 'checked_in'): ?>
-                <p id="checkoutCountdown" class="text-sm font-bold text-blue-600">Checkout countdown…</p>
-                <?php endif; ?>
-            </div>
+            <?php $renderStayCard(true); ?>
 
             <div class="flex overflow-x-auto gap-2 hide-scrollbar mb-4 pb-1">
                 <?php if ($housekeepingEnabled): ?>
@@ -704,12 +809,7 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                 <p class="text-3xl font-extrabold text-slate-900">₹<?= number_format($balance, 2) ?></p>
             </div>
 
-            <div class="glass-panel p-5 mb-4 text-sm text-slate-700 space-y-2">
-                <div class="flex justify-between border-b border-slate-100 pb-2"><span class="font-semibold text-slate-500">Check-in</span> <span class="font-bold"><?= $checkin->format('d M Y') ?></span></div>
-                <div class="flex justify-between border-b border-slate-100 pb-2"><span class="font-semibold text-slate-500">Check-out</span> <span class="font-bold"><?= $checkout->format('d M Y') ?></span></div>
-                <div class="flex justify-between border-b border-slate-100 pb-2"><span class="font-semibold text-slate-500">Duration</span> <span class="font-bold"><?= $totalDays ?> nights</span></div>
-                <div class="flex justify-between"><span class="font-semibold text-slate-500">Room</span> <span class="font-bold"><?= htmlspecialchars(($booking['room_type'] ?? '') . ' ' . ($booking['room_number'] ?? '')) ?></span></div>
-            </div>
+            <?php $renderStayCard(false); ?>
 
             <div class="glass-panel p-5 mb-6">
                 <p class="font-bold text-slate-800 mb-3">Folio</p>

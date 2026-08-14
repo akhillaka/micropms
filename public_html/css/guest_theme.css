@@ -381,3 +381,86 @@ input:focus, select:focus, textarea:focus {
     gap: 8px;
 }
 .pos-order-btn:hover { background: var(--accent-blue-hover); color: #FFFFFF; }
+
+.stay-times {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+.stay-time-box {
+    background: #F8FAFC;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 12px;
+}
+.stay-kicker {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+.stay-date {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+.stay-clock {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--accent-blue);
+    margin-top: 2px;
+}
+.stay-meta { margin: 8px 0 0; }
+.stay-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+.stay-meta-row:last-child { border-bottom: 0; }
+.stay-meta-row dt {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.stay-meta-row dd {
+    font-size: 0.8125rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    text-align: right;
+}
+.stay-hours { font-weight: 700; color: var(--text-muted); }
+.stay-plan {
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+.stay-plan ul { list-style: none; padding: 0; margin: 8px 0 0; }
+.stay-plan li {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    padding: 6px 8px;
+    border-radius: 8px;
+}
+.stay-plan li.is-applied {
+    background: var(--accent-blue-light);
+    color: var(--accent-blue);
+    font-weight: 800;
+}
+.stay-applied {
+    margin-top: 8px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
