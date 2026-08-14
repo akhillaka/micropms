@@ -281,7 +281,19 @@ $elapsedSeconds = max(0, min($staySeconds, $now->getTimestamp() - $checkin->getT
 $progress = max(0, min(100, ($elapsedSeconds / $staySeconds) * 100));
 $roomNumberLabel = trim((string)($booking['room_number'] ?? '')) !== '' ? (string)$booking['room_number'] : 'TBA';
 $roomTypeLabel = trim((string)($booking['room_type'] ?? '')) !== '' ? (string)$booking['room_type'] : 'Room';
-$ratePlanLabel = trim((string)($booking['rate_plan_name'] ?? '')) !== '' ? (string)$booking['rate_plan_name'] : 'Standard';
+$ratePlanLabel = trim((string)($booking['rate_plan_name'] ?? ''));
+$categoryId = (int)($booking['room_category_id'] ?? 0);
+if ($ratePlanLabel === '' && $categoryId > 0) {
+    $planStmt = $db->prepare("SELECT DISTINCT rate_plan_name FROM sliding_rates WHERE category_id = ? AND property_id = ? AND rate_plan_name IS NOT NULL AND TRIM(rate_plan_name) != '' ORDER BY rate_plan_name ASC");
+    $planStmt->execute([$categoryId, $propId]);
+    $planNames = $planStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    if (count($planNames) === 1) {
+        $ratePlanLabel = (string)$planNames[0];
+    }
+}
+if ($ratePlanLabel === '') {
+    $ratePlanLabel = '—';
+}
 $adultsCount = (int)($booking['adults'] ?? 0);
 $childrenCount = (int)($booking['children'] ?? 0);
 $occupancyLabel = '';
@@ -296,32 +308,9 @@ if ($adultsCount > 0 || $childrenCount > 0) {
     $occupancyLabel = implode(', ', $occ);
 }
 $statusKey = (string)($booking['booking_status'] ?? '');
-$rateSlabs = [];
-$appliedSlab = null;
-$categoryId = (int)($booking['room_category_id'] ?? 0);
-if ($categoryId > 0) {
-    $planName = trim((string)($booking['rate_plan_name'] ?? ''));
-    if ($planName !== '') {
-        $slabStmt = $db->prepare("SELECT hours, price, rate_plan_name FROM sliding_rates WHERE category_id = ? AND property_id = ? AND rate_plan_name = ? ORDER BY hours ASC");
-        $slabStmt->execute([$categoryId, $propId, $planName]);
-    } else {
-        $slabStmt = $db->prepare("SELECT hours, price, rate_plan_name FROM sliding_rates WHERE category_id = ? AND property_id = ? ORDER BY hours ASC");
-        $slabStmt->execute([$categoryId, $propId]);
-    }
-    $rateSlabs = $slabStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    foreach ($rateSlabs as $slab) {
-        if ((int)$slab['hours'] >= max(1, $stayHours)) {
-            $appliedSlab = $slab;
-            break;
-        }
-    }
-    if ($appliedSlab === null && $rateSlabs !== []) {
-        $appliedSlab = $rateSlabs[count($rateSlabs) - 1];
-    }
-}
 $renderStayCard = static function (bool $withProgress) use (
     $checkin, $checkout, $stayDurationLabel, $stayHours, $roomNumberLabel, $roomTypeLabel,
-    $ratePlanLabel, $occupancyLabel, $rateSlabs, $appliedSlab, $progress, $statusKey
+    $ratePlanLabel, $occupancyLabel, $progress, $statusKey
 ): void { ?>
             <div class="glass-panel stay-card mb-4">
                 <div class="stay-times">
@@ -360,24 +349,6 @@ $renderStayCard = static function (bool $withProgress) use (
                     </div>
                     <?php endif; ?>
                 </dl>
-                <?php if ($rateSlabs !== []): ?>
-                <div class="stay-plan">
-                    <p class="stay-kicker">Rate plan details</p>
-                    <ul>
-                        <?php foreach ($rateSlabs as $slab):
-                            $isApplied = $appliedSlab && (int)$appliedSlab['hours'] === (int)$slab['hours'] && (float)$appliedSlab['price'] === (float)$slab['price'];
-                        ?>
-                        <li class="<?= $isApplied ? 'is-applied' : '' ?>">
-                            <span><?= (int)$slab['hours'] ?> hour<?= (int)$slab['hours'] === 1 ? '' : 's' ?></span>
-                            <span>₹<?= number_format((float)$slab['price'], 2) ?></span>
-                        </li>
-                        <?php endforeach; ?>
-                    </ul>
-                    <?php if ($appliedSlab): ?>
-                    <p class="stay-applied">This stay uses the <?= (int)$appliedSlab['hours'] ?> hour slab (₹<?= number_format((float)$appliedSlab['price'], 2) ?>).</p>
-                    <?php endif; ?>
-                </div>
-                <?php endif; ?>
                 <?php if ($withProgress): ?>
                 <p class="text-xs font-medium text-slate-500 mb-2 mt-4">Stay progress</p>
                 <div class="progress-container mb-3">
