@@ -13,6 +13,13 @@ $propId = (php_sapi_name() === 'cli')
 load_db_settings(Database::getInstance()->getConnection(), $propId);
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 
+require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
+$db = Database::getInstance()->getConnection();
+if (php_sapi_name() !== 'cli' && !SaaSEntitlementsService::isFeatureEnabled($db, $propId, 'whatsapp_module')) {
+    echo json_encode(['success' => false, 'message' => 'WhatsApp module is not enabled for your subscription.']);
+    exit;
+}
+
 header('Content-Type: application/json');
 
 if (empty(WHATSAPP_TOKEN) || WHATSAPP_TOKEN === 'your_whatsapp_token_here') {

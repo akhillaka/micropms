@@ -27,7 +27,7 @@ if (str_ends_with(strtolower($request), '.php')) {
 }
 
 // ── API Router Interceptor ───────────────────────────────────────────────────
-if (str_starts_with($request, '/api/')) { file_put_contents(__DIR__ . '/debug_router.log', date('Y-m-d H:i:s') . " API REQ: " . $request . " URI: " . $_SERVER['REQUEST_URI'] . "\n", FILE_APPEND);
+if (str_starts_with($request, '/api/')) {
     $apiRoutes = require __DIR__ . '/../pms_core/api_routes.php';
     $originalFile = array_search($request, $apiRoutes);
     if ($originalFile !== false) {
@@ -134,9 +134,16 @@ switch ($request) {
         require __DIR__ . '/admin/group_dashboard.php';
         break;
 
+    case '/admin':
+    case '/admin/index':
     case '/property-dashboard':
     case '/property-configuration/index':
         require __DIR__ . '/admin/index.php';
+        break;
+
+    case '/logout':
+    case '/admin/logout':
+        require __DIR__ . '/admin/logout.php';
         break;
 
     case '/property-configuration/property-details':

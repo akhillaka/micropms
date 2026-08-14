@@ -13,22 +13,31 @@ ApiHandler::run(function(\PDO $db) {
         if ($checkCol && $checkCol->rowCount() === 0) {
             $db->exec("ALTER TABLE staff_users ADD COLUMN pin_hash VARCHAR(255) DEFAULT NULL COMMENT 'Hashed 4-digit PIN for quick login'");
         }
-        
+
         // Check and add assistant_access column
         $checkCol2 = $db->query("SHOW COLUMNS FROM staff_users LIKE 'assistant_access'");
         if ($checkCol2 && $checkCol2->rowCount() === 0) {
             $db->exec("ALTER TABLE staff_users ADD COLUMN assistant_access TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = Allowed to access Booking Assistant PWA'");
-            // Assign default access to owner and admin
             $db->exec("UPDATE staff_users SET assistant_access = 1 WHERE access_level = 'superadmin' OR access_level = 'owner' OR username = 'admin'");
         }
-        
+
         // Check and add is_active column
         $checkCol3 = $db->query("SHOW COLUMNS FROM staff_users LIKE 'is_active'");
         if ($checkCol3 && $checkCol3->rowCount() === 0) {
             $db->exec("ALTER TABLE staff_users ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1 = Active, 0 = Deactivated'");
         }
 
-        // Ensure at least one active user has assistant access to prevent locked out screens
+        // Check and add assistant_role column (separate from MicroPMS access_level)
+        $checkRole = $db->query("SHOW COLUMNS FROM staff_users LIKE 'assistant_role'");
+        if ($checkRole && $checkRole->rowCount() === 0) {
+            $db->exec("ALTER TABLE staff_users ADD COLUMN assistant_role ENUM('owner','manager','receptionist','housekeeping') NOT NULL DEFAULT 'receptionist' COMMENT 'Role inside Hotel Assistant PWA'");
+            // Auto-seed role from existing access_level
+            $db->exec("UPDATE staff_users SET assistant_role = 'owner'        WHERE access_level IN ('superadmin','owner')");
+            $db->exec("UPDATE staff_users SET assistant_role = 'manager'      WHERE access_level IN ('manager','admin') AND assistant_role = 'receptionist'");
+            $db->exec("UPDATE staff_users SET assistant_role = 'housekeeping' WHERE access_level = 'housekeeping'");
+        }
+
+        // Ensure at least one active user has assistant access
         $count = (int)$db->query("SELECT COUNT(*) FROM staff_users WHERE assistant_access = 1")->fetchColumn();
         if ($count === 0) {
             $db->exec("UPDATE staff_users SET assistant_access = 1 WHERE access_level IN ('admin', 'owner', 'manager', 'receptionist') OR username = 'admin'");
@@ -44,10 +53,12 @@ ApiHandler::run(function(\PDO $db) {
     $data = json_decode(file_get_contents('php://input'), true) ?? [];
     $action = $data['action'] ?? $_GET['action'] ?? '';
 
+    $propertyId = AuthHelper::getPropertyId();
+
     // Action: Get List of Active Staff with Assistant Access
     if ($action === 'list_staff') {
-        $stmt = $db->prepare("SELECT id, username, access_level FROM staff_users WHERE is_active = 1 AND assistant_access = 1 ORDER BY username ASC");
-        $stmt->execute();
+        $stmt = $db->prepare("SELECT id, username, access_level FROM staff_users WHERE is_active = 1 AND assistant_access = 1 AND property_id = ? ORDER BY username ASC");
+        $stmt->execute([$propertyId]);
         $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
         foreach ($staff as &$u) {
             $u['role'] = $u['access_level']; // map access_level to role dynamically
@@ -79,8 +90,8 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('Too many failed attempts. Please wait 15 minutes or contact your manager.');
         }
 
-        $stmt = $db->prepare("SELECT * FROM staff_users WHERE id = :id AND is_active = 1 AND assistant_access = 1");
-        $stmt->execute(['id' => $userId]);
+        $stmt = $db->prepare("SELECT * FROM staff_users WHERE id = :id AND is_active = 1 AND assistant_access = 1 AND property_id = :prop_id");
+        $stmt->execute(['id' => $userId, 'prop_id' => $propertyId]);
         $user = $stmt->fetch();
 
         if (!$user) {
@@ -110,20 +121,42 @@ ApiHandler::run(function(\PDO $db) {
                 session_start();
             }
             session_regenerate_id(true);
-            $_SESSION['user_id'] = $user['id'];
-            $_SESSION['role'] = $user['access_level'] ?: $user['role'] ?: 'manager';
-            $_SESSION['username'] = $user['username'];
+            $_SESSION['user_id']          = $user['id'];
+            $_SESSION['role']             = $user['access_level'] ?: 'manager';
+            $_SESSION['username']         = $user['username'];
+            $_SESSION['assistant_role']   = $user['assistant_role'] ?? 'receptionist';
+            $_SESSION['primary_property_id'] = (int)($user['property_id'] ?? 0);
+            $_SESSION['property_id'] = (int)($user['property_id'] ?? 0);
+            if ($_SESSION['property_id'] <= 0) {
+                $_SESSION['property_id'] = 1000;
+            }
 
-            // Generate CSRF token for the session
+            // Compute granular permissions from assistant_role
+            $aRole = $_SESSION['assistant_role'];
+            $permissions = [
+                'check_in_out'    => in_array($aRole, ['receptionist','manager','owner','admin','superadmin']),
+                'collect_payment' => in_array($aRole, ['receptionist','manager','owner','admin','superadmin']),
+                'add_charge'      => in_array($aRole, ['receptionist','manager','owner','admin','superadmin']),
+                'edit_charge'     => in_array($aRole, ['manager','owner','admin','superadmin']),
+                'edit_checkout'   => in_array($aRole, ['manager','owner','admin','superadmin']),
+                'housekeeping'    => in_array($aRole, ['housekeeping','manager','owner','admin','superadmin']),
+                'pos_access'      => in_array($aRole, ['receptionist','manager','owner','admin','superadmin', 'fb_cashier']),
+                'view_bill'       => in_array($aRole, ['receptionist','manager','owner','admin','superadmin']),
+                'view_reports'    => in_array($aRole, ['manager','owner','admin','superadmin']),
+            ];
+            $_SESSION['assistant_permissions'] = $permissions;
+
             $csrfToken = CsrfToken::generate();
 
             ApiResponse::success([
                 'message' => 'Logged in successfully',
                 'user' => [
-                    'id' => $user['id'],
-                    'username' => $user['username'],
-                    'role' => $_SESSION['role'],
-                    'pin_set' => !empty($user['pin_hash'])
+                    'id'             => $user['id'],
+                    'username'       => $user['username'],
+                    'role'           => $_SESSION['role'],
+                    'assistant_role' => $aRole,
+                    'pin_set'        => !empty($user['pin_hash']),
+                    'permissions'    => $permissions,
                 ],
                 'csrf_token' => $csrfToken
             ]);
@@ -142,18 +175,32 @@ ApiHandler::run(function(\PDO $db) {
         }
 
         if (isset($_SESSION['user_id'])) {
-            $stmt = $db->prepare("SELECT id, username, access_level, pin_hash FROM staff_users WHERE id = :id AND is_active = 1");
+            $stmt = $db->prepare("SELECT id, username, access_level, assistant_role, pin_hash FROM staff_users WHERE id = :id AND is_active = 1");
             $stmt->execute(['id' => $_SESSION['user_id']]);
             $user = $stmt->fetch();
 
             if ($user) {
+                $aRole = $user['assistant_role'] ?? $_SESSION['assistant_role'] ?? 'receptionist';
+                $permissions = $_SESSION['assistant_permissions'] ?? [
+                    'check_in_out'    => in_array($aRole, ['receptionist','manager','owner']),
+                    'collect_payment' => in_array($aRole, ['receptionist','manager','owner']),
+                    'add_charge'      => in_array($aRole, ['receptionist','manager','owner']),
+                    'edit_charge'     => in_array($aRole, ['manager','owner']),
+                    'edit_checkout'   => in_array($aRole, ['manager','owner']),
+                    'housekeeping'    => in_array($aRole, ['housekeeping','manager','owner']),
+                    'pos_access'      => in_array($aRole, ['receptionist','manager','owner']),
+                    'view_bill'       => in_array($aRole, ['receptionist','manager','owner']),
+                    'view_reports'    => in_array($aRole, ['manager','owner']),
+                ];
                 ApiResponse::success([
                     'logged_in' => true,
                     'user' => [
-                        'id' => $user['id'],
-                        'username' => $user['username'],
-                        'role' => $user['access_level'] ?: $user['role'] ?: 'manager',
-                        'pin_set' => !empty($user['pin_hash'])
+                        'id'             => $user['id'],
+                        'username'       => $user['username'],
+                        'role'           => $user['access_level'],
+                        'assistant_role' => $aRole,
+                        'pin_set'        => !empty($user['pin_hash']),
+                        'permissions'    => $permissions,
                     ],
                     'csrf_token' => CsrfToken::generate()
                 ]);

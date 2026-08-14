@@ -8,7 +8,7 @@ AuthHelper::requireLoginOrRedirect();
 
 // For now, restricting this to manage_settings permission (Admin/Owner)
 if (!AuthHelper::can('manage_settings')) {
-    header('Location: index.php');
+    header('Location: /admin');
     exit;
 }
 
@@ -21,7 +21,7 @@ $message = '';
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!CsrfToken::verify($_POST['csrf_token'] ?? '')) {
+    if (!CsrfToken::validate($_POST['csrf_token'] ?? '')) {
         $error = "Security token expired. Please try again.";
     } else {
         $titles = $_POST['banner_title'] ?? [];
@@ -149,7 +149,7 @@ if (!is_array($banners)) $banners = [];
                                         </div>
                                         <div>
                                             <label class="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Image URL (Optional)</label>
-                                            <input type="text" name="banner_image[]" value="<?= htmlspecialchars($b['image'] ?? '') ?>" class="w-full text-sm border-gray-300 rounded-lg shadow-sm focus:border-brand-500 focus:ring-brand-500" placeholder="https://.../image.jpg">
+                                            <input type="text" name="banner_image[]" value="<?= htmlspecialchars($b['image'] ?? '') ?>" class="w-full text-sm border-gray-300 rounded-lg shadow-sm focus:border-brand-500 focus:ring-brand-500" placeholder="https://.../image.jpg (Recommended: 600x300px)">
                                         </div>
                                     </div>
                                 </div>

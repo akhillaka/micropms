@@ -24,7 +24,7 @@ ApiHandler::run(function(\PDO $db) {
     // We want to find a room that does NOT have overlapping bookings AND is not out of order.
     // An overlapping booking is one where: existing_check_in < requested_check_out AND existing_check_out > requested_check_in
     $sql = "SELECT r.*, c.name as category_name, 
-                (SELECT price FROM sliding_rates s WHERE s.category_id = c.id AND s.hours = 24 LIMIT 1) as base_daily_rate
+                (SELECT price FROM sliding_rates s WHERE s.category_id = c.id AND s.hours = 24 AND s.property_id = :property_id3 LIMIT 1) as base_daily_rate
             FROM rooms r
             JOIN room_categories c ON r.category_id = c.id
             WHERE r.state != 'out_of_order'
@@ -40,6 +40,7 @@ ApiHandler::run(function(\PDO $db) {
     $stmt->execute([
         'property_id1' => $propertyId,
         'property_id2' => $propertyId,
+        'property_id3' => $propertyId,
         'check_in' => $checkInStr,
         'check_out' => $checkOutStr
     ]);
@@ -54,8 +55,8 @@ ApiHandler::run(function(\PDO $db) {
         if (!isset($categories[$catId])) {
             
             // Get all unique rate plans for this category
-            $rpStmt = $db->prepare("SELECT DISTINCT rate_plan_name FROM sliding_rates WHERE category_id = :cid");
-            $rpStmt->execute(['cid' => $catId]);
+            $rpStmt = $db->prepare("SELECT DISTINCT rate_plan_name FROM sliding_rates WHERE category_id = :cid AND property_id = :pid");
+            $rpStmt->execute(['cid' => $catId, 'pid' => $propertyId]);
             $plans = $rpStmt->fetchAll(PDO::FETCH_COLUMN);
             
             $ratePlans = [];

@@ -60,7 +60,7 @@ ApiHandler::run(function(\PDO $db) {
             throw new Exception("Category ID and prices are required.");
         }
 
-        $stmt = $db->prepare("INSERT INTO sliding_rates (category_id, hours, price, rate_plan_name) VALUES (:cat_id, :hours, :price, :rate_name) ON DUPLICATE KEY UPDATE price = :update_price, rate_plan_name = :update_rate_name");
+        $stmt = $db->prepare("INSERT INTO sliding_rates (category_id, hours, price, rate_plan_name, property_id) VALUES (:cat_id, :hours, :price, :rate_name, :prop_id) ON DUPLICATE KEY UPDATE price = :update_price, rate_plan_name = :update_rate_name");
         
         foreach ($prices as $hour => $price) {
             $priceFloat = (float)$price;
@@ -70,6 +70,7 @@ ApiHandler::run(function(\PDO $db) {
                     'hours' => $hour, 
                     'price' => $priceFloat, 
                     'rate_name' => $rateName,
+                    'prop_id' => $propertyId,
                     'update_price' => $priceFloat, 
                     'update_rate_name' => $rateName
                 ]);
@@ -98,10 +99,10 @@ ApiHandler::run(function(\PDO $db) {
         }
 
         // Delete existing rates for this category first
-        $del = $db->prepare("DELETE FROM sliding_rates WHERE category_id = :cat_id");
-        $del->execute(['cat_id' => $categoryId]);
+        $del = $db->prepare("DELETE FROM sliding_rates WHERE category_id = :cat_id AND property_id = :prop_id");
+        $del->execute(['cat_id' => $categoryId, 'prop_id' => $propertyId]);
 
-        $stmt = $db->prepare("INSERT INTO sliding_rates (category_id, hours, price, rate_plan_name) VALUES (:cat_id, :hours, :price, :rate_name)");
+        $stmt = $db->prepare("INSERT INTO sliding_rates (category_id, hours, price, rate_plan_name, property_id) VALUES (:cat_id, :hours, :price, :rate_name, :prop_id)");
         
         $insertedCount = 0;
         foreach ($rates as $planName => $hoursData) {
@@ -118,7 +119,8 @@ ApiHandler::run(function(\PDO $db) {
                             'cat_id' => $categoryId,
                             'hours' => (int)$hour,
                             'price' => $priceFloat,
-                            'rate_name' => $dbPlanName
+                            'rate_name' => $dbPlanName,
+                            'prop_id' => $propertyId
                         ]);
                         $insertedCount++;
                     }
@@ -172,11 +174,11 @@ ApiHandler::run(function(\PDO $db) {
         if (!$catId) throw new Exception("Category ID required");
         
         if ($rateName !== null && $rateName !== '') {
-            $stmt = $db->prepare("DELETE FROM sliding_rates WHERE category_id = :cat_id AND rate_plan_name = :rate_name");
-            $stmt->execute(['cat_id' => $catId, 'rate_name' => $rateName]);
+            $stmt = $db->prepare("DELETE FROM sliding_rates WHERE category_id = :cat_id AND rate_plan_name = :rate_name AND property_id = :prop_id");
+            $stmt->execute(['cat_id' => $catId, 'rate_name' => $rateName, 'prop_id' => $propertyId]);
         } else {
-            $stmt = $db->prepare("DELETE FROM sliding_rates WHERE category_id = :cat_id AND (rate_plan_name IS NULL OR rate_plan_name = '')");
-            $stmt->execute(['cat_id' => $catId]);
+            $stmt = $db->prepare("DELETE FROM sliding_rates WHERE category_id = :cat_id AND (rate_plan_name IS NULL OR rate_plan_name = '') AND property_id = :prop_id");
+            $stmt->execute(['cat_id' => $catId, 'prop_id' => $propertyId]);
         }
         AuditLogger::log($_SESSION['user_id'], 'DELETE_RATE', 'SYSTEM', $catId, $data);
         ApiResponse::success();

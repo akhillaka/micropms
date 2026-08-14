@@ -54,6 +54,9 @@ class BookingService {
         if (strtotime($checkOut) <= strtotime($checkIn)) {
             throw new \Exception('Check-out date must be after check-in');
         }
+        if ($priceOverride !== null && $priceOverride < 0) {
+            throw new \Exception('Price override cannot be negative');
+        }
 
         $idempotencyKey = $params['idempotency_key'] ?? null;
         if ($idempotencyKey !== null && $idempotencyKey !== '') {
@@ -172,10 +175,11 @@ class BookingService {
             // Post room charges to folio
             self::postRoomCharges($db, $bookingId, $categoryId, $room['category_name'], $checkIn, $checkOut, $ratePlanName, $priceOverride);
 
-            // Post extra bed charges if not using a fixed price override
+            // Post extra bed charges with proper tax calculation
             if ($extraBedCost > 0 && $priceOverride === null) {
                 $days = self::calculateDays($checkIn, $checkOut);
-                self::postFolioEntry($db, $bookingId, 'ROOM_CHARGE', $extraBedCost, "Extra Bed Charge ({$days} night" . ($days > 1 ? 's' : '') . ")");
+                $extraDesc = "Extra Bed Charge ({$days} night" . ($days > 1 ? 's' : '') . ")";
+                self::postRoomCharges($db, $bookingId, $categoryId, $room['category_name'], $checkIn, $checkOut, null, $extraBedCost, $extraDesc);
             }
 
             // Record advance payment if collected
@@ -186,21 +190,11 @@ class BookingService {
             if ($paymentCollected > 0) {
                 self::recordPayment($db, $bookingId, $paymentCollected, $paymentMethod, $paymentRef ?: 'MANUAL', 'Booking Advance Payment');
                 
-                // Record finance transaction
-                $staffId = $_SESSION['user_id'] ?? null;
-                $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id) VALUES (:pid, 'income', 'booking', :bid, :amount, :desc, :method, :staff)");
-                $financeStmt->execute([
-                    'pid'    => $propertyId,
-                    'bid'    => $bookingId,
-                    'amount'  => $paymentCollected,
-                    'desc'    => "Advance Payment - Booking " . $bookingDisplayId,
-                    'method'  => $paymentMethod,
-                    'staff'   => $staffId,
-                ]);
-                SequenceGenerator::assignDisplayId($db, 'finance_transactions', (int)$db->lastInsertId(), 'SEQ_TRANSACTION_FORMAT');
+                // FolioService::recordPayment() above already synced to finance_transactions.
+                // No duplicate insert needed.
             }
 
-            // Trigger WhatsApp automation
+            // Trigger WhatsApp automation + Telegram notification
             try {
                 $phoneStmt = $db->prepare("SELECT phone FROM guests WHERE id = ? AND property_id = ?");
                 $phoneStmt->execute([$guestId, $propertyId]);
@@ -211,6 +205,29 @@ class BookingService {
                         NotificationRelay::triggerAutomation('guest_check_in', PhoneHelper::toE164($guestPhone), $bookingId);
                     }
                 }
+
+                // Telegram alert to staff for every new booking
+                $guestName = $params['guest_name'] ?? 'Guest';
+                $roomNum   = $room['room_number'] ?? 'N/A';
+                $catName   = $room['category_name'] ?? '';
+                $checkInFmt  = date('d M Y, g:i A', strtotime($checkIn));
+                $checkOutFmt = date('d M Y, g:i A', strtotime($checkOut));
+                $source = ucfirst($bookingSource ?: 'front_desk');
+                $tgMsg = "🏨 <b>New Booking Created</b>\n\n" .
+                    "<b>Guest:</b> {$guestName}\n" .
+                    "<b>Room:</b> {$roomNum}" . ($catName ? " ({$catName})" : '') . "\n" .
+                    "<b>Check-in:</b> {$checkInFmt}\n" .
+                    "<b>Check-out:</b> {$checkOutFmt}\n" .
+                    "<b>Amount:</b> ₹" . number_format($totalAmount, 2) . "\n" .
+                    "<b>Source:</b> {$source} | <b>Ref:</b> {$bookingDisplayId}";
+                NotificationRelay::sendTelegram($tgMsg, 'new_booking', [
+                    'guest_name'   => $guestName,
+                    'room_number'  => $roomNum,
+                    'check_in'     => $checkInFmt,
+                    'check_out'    => $checkOutFmt,
+                    'total_amount' => number_format($totalAmount, 2),
+                    'source'       => $source,
+                ]);
             } catch (\Throwable $t) {
                 // Ignore notification errors
             }
@@ -283,6 +300,11 @@ class BookingService {
             $sql .= " AND id != :exclude_id";
             $params['exclude_id'] = $excludeBookingId;
         }
+        
+        if ($db->inTransaction()) {
+            $sql .= " FOR UPDATE";
+        }
+        
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
         return (int)$stmt->fetchColumn() === 0;
@@ -346,35 +368,39 @@ class BookingService {
             }
 
             $oldCheckOut = $booking['check_out'];
-            if (strtotime($newCheckOut) <= strtotime($oldCheckOut)) {
-                throw new \Exception('New checkout must be after current checkout');
+            if (strtotime($newCheckOut) == strtotime($oldCheckOut)) {
+                throw new \Exception('New checkout date is the same as the current checkout date');
+            }
+            $isShortening = strtotime($newCheckOut) < strtotime($oldCheckOut);
+            
+            if ($isShortening && strtotime($newCheckOut) <= strtotime($booking['check_in'])) {
+                throw new \Exception('New checkout must be after check-in');
             }
 
-            // Check availability for extended period
-            if (!self::isRoomAvailable($db, (int)$booking['room_id'], $oldCheckOut, $newCheckOut, $bookingId, $propertyId)) {
+            // Check availability if extending
+            if (!$isShortening && !self::isRoomAvailable($db, (int)$booking['room_id'], $oldCheckOut, $newCheckOut, $bookingId, $propertyId)) {
                 throw new \Exception('Room not available for extended timeframe');
             }
 
             $isOverride = ($booking['price_override'] !== null);
             $newTotal = 0.0;
             $difference = 0.0;
-            $breakdown = [];
 
             if ($isOverride) {
                 try {
-                    $difference = PricingEngine::calculateTotalCost($booking['category_id'], $oldCheckOut, $newCheckOut, $booking['rate_plan_name']);
+                    $difference = PricingEngine::calculateTotalCost($booking['category_id'], $isShortening ? $newCheckOut : $oldCheckOut, $isShortening ? $oldCheckOut : $newCheckOut, $booking['rate_plan_name']);
+                    if ($isShortening) $difference = -$difference;
                     $newTotal = (float)$booking['total_amount'] + $difference;
-                    $breakdown = PricingEngine::getCostBreakdown($booking['category_id'], $oldCheckOut, $newCheckOut, $booking['rate_plan_name']);
                 } catch (\Exception $e) {
-                    $days = self::calculateDays($oldCheckOut, $newCheckOut);
+                    $days = self::calculateDays($isShortening ? $newCheckOut : $oldCheckOut, $isShortening ? $oldCheckOut : $newCheckOut);
                     $difference = $days * 1000.00;
+                    if ($isShortening) $difference = -$difference;
                     $newTotal = (float)$booking['total_amount'] + $difference;
                 }
             } else {
                 try {
                     $newTotal = PricingEngine::calculateTotalCost($booking['category_id'], $booking['check_in'], $newCheckOut, $booking['rate_plan_name']);
                     $difference = $newTotal - (float)$booking['total_amount'];
-                    $breakdown = PricingEngine::getCostBreakdown($booking['category_id'], $booking['check_in'], $newCheckOut, $booking['rate_plan_name']);
                 } catch (\Exception $e) {
                     $days = self::calculateDays($booking['check_in'], $newCheckOut);
                     $newTotal = $days * 1000.00;
@@ -382,24 +408,10 @@ class BookingService {
                 }
             }
 
-            // Replace room charges if not override
-            if (!$isOverride) {
-                $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type = 'ROOM_CHARGE' AND property_id = :prop_id")->execute(['id' => $bookingId, 'prop_id' => $propertyId]);
-            }
-
-            // Post new charges
-            $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, 'MANUAL', :desc, :prop_id)");
-            if (!empty($breakdown)) {
-                foreach ($breakdown as $item) {
-                    $desc = $isOverride 
-                        ? "Stay Extension (Day {$item['day']}) - {$booking['category_name']} ({$item['duration']})"
-                        : "Day {$item['day']} - Room Charges - {$booking['category_name']} ({$item['duration']})";
-                    $ledgerStmt->execute(['id' => $bookingId, 'amount' => $item['cost'], 'desc' => $desc, 'prop_id' => $propertyId]);
-                    SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
-                }
-            } else {
-                $ledgerStmt->execute(['id' => $bookingId, 'amount' => $difference, 'desc' => "Extension - {$booking['category_name']}", 'prop_id' => $propertyId]);
-                SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
+            // Post difference with proper taxes, instead of deleting and replacing
+            if (abs($difference) > 0.001) {
+                $desc = $isShortening ? "Stay Shortened - {$booking['category_name']} Refund/Adjustment" : "Stay Extension - {$booking['category_name']}";
+                self::postRoomCharges($db, $bookingId, (int)$booking['category_id'], $booking['category_name'], $oldCheckOut, $newCheckOut, null, $difference, $desc);
             }
 
             // Update booking
@@ -514,7 +526,7 @@ class BookingService {
 
     // ─── Private Helpers ──────────────────────────────────────────────────
 
-    private static function postRoomCharges(\PDO $db, int $bookingId, int $categoryId, string $categoryName, string $checkIn, string $checkOut, ?string $ratePlanName, ?float $priceOverride): void {
+    private static function postRoomCharges(\PDO $db, int $bookingId, int $categoryId, string $categoryName, string $checkIn, string $checkOut, ?string $ratePlanName, ?float $priceOverride, ?string $customDesc = null): void {
         $pStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ?");
         $pStmt->execute([$bookingId]);
         $propertyId = (int)$pStmt->fetchColumn() ?: 1;
@@ -542,7 +554,7 @@ class BookingService {
                 $ledgerStmt->execute([
                     'pid'    => $propertyId,
                     'bid'    => $bookingId,
-                    'type'   => 'INCIDENTAL',
+                    'type'   => 'TAX',
                     'amount' => $taxAmount,
                     'desc'   => "{$taxLabel} ({$taxRate}%) - " . $baseDesc,
                 ]);
@@ -560,11 +572,11 @@ class BookingService {
         };
 
         if ($priceOverride !== null) {
-            $postCharge($priceOverride, "Room Charges - {$categoryName} (Manual Override)");
+            $postCharge($priceOverride, $customDesc ?? "Room Charges - {$categoryName} (Manual Override)");
         } else {
             $breakdown = PricingEngine::getCostBreakdown($categoryId, $checkIn, $checkOut, $ratePlanName);
             foreach ($breakdown as $item) {
-                $postCharge((float)$item['cost'], "Day {$item['day']} - Room Charges - {$categoryName} ({$item['duration']})");
+                $postCharge((float)$item['cost'], $customDesc ?? "Day {$item['day']} - Room Charges - {$categoryName} ({$item['duration']})");
             }
         }
     }

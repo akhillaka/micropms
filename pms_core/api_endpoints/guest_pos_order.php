@@ -60,6 +60,9 @@ try {
     $totalAmount = 0.0;
     $validatedItems = [];
 
+    // Sort cart items by ID to prevent MySQL deadlocks during FOR UPDATE locking
+    usort($cartItems, fn($a, $b) => (int)$a['id'] <=> (int)$b['id']);
+
     foreach ($cartItems as $cartItem) {
         $itemId = (int)$cartItem['id'];
         $qty = (int)$cartItem['quantity'];

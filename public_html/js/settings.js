@@ -6,7 +6,7 @@ if (!CSS.escape) {
 }
 
 let currentTab = 'categories';
-const tabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'staff', 'roles', 'property', 'folio-items', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
+const tabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'finance', 'staff', 'roles', 'property', 'folio-items', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
 
 function getHeaders() {
     return {
@@ -143,6 +143,9 @@ function renderBulkRateTable() {
                                         <i class="ph ph-pencil-simple text-[10px] text-slate-500"></i>
                                     </button>
                                 </div>
+                                <div class="mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button type="button" onclick="applyBulkRateToAll('${escapedP}')" class="text-[9px] bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded border border-brand-100 hover:bg-brand-100 transition-colors" title="Apply 1h rate to all 24h">Apply 24h ⭣</button>
+                                </div>
                                 <button type="button" onclick="deleteBulkPlanColumn('${escapedP}')" class="absolute -top-1 -right-1 hidden group-hover:flex w-4 h-4 rounded-full bg-rose-500 text-white items-center justify-center cursor-pointer shadow"><i class="ph ph-x text-[8px]"></i></button>
                             </th>
                         `}).join('')}
@@ -175,6 +178,27 @@ function renderBulkRateTable() {
     `;
     
     container.innerHTML = tableHtml;
+}
+
+function applyBulkRateToAll(planName) {
+    // Get the value of the 1h input for this plan
+    const hour1Input = document.querySelector(`input.rate-input[data-plan="${planName}"][data-hour="1"]`);
+    if (!hour1Input) return;
+    const value = hour1Input.value;
+    
+    // Set all other inputs for this plan to the same value
+    for (let h = 2; h <= 24; h++) {
+        const input = document.querySelector(`input.rate-input[data-plan="${planName}"][data-hour="${h}"]`);
+        if (input) {
+            input.value = value;
+            // Also update the underlying data model
+            currentBulkData.rates[planName][h] = value;
+        }
+    }
+    // Update the 1h data model too in case it wasn't blurred yet
+    currentBulkData.rates[planName][1] = value;
+    
+    showToast(`Applied rate ${value} to all 24 hours for ${planName}`, 'success');
 }
 
 function addBulkPlanColumn() {
@@ -487,6 +511,17 @@ function addPaymentMethodRow() {
     list.appendChild(div);
 }
 
+function addPaymentCategoryRow() {
+    const list = document.getElementById('pcList');
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2';
+    div.innerHTML = `
+        <input type="text" name="payment_categories[]" required class="flex-1 bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm outline-none focus:border-blue-500 font-bold text-gray-900">
+        <button type="button" onclick="this.parentElement.remove()" class="w-11 h-11 flex-shrink-0 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center hover:bg-rose-100"><i class="ph ph-trash text-lg"></i></button>
+    `;
+    list.appendChild(div);
+}
+
 async function submitPaymentMethods(e) {
     e.preventDefault();
     const btn = document.getElementById('savePmBtn');
@@ -498,6 +533,7 @@ async function submitPaymentMethods(e) {
     const form = document.getElementById('paymentMethodsForm');
     const formData = new FormData(form);
     const methods = formData.getAll('payment_methods[]');
+    const categories = formData.getAll('payment_categories[]');
 
     if(methods.length === 0) {
         showToast('You must have at least one payment method.');
@@ -507,9 +543,18 @@ async function submitPaymentMethods(e) {
         return;
     }
 
+    if(categories.length === 0) {
+        showToast('You must have at least one payment category.');
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        btn.classList.remove('opacity-75');
+        return;
+    }
+
     try {
         const payloadData = {
             payment_methods: JSON.stringify(methods),
+            payment_categories: JSON.stringify(categories),
             _csrf_token: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
         };
         const res = await fetch('/api/admin/save_settings', {
@@ -1149,9 +1194,17 @@ function loadNightAuditSettings() {
         credentials: 'same-origin',
         headers: getHeaders()
     })
-    .then(res => res.json())
+    .then(async res => {
+        const text = await res.text();
+        try {
+            return JSON.parse(text);
+        } catch(e) {
+            console.error("Raw Response:", text);
+            throw new Error(e.message + "\n" + text.substring(0, 100));
+        }
+    })
     .then(data => {
-        if (data.success && data.settings) {
+        if (data && data.success && data.settings) {
             const s = data.settings;
             document.getElementById('night_audit_enabled').checked = s.night_audit_enabled === 'true';
             document.getElementById('night_audit_time').value = s.night_audit_time || '02:00';
@@ -1166,7 +1219,10 @@ function loadNightAuditSettings() {
             document.getElementById('night_audit_report_bookings').checked = s.night_audit_report_bookings !== 'false';
         }
     })
-    .catch(e => showToast('Failed to load night audit settings: ' + e.message, 'error'));
+    .catch(e => {
+        console.error("Night Audit Fetch Error:", e);
+        showToast('Failed to load night audit settings: ' + e.message, 'error');
+    });
 }
 
 function loadAuditExceptions() {

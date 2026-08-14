@@ -515,7 +515,7 @@ try {
         return formatDate(dateStr, { day: 'numeric', month: 'short', year: 'numeric' });
     }
 
-    function showToast(message, type = 'info', duration = 4200) {
+    function showToast(message, type = 'info', duration = 4200, onClickUrl = null) {
         const container = document.getElementById('global-toast-container');
         if (!container) return;
 
@@ -526,17 +526,24 @@ try {
             warning: 'ph-fill ph-warning'
         };
         const toast = document.createElement('div');
-        toast.className = `web-toast toast-${type}`;
+        toast.className = `web-toast toast-${type} ${onClickUrl ? 'cursor-pointer' : ''}`;
         toast.innerHTML = `
             <i class="${icons[type] || icons.info} toast-icon"></i>
             <div class="flex-1 min-w-0">
                 <p class="text-sm font-semibold text-slate-800 leading-snug">${message}</p>
             </div>
-            <button class="web-toast-close" onclick="dismissToast(this.parentElement)">
+            <button class="web-toast-close" onclick="event.stopPropagation(); dismissToast(this.parentElement)">
                 <i class="ph ph-x text-sm"></i>
             </button>
             <div class="toast-progress" style="animation-duration: ${duration}ms"></div>
         `;
+        if (onClickUrl) {
+            toast.addEventListener('click', (e) => {
+                if (!e.target.closest('.web-toast-close')) {
+                    window.location.href = onClickUrl;
+                }
+            });
+        }
         container.appendChild(toast);
         setTimeout(() => dismissToast(toast), duration);
     }
@@ -615,7 +622,9 @@ try {
     if (class_exists('AuthHelper') && in_array(AuthHelper::getRole(), ['admin', 'owner'])) {
         $canBypass = true;
     }
+    $isFolioPage = str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/folio/');
 ?>
+<?php if (!$isFolioPage || $canBypass): ?>
 <!-- Night Audit Action Center Modal -->
 <div id="night-audit-action-center" class="fixed inset-0 z-[9999] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden transform transition-all">
@@ -654,7 +663,7 @@ try {
                         <p class="text-sm text-slate-600"><?= htmlspecialchars($action['description']) ?></p>
                     </div>
                     <div class="flex-shrink-0">
-                        <a href="/admin/bookings.php?id=<?= $action['booking_id'] ?>" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
+                        <a href="/folio/<?= $action['booking_id'] ?>" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
                             <span>Open Folio</span>
                             <i class="ph ph-arrow-right"></i>
                         </a>
@@ -682,4 +691,5 @@ try {
         <?php endif; ?>
     </div>
 </div>
+<?php endif; ?>
 <?php endif; ?>

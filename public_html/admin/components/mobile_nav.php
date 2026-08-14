@@ -1,16 +1,21 @@
 <?php
-$adminBaseUrl = substr($_SERVER['SCRIPT_NAME'], 0, strpos($_SERVER['SCRIPT_NAME'], '/admin/') + 7);
-    $currentPage = basename($_SERVER['PHP_SELF']);
+// Always use absolute base — SCRIPT_NAME is '/router.php' when served through the router,
+// so dynamic strpos-based detection breaks. Hardcode the admin path.
+$adminBaseUrl = '/admin/';
+$currentPage = basename($_SERVER['PHP_SELF']);
 $navItems = [
-    'index.php' => ['icon' => 'ph-house', 'label' => 'Home', 'permission' => 'view_dashboard'],
-    '../booking_wizard.php' => ['icon' => 'ph-calendar-plus', 'label' => 'Wizard', 'permission' => 'create_booking'],
-    'modules/housekeeping/rooms_calendar.php' => ['icon' => 'ph-calendar-blank', 'label' => 'Rooms', 'permission' => 'housekeeping'],
-    'modules/housekeeping/service_requests.php' => ['icon' => 'ph-bell', 'label' => 'Requests', 'permission' => 'housekeeping'],
-    'finance.php' => ['icon' => 'ph-wallet', 'label' => 'Finance', 'permission' => 'view_finance'],
-    'settings.php' => ['icon' => 'ph-gear', 'label' => 'Settings', 'permission' => 'manage_settings'],
-    'guest_portal_settings.php' => ['icon' => 'ph-device-mobile', 'label' => 'Portal', 'permission' => 'manage_settings'],
-    'settings.php?tab=roles' => ['icon' => 'ph-shield-check', 'label' => 'Roles', 'permission' => 'manage_settings']
+    'index.php'                                      => ['icon' => 'ph-house',              'label' => 'Home',        'permission' => 'view_dashboard'],
+    '/booking_wizard.php'                            => ['icon' => 'ph-calendar-plus',      'label' => 'Wizard',      'permission' => 'create_booking'],
+    'modules/housekeeping/rooms_calendar.php'        => ['icon' => 'ph-calendar-blank',     'label' => 'Rooms',       'permission' => 'housekeeping'],
+    'modules/housekeeping/service_requests.php'      => ['icon' => 'ph-bell',               'label' => 'Requests',    'permission' => 'housekeeping'],
+    'guests.php'                                     => ['icon' => 'ph-users',              'label' => 'Guests',      'permission' => 'view_guests'],
+    'finance.php'                                    => ['icon' => 'ph-wallet',             'label' => 'Finance',     'permission' => 'view_finance'],
+    'reports.php'                                    => ['icon' => 'ph-chart-line-up',      'label' => 'Reports',     'permission' => 'view_reports'],
+    'settings.php'                                   => ['icon' => 'ph-gear',               'label' => 'Settings',    'permission' => 'manage_settings'],
+    'automations.php'                                => ['icon' => 'ph-paper-plane-tilt',   'label' => 'Automations', 'permission' => 'manage_settings'],
+    'logout.php'                                     => ['icon' => 'ph-sign-out',           'label' => 'Logout',      'permission' => 'view_dashboard'],
 ];
+
 ?>
 <!-- Premium Glassmorphism Mobile Nav -->
 <nav class="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/85 backdrop-blur-xl border-t border-brand-900/10 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_24px_rgba(0,0,0,0.02)]">

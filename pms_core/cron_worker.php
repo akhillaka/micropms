@@ -16,6 +16,13 @@ require_once __DIR__ . '/GoogleSheetService.php';
 
 echo "Worker started at " . date('Y-m-d H:i:s') . "\n";
 
+// Recover any jobs that crashed mid-processing
+try {
+    QueueService::recoverStuckJobs();
+} catch (\Throwable $t) {
+    error_log("Failed to recover stuck jobs: " . $t->getMessage());
+}
+
 while (time() < $endTime) {
     $jobProcessed = false;
     
@@ -52,6 +59,52 @@ while (time() < $endTime) {
             echo "Failed Google Sheets Job #{$gsJob['id']}: " . $e->getMessage() . "\n";
         }
     }
+
+    // Process Email Queue
+    $emailJob = QueueService::pop('email');
+    if ($emailJob) {
+        $jobProcessed = true;
+        echo "Processing Email Job #{$emailJob['id']}...\n";
+        error_log("[CronWorker] Processing Email Job #{$emailJob['id']}");
+        try {
+            require_once __DIR__ . '/helpers/EmailHelper.php';
+            $to      = $emailJob['payload']['to'] ?? '';
+            $subject = $emailJob['payload']['subject'] ?? '';
+            $body    = $emailJob['payload']['body'] ?? '';
+            if (empty($to)) throw new \Exception('No recipient address in email job payload');
+            $ok = EmailHelper::send($to, $subject, $body, true);
+            if (!$ok) throw new \Exception('EmailHelper::send() returned false');
+            QueueService::complete($emailJob['id']);
+            echo "Completed Email Job #{$emailJob['id']}\n";
+            error_log("[CronWorker] Completed Email Job #{$emailJob['id']}");
+        } catch (\Throwable $e) {
+            QueueService::fail($emailJob['id'], $e);
+            echo "Failed Email Job #{$emailJob['id']}: " . $e->getMessage() . "\n";
+            error_log("[CronWorker] Failed Email Job #{$emailJob['id']}: " . $e->getMessage());
+        }
+    }
+
+    // Process Telegram Queue
+    $tgJob = QueueService::pop('telegram');
+    if ($tgJob) {
+        $jobProcessed = true;
+        echo "Processing Telegram Job #{$tgJob['id']}...\n";
+        error_log("[CronWorker] Processing Telegram Job #{$tgJob['id']}");
+        try {
+            $message = $tgJob['payload']['message'] ?? '';
+            if (empty($message)) throw new \Exception('No message in telegram job payload');
+            $ok = NotificationRelay::sendTelegramSync($message, null, []);
+            if (!$ok) throw new \Exception('sendTelegramSync() returned false');
+            QueueService::complete($tgJob['id']);
+            echo "Completed Telegram Job #{$tgJob['id']}\n";
+            error_log("[CronWorker] Completed Telegram Job #{$tgJob['id']}");
+        } catch (\Throwable $e) {
+            QueueService::fail($tgJob['id'], $e);
+            echo "Failed Telegram Job #{$tgJob['id']}: " . $e->getMessage() . "\n";
+            error_log("[CronWorker] Failed Telegram Job #{$tgJob['id']}: " . $e->getMessage());
+        }
+    }
+
     
     // Process Default Queue
     $defaultJob = QueueService::pop('default');

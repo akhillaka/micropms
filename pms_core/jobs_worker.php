@@ -36,7 +36,9 @@ while (true) {
         $updateStmt->execute([$job['id']]);
         $db->commit();
 
-        echo "Processing job {$job['id']} of type {$job['type']}...\n";
+        $msg = "[Worker] Processing job {$job['id']} of type {$job['type']}...";
+        echo $msg . "\n";
+        error_log($msg);
 
         // Process the job
         $payload = json_decode($job['payload'], true);
@@ -47,13 +49,21 @@ while (true) {
         try {
             switch ($job['type']) {
                 case 'whatsapp':
-                    $phone = $payload['phone'] ?? '';
-                    $message = $payload['message'] ?? '';
-                    $isHsm = $payload['is_hsm'] ?? false;
-                    $res = NotificationRelay::sendWhatsAppSync($phone, $message, $isHsm, $propertyId);
-                    $success = isset($res['success']) && $res['success'] === true;
+                    // Use processWhatsAppJob which reads the new phoneNumber/payload format
+                    // and handles delivery logging + audit trail internally.
+                    $res = NotificationRelay::processWhatsAppJob($payload);
+                    $success = true; // processWhatsAppJob throws on failure
+                    break;
+
+                case 'email':
+                    require_once __DIR__ . '/helpers/EmailHelper.php';
+                    $to = $payload['to'] ?? '';
+                    $subject = $payload['subject'] ?? '';
+                    $body = $payload['body'] ?? '';
+                    $res = EmailHelper::send($to, $subject, $body, true);
+                    $success = $res;
                     if (!$success) {
-                        $errorMsg = json_encode($res);
+                        $errorMsg = "Email dispatch failed.";
                     }
                     break;
 
@@ -74,22 +84,28 @@ while (true) {
             $errorMsg = $e->getMessage();
         }
 
-        // Finalize job
         $db->beginTransaction();
         if ($success) {
             $stmt = $db->prepare("UPDATE jobs_queue SET status = 'completed', error_log = NULL WHERE id = ?");
             $stmt->execute([$job['id']]);
-            echo "Job {$job['id']} completed successfully.\n";
+            $msg = "[Worker] Job {$job['id']} completed successfully.";
+            echo $msg . "\n";
+            error_log($msg);
         } else {
-            if ($job['attempts'] >= $job['max_attempts']) {
+            if (($job['attempts'] + 1) >= $job['max_attempts']) {
                 $stmt = $db->prepare("UPDATE jobs_queue SET status = 'failed', dead_letter = 1, error_log = ? WHERE id = ?");
                 $stmt->execute([$errorMsg, $job['id']]);
-                echo "Job {$job['id']} failed permanently and moved to DLQ.\n";
+                $msg = "[Worker] Job {$job['id']} failed permanently and moved to DLQ. Error: {$errorMsg}";
+                echo $msg . "\n";
+                error_log($msg);
             } else {
-                // Retry in 1 minute
-                $stmt = $db->prepare("UPDATE jobs_queue SET status = 'pending', available_at = DATE_ADD(NOW(), INTERVAL 1 MINUTE), error_log = ? WHERE id = ?");
-                $stmt->execute([$errorMsg, $job['id']]);
-                echo "Job {$job['id']} failed, will retry.\n";
+                // Exponential backoff: attempts^2 * 10 seconds
+                $delay = (int)pow($job['attempts'] + 1, 2) * 10;
+                $stmt = $db->prepare("UPDATE jobs_queue SET status = 'pending', available_at = DATE_ADD(NOW(), INTERVAL ? SECOND), error_log = ? WHERE id = ?");
+                $stmt->execute([$delay, $errorMsg, $job['id']]);
+                $msg = "[Worker] Job {$job['id']} failed, will retry in {$delay}s. Error: {$errorMsg}";
+                echo $msg . "\n";
+                error_log($msg);
             }
         }
         $db->commit();
@@ -98,7 +114,9 @@ while (true) {
         if (isset($db) && $db->inTransaction()) {
             $db->rollBack();
         }
-        echo "Worker Error: " . $e->getMessage() . "\n";
+        $msg = "[Worker] Error: " . $e->getMessage();
+        echo $msg . "\n";
+        error_log($msg);
         sleep(5);
     }
 }

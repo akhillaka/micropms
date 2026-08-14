@@ -9,7 +9,7 @@ if (session_status() === PHP_SESSION_NONE) {
 $requestPath = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 if ($requestPath === '/' || $requestPath === '/index.php' || $requestPath === '') {
     if (isset($_SESSION['user_id'])) {
-        header('Location: /admin/index.php');
+        header('Location: /admin');
     } else {
         header('Location: /login');
     }

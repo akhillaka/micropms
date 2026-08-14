@@ -57,8 +57,10 @@ class FolioService {
             'room_charges'  => 0.0,
             'extra_bed'     => 0.0,
             'incidental'    => 0.0,
+            'taxes'         => 0.0,
             'restaurant'    => 0.0,
             'laundry'       => 0.0,
+            'discounts'     => 0.0,
             'other'         => 0.0,
             'payments'      => 0.0,
             'refunds'       => 0.0,
@@ -67,15 +69,19 @@ class FolioService {
         foreach ($entries as $entry) {
             $amount = (float)$entry['amount'];
             $desc   = strtolower($entry['description'] ?? '');
-            $type   = $entry['transaction_type'];
+            $type   = strtoupper($entry['transaction_type']);
 
             // Refunds stored as POSITIVE amounts (they reduce balance just like payments)
-            // BUG-14 fix: use abs() for display bucket but honour sign for balance
             if ($type === 'REFUND' || str_contains($desc, 'refund') || $type === 'REBATE') {
                 $breakdown['refunds'] += abs($amount);
-            } elseif ($amount < 0) {
-                // Negative = payment collected
+            } elseif (strtolower($type) === 'payment') {
+                // True payments
                 $breakdown['payments'] += abs($amount);
+            } elseif ($amount < 0) {
+                // Negative amounts that are not payments are discounts
+                $breakdown['discounts'] += abs($amount);
+            } elseif ($type === 'TAX' || str_contains($desc, 'tax')) {
+                $breakdown['taxes'] += $amount;
             } elseif ($type === 'ROOM_CHARGE') {
                 if (str_contains($desc, 'extra bed')) {
                     $breakdown['extra_bed'] += $amount;
@@ -93,7 +99,6 @@ class FolioService {
             }
         }
 
-
         return $breakdown;
     }
 
@@ -101,6 +106,10 @@ class FolioService {
      * Post an incidental charge to a booking folio.
      */
     public static function postCharge(\PDO $db, int $bookingId, float $amount, string $description, string $category = 'other'): int {
+        if ($amount <= 0 && !str_contains(strtolower($description), 'discount') && !str_contains(strtolower($description), 'rebate')) {
+            throw new \InvalidArgumentException("Charge amount must be positive unless it is a discount.");
+        }
+
         $shouldCommit = false;
         if (!$db->inTransaction()) {
             $db->beginTransaction();
@@ -110,12 +119,17 @@ class FolioService {
         try {
             $cleanDesc = trim(strip_tags($description));
             
-            $pStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ?");
+            // Lock the booking to prevent race conditions across folio entries
+            $pStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ? FOR UPDATE");
             $pStmt->execute([$bookingId]);
             $propertyId = (int)$pStmt->fetchColumn() ?: 1;
 
-            $stmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description, category) VALUES (:pid, :bid, 'INCIDENTAL', :amount, 'MANUAL', :desc, :category)");
-            $stmt->execute(['pid' => $propertyId, 'bid' => $bookingId, 'amount' => $amount, 'desc' => $cleanDesc, 'category' => $category]);
+            $bucket = ($category === 'pos_order' || $category === 'incidentals' || strtolower($category) === 'f&b') ? 'incidentals' : 'main';
+            $stmt = $db->prepare("
+                INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, payment_method, transaction_ref, description, folio_bucket, category, is_refund, recorded_at) 
+                VALUES (:pid, :bid, :ttype, :amount, :pmethod, :ref, :desc, :bucket, :category, :is_ref, :rec_at)
+            ");
+            $stmt->execute(['pid' => $propertyId, 'bid' => $bookingId, 'ttype' => 'INCIDENTAL', 'amount' => $amount, 'pmethod' => null, 'ref' => 'MANUAL', 'desc' => $cleanDesc, 'bucket' => $bucket, 'category' => $category, 'is_ref' => 0, 'rec_at' => date('Y-m-d H:i:s')]);
             $entryId = (int)$db->lastInsertId();
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', $entryId, 'SEQ_RECEIPT_FORMAT');
 
@@ -140,6 +154,10 @@ class FolioService {
      * Standardized description format regardless of source (admin/assistant/API).
      */
     public static function recordPayment(\PDO $db, int $bookingId, float $amount, string $method, string $ref = 'MANUAL', string $source = 'admin', string $category = 'booking', ?string $recordedAt = null, bool $isSplit = false): int {
+        if ($amount == 0) {
+            throw new \InvalidArgumentException("Payment amount cannot be zero.");
+        }
+
         $shouldCommit = false;
         if (!$db->inTransaction()) {
             $db->beginTransaction();
@@ -147,6 +165,11 @@ class FolioService {
         }
 
         try {
+            // Lock the booking to serialize ledger updates and prevent refund race conditions
+            $pStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ? FOR UPDATE");
+            $pStmt->execute([$bookingId]);
+            $propertyId = (int)$pStmt->fetchColumn() ?: 1;
+
             // Validation: If refund (negative amount), ensure it does not exceed total paid amount
             if ($amount < 0) {
                 $currentPaid = self::getPaidAmount($db, $bookingId);
@@ -175,32 +198,37 @@ class FolioService {
             // Ledger entry for payment must be negative, refund must be positive
             $ledgerAmount = $isRefund ? $absAmount : -$absAmount;
 
-            $pStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ?");
-            $pStmt->execute([$bookingId]);
-            $propertyId = (int)$pStmt->fetchColumn() ?: 1;
+            // Ledger entry for payment must be negative, refund must be positive
+            $ledgerAmount = $isRefund ? $absAmount : -$absAmount;
 
-            $sql = "INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description, payment_method, category";
+            // Map category to folio_bucket enum ('main' or 'incidentals')
+            $bucket = ($category === 'F&B' || $category === 'incidentals') ? 'incidentals' : 'main';
+
+            $sql = "INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description, payment_method, folio_bucket, category";
             $params = [
-                'pid'    => $propertyId,
-                'bid'    => $bookingId, 
-                'amount' => $ledgerAmount, 
-                'ref'    => $ref, 
-                'desc'   => $description,
-                'method' => strtolower($method),
+                'pid'      => $propertyId,
+                'bid'      => $bookingId, 
+                'amount'   => $ledgerAmount, 
+                'ref'      => $ref, 
+                'desc'     => $description,
+                'method'   => strtolower($method),
+                'bucket'   => $bucket,
                 'category' => $category
             ];
             
             if ($recordedAt !== null) {
-                $sql .= ", recorded_at) VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :category, :recorded_at)";
+                $sql .= ", recorded_at) VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :bucket, :category, :recorded_at)";
                 $params['recorded_at'] = $recordedAt;
             } else {
-                $sql .= ") VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :category)";
+                $sql .= ") VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :bucket, :category)";
             }
 
             $stmt = $db->prepare($sql);
             $stmt->execute($params);
             $entryId = (int)$db->lastInsertId();
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', $entryId, 'SEQ_RECEIPT_FORMAT');
+            
+
 
             // Enhanced audit log with source tracking
             $staffId = $_SESSION['user_id'] ?? null;
@@ -244,6 +272,12 @@ class FolioService {
 
             $stmt = $db->prepare("DELETE FROM folio_ledger WHERE id = ?");
             $res = $stmt->execute([$entryId]);
+            
+            // Delete orphaned finance ledger entry if it was a payment
+            if ($res && strtolower($entry['transaction_type'] ?? '') === 'payment') {
+                $dStmt = $db->prepare("DELETE FROM finance_transactions WHERE description LIKE ?");
+                $dStmt->execute(["%Folio #$entryId%"]);
+            }
 
             if ($res && $entry) {
                 AuditLogger::log(
@@ -336,9 +370,9 @@ class FolioService {
     /**
      * Get configurable quick charge presets from system_settings.
      */
-    public static function getQuickChargePresets(\PDO $db): array {
-        $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'folio_quick_charges'");
-        $stmt->execute();
+    public static function getQuickChargePresets(\PDO $db, int $propertyId = 1): array {
+        $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'folio_quick_charges' AND property_id = ?");
+        $stmt->execute([$propertyId]);
         $json = $stmt->fetchColumn();
         
         if ($json) {

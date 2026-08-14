@@ -35,32 +35,49 @@ class NightAudit {
      * @return array Audit results
      */
     public function run(string $runBy = 'system'): array {
-        $today = date('Y-m-d');
+        $hour = (int)date('G');
+        // If night audit runs between midnight and 6 AM, it's auditing the previous calendar day
+        if ($hour < 6) {
+            $today = date('Y-m-d', strtotime('-1 day'));
+        } else {
+            $today = date('Y-m-d');
+        }
         
-        // Check if audit already ran today
-        if ($this->alreadyRunToday($today)) {
+        // Prevent concurrent night audit runs using an advisory lock
+        $lockName = "night_audit_{$this->propertyId}_{$today}";
+        $lockStmt = $this->db->prepare("SELECT GET_LOCK(?, 0)");
+        $lockStmt->execute([$lockName]);
+        if (!$lockStmt->fetchColumn()) {
             return [
                 'status' => 'skipped',
-                'message' => 'Night audit already completed for today'
+                'message' => 'Night audit is already running for today'
             ];
         }
-
-        $result = [
-            'audit_date'         => $today,
-            'run_by'             => $runBy,   // FIX: was missing — sendReport() read $result['run_by'] which was undefined
-            'status'             => 'success',
-            'total_rooms'        => 0,
-            'occupied_rooms'     => 0,
-            'arrivals_today'     => 0,
-            'departures_today'   => 0,
-            'overdue_checkouts'  => 0,
-            'auto_checkout_count'=> 0,
-            'rooms_marked_dirty' => 0,
-            'revenue_collected'  => 0.0,
-            'revenue_pending'    => 0.0,
-        ];
-
+        
         try {
+            // Check if audit already ran today
+            if ($this->alreadyRunToday($today)) {
+                return [
+                    'status' => 'skipped',
+                    'message' => 'Night audit already completed for today'
+                ];
+            }
+
+            $result = [
+                'audit_date'         => $today,
+                'run_by'             => $runBy,
+                'status'             => 'success',
+                'total_rooms'        => 0,
+                'occupied_rooms'     => 0,
+                'arrivals_today'     => 0,
+                'departures_today'   => 0,
+                'overdue_checkouts'  => 0,
+                'auto_checkout_count'=> 0,
+                'rooms_marked_dirty' => 0,
+                'revenue_collected'  => 0.0,
+                'revenue_pending'    => 0.0,
+            ];
+
             // 1. Gather room statistics
             $result['total_rooms'] = $this->getTotalRooms();
             $result['occupied_rooms'] = $this->getOccupiedRooms($today);
@@ -89,11 +106,16 @@ class NightAudit {
             $result['error_message'] = $e->getMessage();
             $this->errors[] = $e->getMessage();
             
-            // Log the failed audit
-            $this->logAudit($result, $runBy);
+            // Log the failed audit if we got far enough to have a result structure
+            if (isset($result['audit_date'])) {
+                $this->logAudit($result, $runBy);
+            }
+        } finally {
+            $unlockStmt = $this->db->prepare("SELECT RELEASE_LOCK(?)");
+            $unlockStmt->execute([$lockName]);
         }
 
-        return $result;
+        return $result ?? ['status' => 'failed', 'error_message' => 'Failed to initialize audit'];
     }
 
     /**
@@ -122,9 +144,9 @@ class NightAudit {
             SELECT COUNT(DISTINCT room_id) FROM bookings 
             WHERE property_id = :propId 
               AND (booking_status = 'checked_in'
-               OR (booking_status = 'booked' AND DATE(check_in) <= :today AND DATE(check_out) > :today))
+               OR (booking_status = 'booked' AND DATE(check_in) <= :today1 AND DATE(check_out) > :today2))
         ");
-        $stmt->execute(['today' => $today, 'propId' => $this->propertyId]);
+        $stmt->execute(['today1' => $today, 'today2' => $today, 'propId' => $this->propertyId]);
         return (int)$stmt->fetchColumn();
     }
 
@@ -224,6 +246,11 @@ class NightAudit {
                 // Auto-checkout
                 $this->db->prepare("
                     UPDATE bookings SET booking_status = 'checked_out' WHERE id = ?
+                ")->execute([$booking['id']]);
+
+                // Archive active service requests
+                $this->db->prepare("
+                    UPDATE guest_service_requests SET status = 'completed' WHERE booking_id = ? AND status = 'pending'
                 ")->execute([$booking['id']]);
                 
                 $result['checkout_count']++;

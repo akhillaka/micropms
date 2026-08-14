@@ -23,12 +23,13 @@ if (!hash_equals($computedToken, $token)) {
 
 // Fetch booking & property info
 $stmt = $db->prepare("
-    SELECT b.*, r.room_number, c.name as category_name, g.id as guest_id, g.name as guest_name, g.phone as guest_phone, g.digital_signature, p.name as property_name, p.property_code
+    SELECT b.*, p.name as property_name, p.logo_url, g.name as guest_name, g.email as guest_email, g.phone as guest_phone,
+           rc.name as room_type, b.rate_plan_name, r.room_number
     FROM bookings b
-    JOIN rooms r ON b.room_id = r.id
-    JOIN room_categories c ON r.category_id = c.id
     JOIN properties p ON b.property_id = p.id
     LEFT JOIN guests g ON b.guest_id = g.id
+    LEFT JOIN rooms r ON b.room_id = r.id
+    LEFT JOIN room_categories rc ON r.category_id = rc.id
     WHERE b.id = ?
 ");
 $stmt->execute([$bookingId]);
@@ -42,11 +43,12 @@ if (!$booking) {
 load_db_settings($db, (int)$booking['property_id']);
 
 // Load configurations
-$upsellEnabled = $_dbSetting('GUEST_PORTAL_UPSELL_ENABLED', 'false') === 'true';
-$posEnabled = $_dbSetting('GUEST_PORTAL_POS_ENABLED', 'false') === 'true';
-$housekeepingEnabled = $_dbSetting('GUEST_PORTAL_HOUSEKEEPING_ENABLED', 'false') === 'true';
-$selfCheckoutEnabled = (defined('GUEST_PORTAL_SELF_CHECKOUT_ENABLED') && GUEST_PORTAL_SELF_CHECKOUT_ENABLED === 'true');
-$earlyLateFee = floatval(defined('GUEST_PORTAL_EARLY_LATE_FEE') ? GUEST_PORTAL_EARLY_LATE_FEE : '0.00');
+$propId = (int)$booking['property_id'];
+$upsellEnabled = (get_db_setting($db, 'GUEST_PORTAL_UPSELL_ENABLED', $propId) === 'true');
+$posEnabled = (get_db_setting($db, 'GUEST_PORTAL_POS_ENABLED', $propId) === 'true');
+$housekeepingEnabled = (get_db_setting($db, 'GUEST_PORTAL_HOUSEKEEPING_ENABLED', $propId) === 'true');
+$selfCheckoutEnabled = (get_db_setting($db, 'GUEST_PORTAL_SELF_CHECKOUT_ENABLED', $propId) === 'true');
+$earlyLateFee = floatval(get_db_setting($db, 'GUEST_PORTAL_EARLY_LATE_FEE', $propId) ?: '0.00');
 
 // Calculate Ledger financial summaries
 $ledgerStmt = $db->prepare("SELECT * FROM folio_ledger WHERE booking_id = ? ORDER BY recorded_at ASC");
@@ -124,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'guest' => $booking['guest_name']
                 ], (int)$booking['property_id']);
                 
-                header("Location: guest_portal.php?id={$bookingId}&token={$token}&msg=signature_success");
+                header("Location: /guest-portal?id={$bookingId}&token={$token}&msg=signature_success");
                 exit;
             } catch (Exception $e) {
                 $error = "Failed to save digital signature: " . $e->getMessage();
@@ -132,6 +134,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'submit_review') {
         $rating = (int)($_POST['rating'] ?? 5);
+        if ($rating < 1 || $rating > 5) {
+            $rating = 5;
+        }
         $comment = trim($_POST['comment'] ?? '');
         
         try {
@@ -143,38 +148,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'comment' => $comment
             ], (int)$booking['property_id']);
             
-            header("Location: guest_portal.php?id={$bookingId}&token={$token}&msg=review_success");
+            header("Location: /guest-portal?id={$bookingId}&token={$token}&msg=review_success");
             exit;
         } catch (Exception $e) {
             $error = "Failed to submit review: " . $e->getMessage();
         }
     } elseif ($action === 'upsell_late_checkout' && $upsellEnabled) {
         try {
-            $db->beginTransaction();
+            // Check if one already exists
+            $chk = $db->prepare("SELECT id FROM guest_service_requests WHERE booking_id = ? AND service_type = 'late_checkout' AND status = 'pending'");
+            $chk->execute([$bookingId]);
+            if ($chk->fetch()) {
+                throw new Exception("You already have a pending request for late checkout.");
+            }
 
-            $postStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, description, amount, recorded_at) VALUES (?, 'Late Checkout Fee (Guest Portal Offer)', ?, NOW())");
-            $postStmt->execute([$bookingId, $earlyLateFee]);
+            $postStmt = $db->prepare("INSERT INTO guest_service_requests (property_id, booking_id, service_type, status) VALUES (?, ?, 'late_checkout', 'pending')");
+            $postStmt->execute([(int)$booking['property_id'], $bookingId]);
 
-            $newCheckout = date('Y-m-d H:i:s', strtotime($booking['check_out'] . ' +3 hours'));
-            $extStmt = $db->prepare("UPDATE bookings SET check_out = ? WHERE id = ?");
-            $extStmt->execute([$newCheckout, $bookingId]);
+            // Notify admin
+            $db->prepare("INSERT INTO admin_notifications (property_id, type, title, message) VALUES (?, 'service_request', 'Late Checkout Request', ?)")
+               ->execute([(int)$booking['property_id'], "Room {$booking['room_number']} requested late checkout"]);
 
-            AuditLogger::log(0, 'PORTAL_LATE_CHECKOUT_UPSELL', 'BOOKING', $booking['id'], [
+            AuditLogger::log(0, 'PORTAL_LATE_CHECKOUT_REQUEST', 'BOOKING', $booking['id'], [
                 'guest' => $booking['guest_name'],
-                'charge' => $earlyLateFee,
-                'new_checkout' => $newCheckout
+                'room' => $booking['room_number']
             ], (int)$booking['property_id']);
 
-            $db->commit();
-            header("Location: guest_portal.php?id={$bookingId}&token={$token}&msg=late_checkout_success");
+            header("Location: /guest-portal?id={$bookingId}&token={$token}&msg=late_checkout_request_success");
             exit;
         } catch (Exception $e) {
-            if ($db->inTransaction()) $db->rollBack();
-            $error = "Failed to apply late checkout: " . $e->getMessage();
+            $error = "Failed to submit request: " . $e->getMessage();
         }
     } elseif ($action === 'self_checkout' && $selfCheckoutEnabled) {
-        if ($balance > 0.05) {
-            $error = "Cannot checkout: You have a pending balance of ₹" . number_format($balance, 2) . ". Please clear dues at front desk.";
+        if (abs($balance) > 0.001) { // Balance must be exactly zero
+            $error = "Cannot checkout: Your balance is not zero (₹" . number_format($balance, 2) . "). Please settle dues or refunds at the front desk.";
         } elseif ($booking['booking_status'] !== 'checked_in') {
             $error = "Cannot checkout: Active check-in session not found.";
         } else {
@@ -193,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ], (int)$booking['property_id']);
 
                 $db->commit();
-                header("Location: guest_portal.php?id={$bookingId}&token={$token}&msg=checkout_success");
+                header("Location: /guest-portal?id={$bookingId}&token={$token}&msg=checkout_success");
                 exit;
             } catch (Exception $e) {
                 if ($db->inTransaction()) $db->rollBack();
@@ -203,8 +210,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-if (($_GET['msg'] ?? '') === 'late_checkout_success') {
-    $message = "⚡ Late checkout extended! 3 additional hours have been added to your stay.";
+if (($_GET['msg'] ?? '') === 'late_checkout_request_success') {
+    $message = "⚡ Your request for a late checkout has been sent to the front desk. They will review and update your booking shortly.";
 }
 if (($_GET['msg'] ?? '') === 'checkout_success') {
     $message = "🚪 Checked out successfully! Thank you for staying with us.";
@@ -225,11 +232,18 @@ try {
 } catch (Exception $e) {}
 
 // Fetch dynamic banners and WiFi settings
-$bannersStr = $_dbSetting('GUEST_PORTAL_BANNERS', '[{"title":"Rooftop Happy Hour","subtitle":"(5-7 PM)","action":"#"},{"title":"Yoga Session","subtitle":"(8 AM)","action":"#"}]');
+$dbBanners = get_db_setting($db, 'GUEST_PORTAL_BANNERS', (int)$booking['property_id']);
+$bannersStr = $dbBanners !== '' ? $dbBanners : '[]';
 $banners = json_decode($bannersStr, true) ?? [];
 
-$wifiSSID = $_dbSetting('GUEST_PORTAL_WIFI_SSID', 'GrandPalm_Guest');
-$wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
+$dbWifi = get_db_setting($db, 'GUEST_PORTAL_WIFI_SSID', (int)$booking['property_id']);
+$wifiSSID = $dbWifi !== '' ? $dbWifi : 'Guest_Network';
+$dbPass = get_db_setting($db, 'GUEST_PORTAL_WIFI_PASS', (int)$booking['property_id']);
+$wifiPass = $dbPass !== '' ? $dbPass : 'password';
+
+$dbAttractions = get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACTIONS', (int)$booking['property_id']);
+$portalLocalAttractions = $dbAttractions !== '' ? $dbAttractions : '';
+$attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttractions)));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -250,11 +264,11 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
 
     <div class="relative z-10 px-4 pt-8 pb-24 max-w-lg mx-auto">
         <!-- Top Nav Icons -->
-        <div class="flex justify-between items-center mb-4 text-white">
-            <button class="w-10 h-10 rounded-full bg-white bg-opacity-20 flex items-center justify-center hover:bg-opacity-30 transition">
+        <div class="flex justify-between items-center mb-4 text-slate-800">
+            <button class="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center hover:bg-slate-300 transition text-slate-700">
                 <i class="fas fa-bars text-lg"></i>
             </button>
-            <button class="w-10 h-10 rounded-full bg-white bg-opacity-20 flex items-center justify-center hover:bg-opacity-30 transition relative">
+            <button class="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center hover:bg-slate-300 transition relative text-slate-700">
                 <i class="fas fa-bell text-lg"></i>
                 <span class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
             </button>
@@ -262,14 +276,14 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
 
         <!-- Header Titles -->
         <div class="flex justify-between items-end mb-6">
-            <div class="text-white">
+            <div class="text-slate-900">
                 <h1 class="text-2xl font-serif font-bold uppercase tracking-widest"><?= htmlspecialchars($booking['property_name']) ?></h1>
-                <span class="text-xs bg-white bg-opacity-20 px-2 py-1 rounded-full uppercase tracking-wider inline-block mt-1">Guest Portal</span>
+                <span class="text-[10px] font-bold text-slate-600 bg-slate-200 px-2 py-1 rounded-full uppercase tracking-wider inline-block mt-1">Guest Portal</span>
             </div>
-            <div class="text-right text-white pb-1">
-                <p class="text-xs opacity-80">Welcome,</p>
-                <p class="font-bold text-sm"><?= htmlspecialchars($booking['guest_name'] ?: 'Guest') ?></p>
-                <p class="text-xs">Room <?= htmlspecialchars($booking['room_number'] ?: 'TBA') ?></p>
+            <div class="text-right text-slate-800 pb-1">
+                <p class="text-xs text-slate-500 font-medium">Welcome,</p>
+                <p class="font-bold text-sm text-slate-900"><?= htmlspecialchars($booking['guest_name'] ?: 'Guest') ?></p>
+                <p class="text-xs font-semibold text-brand-600">Room <?= htmlspecialchars($booking['room_number'] ?: 'TBA') ?></p>
             </div>
         </div>
 
@@ -278,13 +292,154 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
                 <span class="block sm:inline"><?= htmlspecialchars($message) ?></span>
             </div>
         <?php endif; ?>
+
         <?php if ($error): ?>
             <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
                 <span class="block sm:inline"><?= htmlspecialchars($error) ?></span>
             </div>
         <?php endif; ?>
 
+        <!-- POS / DINING TAB -->
+        <?php if ($posEnabled): ?>
+        <div id="view-pos" class="view-section hidden">
+            <div class="flex items-center mb-6">
+                <button onclick="switchTab('home')" class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-gray-600 mr-4 shadow-sm border border-gray-200">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <h2 class="text-sm font-bold text-gray-600 uppercase tracking-wider">Room Service</h2>
+            </div>
+            
+            <div id="posCategories" class="flex overflow-x-auto gap-3 pb-4 hide-scrollbar mb-4">
+                <!-- Categories loaded dynamically -->
+            </div>
+            
+            <div id="posItems" class="grid grid-cols-2 gap-4 mb-20">
+                <!-- Items loaded dynamically -->
+                <p class="col-span-2 text-center text-gray-500 text-sm py-10" id="posLoadingMsg">Loading menu...</p>
+            </div>
+            
+            <!-- Floating Cart -->
+            <div id="posCartBar" class="fixed bottom-[80px] left-4 right-4 bg-slate-900 text-white p-4 rounded-2xl shadow-xl flex justify-between items-center transform translate-y-[150%] transition duration-300 z-40">
+                <div>
+                    <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Your Order</p>
+                    <p class="font-bold text-xl" id="posCartTotal">₹0.00</p>
+                </div>
+                <button onclick="submitPosOrder()" class="bg-brand-600 hover:bg-brand-500 text-white px-6 py-2 rounded-xl font-bold text-sm shadow transition flex items-center gap-2" id="posSubmitBtn">
+                    <span>Order</span> <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- VIEW WRAPPER -->
+        <?php if ($booking['booking_status'] === 'booked'): ?>
+            <!-- Self Check-in View -->
+            <div id="view-checkin" class="view-section">
+                <div class="glass-panel p-5 mb-6">
+                    <h2 class="text-lg font-bold text-gray-800 mb-2">Self Check-in</h2>
+                    <p class="text-xs text-gray-500 mb-4">Please verify your details and upload your ID proof to complete check-in.</p>
+                    <form id="selfCheckinForm" onsubmit="submitSelfCheckin(event)">
+                        <div class="mb-3">
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Full Name</label>
+                            <input type="text" name="name" value="<?= htmlspecialchars($booking['guest_name'] ?? '') ?>" class="w-full bg-white bg-opacity-50 border border-transparent rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Email</label>
+                            <input type="email" name="email" class="w-full bg-white bg-opacity-50 border border-transparent rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Phone</label>
+                            <input type="text" name="phone" class="w-full bg-white bg-opacity-50 border border-transparent rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]" required>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1">City</label>
+                                <input type="text" name="city" class="w-full bg-white bg-opacity-50 border border-transparent rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1">State</label>
+                                <input type="text" name="state" class="w-full bg-white bg-opacity-50 border border-transparent rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">ID Proof (Front)</label>
+                            <input type="file" name="id_front" accept="image/*,application/pdf" class="w-full text-xs" required>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">ID Proof (Back)</label>
+                            <input type="file" name="id_back" accept="image/*,application/pdf" class="w-full text-xs" required>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Digital Signature</label>
+                            <div class="border border-gray-300 rounded bg-white relative">
+                                <canvas id="signatureCanvas" class="w-full h-32"></canvas>
+                                <button type="button" onclick="clearSignature()" class="absolute top-1 right-1 text-[10px] bg-gray-200 px-2 py-1 rounded shadow hover:bg-gray-300">Clear</button>
+                            </div>
+                            <input type="hidden" name="signature_data" id="signatureData">
+                        </div>
+                        <button type="submit" id="btnCheckin" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow transition uppercase tracking-widest text-sm">
+                            Complete Check-in
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.5/dist/signature_pad.umd.min.js"></script>
+            <script>
+                document.addEventListener('DOMContentLoaded', () => {
+                    const canvas = document.getElementById('signatureCanvas');
+                    if(canvas) {
+                        const ratio =  Math.max(window.devicePixelRatio || 1, 1);
+                        canvas.width = canvas.offsetWidth * ratio;
+                        canvas.height = canvas.offsetHeight * ratio;
+                        canvas.getContext("2d").scale(ratio, ratio);
+                        window.signaturePad = new SignaturePad(canvas);
+                    }
+                });
+                
+                function clearSignature() {
+                    if (window.signaturePad) window.signaturePad.clear();
+                }
+                
+                async function submitSelfCheckin(e) {
+                    e.preventDefault();
+                    if (!window.signaturePad || window.signaturePad.isEmpty()) {
+                        alert("Please provide your digital signature.");
+                        return;
+                    }
+                    
+                    document.getElementById('signatureData').value = window.signaturePad.toDataURL("image/jpeg");
+                    const form = e.target;
+                    const btn = document.getElementById('btnCheckin');
+                    btn.disabled = true;
+                    btn.innerText = 'Uploading...';
+                    
+                    try {
+                        const formData = new FormData(form);
+                        formData.append('booking_id', '<?= $bookingId ?>');
+                        formData.append('token', '<?= $token ?>');
+                        
+                        const res = await fetch('/api/guest/self_checkin', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            alert(data.message || 'Check-in complete!');
+                            window.location.reload();
+                        } else {
+                            alert("Error: " + (data.message || 'Unknown error'));
+                            btn.disabled = false;
+                            btn.innerText = 'Complete Check-in';
+                        }
+                    } catch (err) {
+                        alert("An error occurred during check-in.");
+                        btn.disabled = false;
+                        btn.innerText = 'Complete Check-in';
+                    }
+                }
+            </script>
+        <?php else: ?>
         <div id="view-home" class="view-section">
             
             <!-- Active Booking Card -->
@@ -321,33 +476,47 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
             <!-- Quick Action Grid -->
             <div class="grid grid-cols-2 gap-4 mb-8">
                 <?php if ($posEnabled): ?>
-                <a href="guest_pos_menu.php?id=<?= $bookingId ?>&token=<?= $token ?>" class="neumorphic-card p-4 flex flex-col justify-center items-center text-center gap-3">
-                    <div class="w-12 h-12 rounded-full bg-yellow-100 text-yellow-600 flex items-center justify-center text-xl">
+                <button onclick="switchTab('pos')" class="neumorphic-card p-4 flex flex-col justify-center items-center text-center gap-3">
+                    <div class="w-12 h-12 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center text-xl">
                         <i class="fas fa-utensils"></i>
                     </div>
-                    <span class="text-sm font-semibold">Order Food</span>
-                </a>
+                    <span class="text-sm font-semibold">Room Service</span>
+                </button>
                 <?php endif; ?>
                 
+                <button onclick="switchTab('profile')" class="neumorphic-card p-4 flex flex-col justify-center items-center text-center gap-3">
+                    <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xl">
+                        <i class="fas fa-id-card"></i>
+                    </div>
+                    <span class="text-sm font-semibold">Guest Profile</span>
+                </button>
+                
                 <button onclick="switchTab('services')" class="neumorphic-card p-4 flex flex-col justify-center items-center text-center gap-3">
-                    <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xl">
+                    <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl">
                         <i class="fas fa-broom"></i>
                     </div>
                     <span class="text-sm font-semibold">Request Service</span>
                 </button>
                 
-                <button onclick="alert('Feature coming soon!')" class="neumorphic-card p-4 flex flex-col justify-center items-center text-center gap-3">
-                    <div class="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-xl">
-                        <i class="fas fa-spa"></i>
-                    </div>
-                    <span class="text-sm font-semibold">Book Spa</span>
-                </button>
-                
-                <button onclick="alert('Feature coming soon!')" class="neumorphic-card p-4 flex flex-col justify-center items-center text-center gap-3">
-                    <div class="w-12 h-12 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xl">
+                <button onclick="switchTab('attractions')" class="neumorphic-card p-4 flex flex-col justify-center items-center text-center gap-3">
+                    <div class="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl">
                         <i class="fas fa-map-marked-alt"></i>
                     </div>
-                    <span class="text-sm font-semibold">Local Guide</span>
+                    <span class="text-sm font-semibold">Sightseeing</span>
+                </button>
+                
+                <button onclick="submitService('Extend Stay', 'Reception')" class="neumorphic-card p-4 flex flex-col justify-center items-center text-center gap-3">
+                    <div class="w-12 h-12 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center text-xl">
+                        <i class="fas fa-calendar-plus"></i>
+                    </div>
+                    <span class="text-sm font-semibold">Extend Stay</span>
+                </button>
+                
+                <button onclick="submitService('Room Upgrade', 'Reception')" class="neumorphic-card p-4 flex flex-col justify-center items-center text-center gap-3">
+                    <div class="w-12 h-12 rounded-full bg-green-50 text-green-600 flex items-center justify-center text-xl">
+                        <i class="fas fa-arrow-up"></i>
+                    </div>
+                    <span class="text-sm font-semibold">Upgrade Room</span>
                 </button>
             </div>
 
@@ -375,6 +544,35 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
             </div>
             <?php endif; ?>
             
+        </div>
+
+        <!-- LOCAL ATTRACTIONS / SIGHTSEEING TAB -->
+        <div id="view-attractions" class="view-section hidden">
+            <div class="flex items-center mb-6">
+                <button onclick="switchTab('home')" class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-gray-600 mr-4 shadow-sm border border-gray-200">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <h2 class="text-sm font-bold text-gray-600 uppercase tracking-wider">Local Attractions / Sightseeing</h2>
+            </div>
+            
+            <?php if (empty($attractions)): ?>
+                <div class="glass-panel p-5 text-center text-slate-500">
+                    <p class="text-sm">No local attractions listed yet.</p>
+                </div>
+            <?php else: ?>
+                <div class="space-y-4">
+                    <?php foreach ($attractions as $attraction): ?>
+                        <div class="glass-panel p-4 flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+                                <i class="fas fa-map-marker-alt"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-slate-800"><?= htmlspecialchars($attraction) ?></p>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
         </div>
 
         <!-- SERVICES TAB -->
@@ -444,11 +642,13 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
         <div id="view-folio" class="view-section hidden">
             <h2 class="text-sm font-bold text-gray-600 uppercase tracking-wider text-center mb-6">Checkout & Folio<br><span class="text-[10px] font-normal text-gray-400">Departure & Billing</span></h2>
 
-            <div class="glass-panel p-5 mb-6">
-                <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Checkout Today: <?= $checkout->format('h:i A') ?></p>
-                <div class="progress-container">
-                    <div class="progress-bar" style="width: 80%"></div>
-                </div>
+            <div class="glass-panel p-5 mb-6 text-sm text-gray-700 space-y-2">
+                <div class="flex justify-between border-b pb-2"><span class="font-semibold text-gray-500">Check-in:</span> <span class="font-bold"><?= $checkin->format('d M Y, h:i A') ?></span></div>
+                <div class="flex justify-between border-b pb-2"><span class="font-semibold text-gray-500">Check-out:</span> <span class="font-bold"><?= $checkout->format('d M Y, h:i A') ?></span></div>
+                <div class="flex justify-between border-b pb-2"><span class="font-semibold text-gray-500">Duration:</span> <span class="font-bold"><?= $totalDays ?> Nights</span></div>
+                <div class="flex justify-between border-b pb-2"><span class="font-semibold text-gray-500">Room Type:</span> <span class="font-bold"><?= htmlspecialchars($booking['room_type'] ?? 'TBA') ?></span></div>
+                <div class="flex justify-between border-b pb-2"><span class="font-semibold text-gray-500">Room No:</span> <span class="font-bold"><?= htmlspecialchars($booking['room_number'] ?? 'TBA') ?></span></div>
+                <div class="flex justify-between"><span class="font-semibold text-gray-500">Rate Plan:</span> <span class="font-bold text-right truncate w-40"><?= htmlspecialchars($booking['rate_plan_name'] ?? 'Standard') ?></span></div>
             </div>
 
             <div class="glass-panel p-5 mb-6 bg-white bg-opacity-70">
@@ -466,29 +666,47 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
                     <?php endforeach; ?>
                 </div>
 
-                <div class="flex justify-between items-center pt-4 border-t border-gray-200">
-                    <span class="text-sm font-bold text-gray-600">Split Bill</span>
-                    <!-- Simple UI Toggle -->
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" value="" class="sr-only peer">
-                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--accent-gold)]"></div>
-                    </label>
-                </div>
             </div>
 
             <?php if ($selfCheckoutEnabled && $balance <= 0.05 && $booking['booking_status'] === 'checked_in'): ?>
             <form method="POST" class="mb-6">
                 <input type="hidden" name="action" value="self_checkout">
-                <button type="submit" class="w-full bg-[var(--accent-gold)] hover:bg-[var(--accent-gold-dark)] text-white font-bold py-4 rounded-xl shadow-lg transition uppercase tracking-widest text-sm flex justify-between items-center px-6">
+                <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-xl shadow-lg transition uppercase tracking-widest text-sm flex justify-between items-center px-6">
                     <span>Complete Express Checkout</span>
                     <span>₹<?= number_format($balance, 2) ?></span>
                 </button>
             </form>
             <?php elseif ($balance > 0.05): ?>
-            <button disabled class="w-full bg-gray-300 text-gray-500 font-bold py-4 rounded-xl shadow transition uppercase tracking-widest text-sm flex justify-between items-center px-6 cursor-not-allowed mb-6">
-                <span>Clear dues to Checkout</span>
-                <span>₹<?= number_format($balance, 2) ?></span>
-            </button>
+                <?php if (!empty($activeGateways)): ?>
+                    <div class="mb-6 space-y-3">
+                        <p class="text-xs font-bold text-gray-500 uppercase text-center mb-2">Pay Outstanding Balance</p>
+                        <?php if (isset($activeGateways['razorpay'])): ?>
+                        <button onclick="payWithRazorpay()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow transition text-sm flex justify-center items-center gap-2">
+                            <i class="fas fa-credit-card"></i> Pay with Razorpay
+                        </button>
+                        <?php endif; ?>
+                        <?php if (isset($activeGateways['phonepe'])): ?>
+                        <button onclick="payWithPhonePe()" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl shadow transition text-sm flex justify-center items-center gap-2">
+                            <i class="fas fa-mobile-alt"></i> Pay with PhonePe
+                        </button>
+                        <?php endif; ?>
+                    </div>
+                <?php else: ?>
+                    <button disabled class="w-full bg-gray-300 text-gray-500 font-bold py-4 rounded-xl shadow transition uppercase tracking-widest text-sm flex justify-between items-center px-6 cursor-not-allowed mb-6">
+                        <span>Clear dues to Checkout (Pay at Desk)</span>
+                        <span>₹<?= number_format($balance, 2) ?></span>
+                    </button>
+                <?php endif; ?>
+            <?php endif; ?>
+
+            <?php if ($upsellEnabled && $booking['booking_status'] === 'checked_in'): ?>
+            <div class="glass-panel p-5 mb-6 bg-white bg-opacity-70 text-center">
+                <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Need more time?</p>
+                <form method="POST">
+                    <input type="hidden" name="action" value="upsell_late_checkout">
+                    <button type="submit" class="text-xs uppercase font-bold text-white bg-slate-800 px-6 py-3 rounded-xl shadow-sm hover:bg-slate-700 transition w-full">Request Late Checkout</button>
+                </form>
+            </div>
             <?php endif; ?>
 
             <?php if (!$hasReviewed && $booking['booking_status'] !== 'cancelled'): ?>
@@ -511,27 +729,145 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
             <?php endif; ?>
 
             <div class="text-center pb-8">
-                <a href="#" class="text-xs font-bold text-[var(--accent-gold-dark)] uppercase tracking-wider">Need Help? Chat</a>
+                <?php
+                $propPhone = defined('PROPERTY_PHONE') ? PROPERTY_PHONE : '';
+                $chatHref = $propPhone ? 'https://wa.me/' . preg_replace('/[^0-9]/', '', $propPhone) : 'javascript:alert(\'Chat not configured yet.\')';
+                ?>
+                <a href="<?= htmlspecialchars($chatHref) ?>" target="_blank" class="text-xs font-bold text-[var(--accent-gold-dark)] uppercase tracking-wider">Need Help? Chat</a>
+            </div>
+        </div>
+    <?php endif; // end check-in check ?>
+        <?php if ($posEnabled): ?>
+        <div id="view-pos" class="view-section hidden">
+            <div class="flex items-center mb-6">
+                <button onclick="switchTab('home')" class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-gray-600 mr-4 shadow-sm border border-gray-200">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <h2 class="text-sm font-bold text-gray-600 uppercase tracking-wider">Room Service</h2>
+            </div>
+            
+            <div id="posCategories" class="flex overflow-x-auto gap-3 pb-4 hide-scrollbar mb-4">
+                <!-- Categories loaded dynamically -->
+            </div>
+            
+            <div id="posItems" class="grid grid-cols-2 gap-4 mb-20">
+                <!-- Items loaded dynamically -->
+                <p class="col-span-2 text-center text-gray-500 text-sm py-10" id="posLoadingMsg">Loading menu...</p>
+            </div>
+            
+            <!-- Floating Cart -->
+            <div id="posCartBar" class="fixed bottom-[80px] left-4 right-4 bg-slate-900 text-white p-4 rounded-2xl shadow-xl flex justify-between items-center transform translate-y-[150%] transition duration-300 z-40">
+                <div>
+                    <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Your Order</p>
+                    <p class="font-bold text-xl" id="posCartTotal">₹0.00</p>
+                </div>
+                <button onclick="submitPosOrder()" class="bg-brand-600 hover:bg-brand-500 text-white px-6 py-2 rounded-xl font-bold text-sm shadow transition flex items-center gap-2" id="posSubmitBtn">
+                    <span>Order</span> <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <div id="view-profile" class="view-section hidden">
+            <div class="glass-panel p-5 mb-6">
+                <h2 class="text-lg font-bold text-gray-800 mb-2">Guest Profile</h2>
+                <div class="mb-4">
+                    <p class="text-xs text-gray-500 uppercase tracking-wider">Name</p>
+                    <p class="font-semibold text-gray-800"><?= htmlspecialchars($booking['guest_name'] ?? 'N/A') ?></p>
+                </div>
+                <div class="mb-4">
+                    <p class="text-xs text-gray-500 uppercase tracking-wider">Email</p>
+                    <p class="font-semibold text-gray-800"><?= htmlspecialchars($booking['guest_email'] ?? 'N/A') ?></p>
+                </div>
+                <div class="mb-4">
+                    <p class="text-xs text-gray-500 uppercase tracking-wider">Phone</p>
+                    <p class="font-semibold text-gray-800"><?= htmlspecialchars($booking['guest_phone'] ?? 'N/A') ?></p>
+                </div>
+            </div>
+
+            <h3 class="text-md font-bold text-gray-800 mb-3">ID Verification</h3>
+            <div id="profile-id-loading" class="text-center py-4 text-gray-500 text-sm hidden">
+                <i class="fas fa-spinner fa-spin"></i> Loading ID documents...
+            </div>
+            
+            <div id="profile-id-section" class="hidden">
+                <!-- Front ID -->
+                <div class="glass-panel p-4 mb-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="font-bold text-sm text-gray-800">Front ID</h4>
+                    </div>
+                    <div id="id-front-preview" class="hidden mb-3 border rounded overflow-hidden h-32 relative bg-gray-100 flex items-center justify-center">
+                        <img src="" class="max-w-full max-h-full object-contain">
+                    </div>
+                    <div id="id-front-upload-form">
+                        <ul class="text-xs text-gray-500 mb-3 list-disc pl-4">
+                            <li>Ensure good lighting without glare</li>
+                            <li>Frame the ID completely within the photo</li>
+                            <li>Accepted formats: JPG, PNG, PDF (Max 5MB)</li>
+                        </ul>
+                        <button onclick="document.getElementById('idFrontInput').click()" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-2 rounded-xl text-sm font-bold transition">
+                            <i class="fas fa-camera mr-2"></i> Upload Front ID
+                        </button>
+                        <input type="file" id="idFrontInput" class="hidden" accept="image/*,application/pdf" onchange="uploadProfileId(this, 'id_proof_front')">
+                    </div>
+                </div>
+
+                <!-- Back ID -->
+                <div class="glass-panel p-4 mb-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="font-bold text-sm text-gray-800">Back ID</h4>
+                    </div>
+                    <div id="id-back-preview" class="hidden mb-3 border rounded overflow-hidden h-32 relative bg-gray-100 flex items-center justify-center">
+                        <img src="" class="max-w-full max-h-full object-contain">
+                    </div>
+                    <div id="id-back-upload-form">
+                        <ul class="text-xs text-gray-500 mb-3 list-disc pl-4">
+                            <li>Ensure good lighting without glare</li>
+                            <li>Frame the ID completely within the photo</li>
+                            <li>Accepted formats: JPG, PNG, PDF (Max 5MB)</li>
+                        </ul>
+                        <button onclick="document.getElementById('idBackInput').click()" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-2 rounded-xl text-sm font-bold transition">
+                            <i class="fas fa-camera mr-2"></i> Upload Back ID
+                        </button>
+                        <input type="file" id="idBackInput" class="hidden" accept="image/*,application/pdf" onchange="uploadProfileId(this, 'id_proof_back')">
+                    </div>
+                </div>
             </div>
         </div>
 
     </div>
 
     <!-- Bottom Navigation -->
+    <?php if ($booking['booking_status'] !== 'booked'): ?>
     <nav class="bottom-nav">
         <a href="#" onclick="switchTab('home')" class="nav-item active" id="nav-home">
             <i class="fas fa-home"></i>
             <span>Home</span>
         </a>
+        <?php if ($posEnabled): ?>
+        <a href="#" onclick="switchTab('pos')" class="nav-item" id="nav-pos">
+            <i class="fas fa-utensils"></i>
+            <span>Dining</span>
+        </a>
+        <?php endif; ?>
         <a href="#" onclick="switchTab('services')" class="nav-item" id="nav-services">
             <i class="fas fa-concierge-bell"></i>
             <span>Services</span>
+        </a>
+        <a href="#" onclick="switchTab('attractions')" class="nav-item" id="nav-attractions">
+            <i class="fas fa-map-marked-alt"></i>
+            <span>Sightseeing</span>
+        </a>
+        <a href="#" onclick="switchTab('profile')" class="nav-item" id="nav-profile">
+            <i class="fas fa-user"></i>
+            <span>Profile</span>
         </a>
         <a href="#" onclick="switchTab('folio')" class="nav-item" id="nav-folio">
             <i class="fas fa-file-invoice-dollar"></i>
             <span>Folio</span>
         </a>
     </nav>
+    <?php endif; ?>
 
     <script>
         const bookingId = '<?= $bookingId ?>';
@@ -542,18 +878,21 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             
             document.getElementById('view-' + tabId).classList.remove('hidden');
-            document.getElementById('nav-' + tabId).classList.add('active');
+            if(document.getElementById('nav-' + tabId)) {
+                document.getElementById('nav-' + tabId).classList.add('active');
+            }
             
             if (tabId === 'services') loadActiveRequests();
+            if (tabId === 'profile') loadProfileDocuments();
         }
 
         async function loadActiveRequests() {
             try {
-                const res = await fetch(`/api_endpoints/guest_service_request.php?action=list&booking_id=${bookingId}&token=${token}`);
+                const res = await fetch(`/api/guest/service_request?action=list&booking_id=${bookingId}&token=${token}`);
                 const data = await res.json();
                 const container = document.getElementById('activeRequestsContainer');
                 
-                if (data.status === 'success' && data.data.requests.length > 0) {
+                if (data.success === true && data.data && data.data.requests && data.data.requests.length > 0) {
                     container.innerHTML = data.data.requests.map(req => {
                         const icon = req.service_type === 'Housekeeping' ? 'fa-broom' : 'fa-bell';
                         const statusColor = req.status === 'completed' ? 'text-green-500' : 'text-blue-500';
@@ -577,23 +916,27 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
                 }
             } catch (e) {
                 console.error(e);
+                const container = document.getElementById('activeRequestsContainer');
+                if (container) {
+                    container.innerHTML = '<p class="text-xs text-center text-red-500">Failed to load requests. Please check your connection.</p>';
+                }
             }
         }
 
         async function submitService(serviceType, category) {
             if (!confirm(`Request ${serviceType}?`)) return;
             try {
-                const res = await fetch(`/api_endpoints/guest_service_request.php`, {
+                const res = await fetch(`/api/guest/service_request`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({action: 'create', booking_id: bookingId, token: token, service_type: serviceType, category: category})
                 });
                 const data = await res.json();
-                if (data.status === 'success') {
+                if (data.success === true) {
                     alert('Request sent successfully!');
                     loadActiveRequests();
                 } else {
-                    alert('Failed to send request: ' + data.message);
+                    alert('Failed to send request: ' + (data.message || 'Unknown error'));
                 }
             } catch (e) {
                 alert('An error occurred.');
@@ -633,6 +976,220 @@ $wifiPass = $_dbSetting('GUEST_PORTAL_WIFI_PASS', 'staygrand');
                 s.classList.add('fas');
             }
         });
+        // POS LOGIC
+        let posItems = [];
+        let posCart = {};
+        let posActiveOutlet = null;
+
+        if (document.getElementById('nav-pos')) {
+            document.getElementById('nav-pos').addEventListener('click', () => {
+                if(posItems.length === 0) loadPosMenu();
+            });
+        }
+
+        async function loadPosMenu() {
+            try {
+                const res = await fetch(`/api/guest/pos_menu?id=${bookingId}&token=${token}`);
+                const data = await res.json();
+                if(data.success) {
+                    posItems = data.items || [];
+                    const outlets = data.outlets || [];
+                    if(outlets.length > 0) posActiveOutlet = outlets[0].id;
+
+                    const catHtml = outlets.map(o => `
+                        <button onclick="posActiveOutlet=${o.id}; renderPosItems();" class="whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition ${posActiveOutlet==o.id ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 shadow-sm border border-slate-200 hover:bg-slate-50'}">${o.name}</button>
+                    `).join('');
+                    document.getElementById('posCategories').innerHTML = catHtml;
+                    renderPosItems();
+                } else {
+                    document.getElementById('posLoadingMsg').textContent = 'Failed to load menu.';
+                }
+            } catch(e) {
+                document.getElementById('posLoadingMsg').textContent = 'Error connecting to menu.';
+            }
+        }
+
+        function renderPosItems() {
+            const container = document.getElementById('posItems');
+            const items = posItems.filter(i => i.outlet_id == posActiveOutlet);
+            
+            if(items.length === 0) {
+                container.innerHTML = '<p class="col-span-2 text-center text-gray-500 text-sm py-10">No items available in this category.</p>';
+                return;
+            }
+
+            container.innerHTML = items.map(i => {
+                const qty = posCart[i.id] || 0;
+                return `
+                <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
+                    ${i.image_url ? `<img src="${i.image_url}" class="w-full h-24 object-cover">` : `<div class="w-full h-24 bg-slate-100 flex items-center justify-center text-slate-300"><i class="fas fa-utensils text-2xl"></i></div>`}
+                    <div class="p-3 flex-1 flex flex-col justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-800 leading-tight mb-1">${i.name}</p>
+                            <p class="text-xs text-brand-600 font-bold mb-3">₹${parseFloat(i.selling_price).toFixed(2)}</p>
+                        </div>
+                        ${qty > 0 ? `
+                        <div class="flex items-center justify-between bg-slate-100 rounded-lg p-1">
+                            <button onclick="updateCart(${i.id}, -1, ${i.selling_price})" class="w-6 h-6 rounded bg-white shadow-sm flex items-center justify-center text-slate-700 font-bold">-</button>
+                            <span class="text-xs font-bold">${qty}</span>
+                            <button onclick="updateCart(${i.id}, 1, ${i.selling_price})" class="w-6 h-6 rounded bg-white shadow-sm flex items-center justify-center text-slate-700 font-bold">+</button>
+                        </div>
+                        ` : `
+                        <button onclick="updateCart(${i.id}, 1, ${i.selling_price})" class="w-full text-[10px] uppercase font-bold text-slate-600 bg-slate-100 py-2 rounded-lg hover:bg-slate-200 transition">Add to Order</button>
+                        `}
+                    </div>
+                </div>
+                `;
+            }).join('');
+            
+            // Re-render categories to update active state
+            const buttons = document.getElementById('posCategories').querySelectorAll('button');
+            buttons.forEach(btn => {
+                btn.className = btn.getAttribute('onclick').includes(posActiveOutlet) ? 'whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition bg-slate-900 text-white' : 'whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition bg-white text-slate-600 shadow-sm border border-slate-200 hover:bg-slate-50';
+            });
+        }
+
+        function updateCart(itemId, change, price) {
+            posCart[itemId] = Math.max(0, (posCart[itemId] || 0) + change);
+            if(posCart[itemId] === 0) delete posCart[itemId];
+            renderPosItems();
+            updateCartUI();
+        }
+
+        function updateCartUI() {
+            let total = 0;
+            let count = 0;
+            for(let id in posCart) {
+                const item = posItems.find(i => i.id == id);
+                if(item) {
+                    total += item.selling_price * posCart[id];
+                    count += posCart[id];
+                }
+            }
+            document.getElementById('posCartTotal').textContent = `₹${total.toFixed(2)}`;
+            const bar = document.getElementById('posCartBar');
+            if(count > 0) {
+                bar.classList.remove('translate-y-[150%]');
+            } else {
+                bar.classList.add('translate-y-[150%]');
+            }
+        }
+
+        async function loadProfileDocuments() {
+            document.getElementById('profile-id-loading').classList.remove('hidden');
+            document.getElementById('profile-id-section').classList.add('hidden');
+            try {
+                const res = await fetch(`/api/guest/profile?booking_id=${bookingId}&token=${token}`);
+                const data = await res.json();
+                if (data.success && data.data.documents) {
+                    const docs = data.data.documents;
+                    setupIdPreview('front', docs.id_proof_front || docs.id_proof);
+                    setupIdPreview('back', docs.id_proof_back);
+                }
+            } catch (e) {
+                console.error(e);
+            } finally {
+                document.getElementById('profile-id-loading').classList.add('hidden');
+                document.getElementById('profile-id-section').classList.remove('hidden');
+            }
+        }
+
+        function setupIdPreview(side, url) {
+            const previewEl = document.getElementById(`id-${side}-preview`);
+            const formEl = document.getElementById(`id-${side}-upload-form`);
+            if (url) {
+                previewEl.classList.remove('hidden');
+                formEl.classList.add('hidden');
+                
+                // Show PDF placeholder or actual image
+                if (url.toLowerCase().endsWith('.pdf')) {
+                    previewEl.innerHTML = '<div class="text-center text-gray-500"><i class="fas fa-file-pdf text-4xl mb-2 text-red-500"></i><p class="text-xs font-bold">PDF Document Uploaded</p></div>';
+                } else {
+                    const absUrl = url.startsWith('http') ? url : `/${url}`;
+                    previewEl.innerHTML = `<img src="${absUrl}" class="max-w-full max-h-full object-contain">`;
+                }
+            } else {
+                previewEl.classList.add('hidden');
+                formEl.classList.remove('hidden');
+            }
+        }
+
+        async function uploadProfileId(input, docType) {
+            if (!input.files || input.files.length === 0) return;
+            const file = input.files[0];
+            
+            // Validate size (5MB)
+            if (file.size > 5 * 1024 * 1024) {
+                alert('File size exceeds 5MB limit.');
+                input.value = '';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('id_file', file);
+            formData.append('booking_id', bookingId);
+            formData.append('token', token);
+            formData.append('document_type', docType);
+            
+            try {
+                document.getElementById('profile-id-loading').classList.remove('hidden');
+                document.getElementById('profile-id-section').classList.add('hidden');
+
+                const res = await fetch('/api/guest/upload_id', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (data.success) {
+                    await loadProfileDocuments(); // Reload to show preview
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (e) {
+                alert('An error occurred during upload.');
+            } finally {
+                input.value = '';
+            }
+        }
+        
+        async function submitPosOrder() {
+            const items = [];
+            for(let id in posCart) {
+                const item = posItems.find(i => i.id == id);
+                if(item) {
+                    items.push({item_id: item.id, name: item.name, quantity: posCart[id], price_per_unit: item.selling_price});
+                }
+            }
+            if(items.length === 0) return;
+            if(!confirm(`Place order to Room?`)) return;
+
+            document.getElementById('posSubmitBtn').disabled = true;
+            document.getElementById('posSubmitBtn').innerText = 'Ordering...';
+
+            try {
+                const res = await fetch(`/api/guest/pos_order`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id: bookingId, token: token, outlet_id: posActiveOutlet, items: items})
+                });
+                const data = await res.json();
+                if(data.success) {
+                    alert('Order placed successfully! It has been added to your folio.');
+                    posCart = {};
+                    updateCartUI();
+                    renderPosItems();
+                    switchTab('folio'); // switch to folio to show the charge
+                } else {
+                    alert('Failed to place order: ' + (data.message || 'Unknown error'));
+                }
+            } catch(e) {
+                alert('An error occurred.');
+            } finally {
+                document.getElementById('posSubmitBtn').disabled = false;
+                document.getElementById('posSubmitBtn').innerHTML = `<span>Order</span> <i class="fas fa-arrow-right"></i>`;
+            }
+        }
+
     </script>
 </body>
 </html>

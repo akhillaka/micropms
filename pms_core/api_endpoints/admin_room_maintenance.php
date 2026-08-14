@@ -7,6 +7,12 @@ require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('manage_maintenance');
+    
+    $propertyId = AuthHelper::getPropertyId();
+    require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
+    if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'housekeeping_module')) {
+        ApiResponse::error('Housekeeping & Maintenance module is not enabled for your subscription.', 403);
+    }
 
     $data = json_decode(file_get_contents('php://input'), true);
     

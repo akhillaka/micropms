@@ -108,57 +108,59 @@ elseif ($raw_phone && $message_id) {
             else $message_text = '[' . ucfirst($msg_type) . ' Message]';
         }
 
-        // ── Idempotency: ignore duplicates ──────
-        $dupStmt = $db->prepare("SELECT id FROM wa_messages WHERE message_id = ?");
-        $dupStmt->execute([$message_id]);
-        
-        if (!$dupStmt->fetch()) {
-            // ── Find or create conversation ───────────────────────────────────
-            $stmt = $db->prepare("SELECT id, guest_id FROM wa_conversations WHERE phone_number = ?");
-            $stmt->execute([$phone_number]);
-            $conv = $stmt->fetch();
+        // ── Find or create conversation ───────────────────────────────────
+        $stmt = $db->prepare("SELECT id, guest_id FROM wa_conversations WHERE phone_number = ?");
+        $stmt->execute([$phone_number]);
+        $conv = $stmt->fetch();
 
-            if (!$conv) {
-                // Fallback: last-10-digit match
-                $last10 = substr($phone_number, -10);
-                $stmt2  = $db->prepare("SELECT id, guest_id FROM wa_conversations WHERE phone_number LIKE ? LIMIT 1");
-                $stmt2->execute(['%' . $last10]);
-                $conv = $stmt2->fetch();
-
-                if ($conv) {
-                    $db->prepare("UPDATE wa_conversations SET phone_number = ? WHERE id = ?")
-                       ->execute([$phone_number, $conv['id']]);
-                }
-            }
+        if (!$conv) {
+            // Fallback: last-10-digit match
+            $last10 = substr($phone_number, -10);
+            $stmt2  = $db->prepare("SELECT id, guest_id FROM wa_conversations WHERE phone_number LIKE ? LIMIT 1");
+            $stmt2->execute(['%' . $last10]);
+            $conv = $stmt2->fetch();
 
             if ($conv) {
-                $conv_id = (int)$conv['id'];
-                if (empty($conv['guest_id'])) {
-                    $last10    = substr($phone_number, -10);
-                    $guestStmt = $db->prepare("SELECT id FROM guests WHERE phone LIKE ? LIMIT 1");
-                    $guestStmt->execute(['%' . $last10]);
-                    if ($guest = $guestStmt->fetch()) {
-                        $db->prepare("UPDATE wa_conversations SET guest_id = ? WHERE id = ?")
-                           ->execute([$guest['id'], $conv_id]);
-                    }
-                }
-                $db->prepare("UPDATE wa_conversations SET last_message_at = NOW(), status = 'open' WHERE id = ?")
-                   ->execute([$conv_id]);
-            } else {
+                $db->prepare("UPDATE wa_conversations SET phone_number = ? WHERE id = ?")
+                   ->execute([$phone_number, $conv['id']]);
+            }
+        }
+
+        if ($conv) {
+            $conv_id = (int)$conv['id'];
+            if (empty($conv['guest_id'])) {
                 $last10    = substr($phone_number, -10);
                 $guestStmt = $db->prepare("SELECT id FROM guests WHERE phone LIKE ? LIMIT 1");
                 $guestStmt->execute(['%' . $last10]);
-                $guest    = $guestStmt->fetch();
-                $guest_id = $guest ? (int)$guest['id'] : null;
-
-                $insertStmt = $db->prepare("INSERT INTO wa_conversations (guest_id, phone_number, last_message_at, status) VALUES (?, ?, NOW(), 'open')");
-                $insertStmt->execute([$guest_id, $phone_number]);
-                $conv_id = (int)$db->lastInsertId();
+                if ($guest = $guestStmt->fetch()) {
+                    $db->prepare("UPDATE wa_conversations SET guest_id = ? WHERE id = ?")
+                       ->execute([$guest['id'], $conv_id]);
+                }
             }
+            $db->prepare("UPDATE wa_conversations SET last_message_at = NOW(), status = 'open' WHERE id = ?")
+               ->execute([$conv_id]);
+        } else {
+            $last10    = substr($phone_number, -10);
+            $guestStmt = $db->prepare("SELECT id FROM guests WHERE phone LIKE ? LIMIT 1");
+            $guestStmt->execute(['%' . $last10]);
+            $guest    = $guestStmt->fetch();
+            $guest_id = $guest ? (int)$guest['id'] : null;
 
-            // ── Insert inbound message ────────────────────────────────────────
-            $msgStmt = $db->prepare("INSERT INTO wa_messages (conversation_id, direction, message_text, status, message_id) VALUES (?, 'inbound', ?, 'received', ?)");
-            $msgStmt->execute([$conv_id, $message_text, $message_id]);
+            $insertStmt = $db->prepare("INSERT INTO wa_conversations (guest_id, phone_number, last_message_at, status) VALUES (?, ?, NOW(), 'open')");
+            $insertStmt->execute([$guest_id, $phone_number]);
+            $conv_id = (int)$db->lastInsertId();
+        }
+
+        // ── Idempotency: ignore duplicates using UNIQUE constraint ──────
+        $msgStmt = $db->prepare("INSERT IGNORE INTO wa_messages (conversation_id, direction, message_text, status, message_id) VALUES (?, 'inbound', ?, 'received', ?)");
+        $msgStmt->execute([$conv_id, $message_text, $message_id]);
+        
+        if ($msgStmt->rowCount() === 0) {
+            // Duplicate message, already processed concurrently
+            http_response_code(200);
+            echo json_encode(['status' => 'ignored', 'reason' => 'duplicate']);
+            exit;
+        }
 
             // ── AI Guest Concierge Automated Responder ─────────────────────────
             $txtLower = strtolower($message_text);
@@ -179,9 +181,10 @@ elseif ($raw_phone && $message_id) {
             }
 
             if (!empty($aiReply)) {
-                NotificationRelay::sendWhatsApp($phone_number, $aiReply, false);
-                $insReply = $db->prepare("INSERT INTO wa_messages (conversation_id, direction, message_text, status) VALUES (?, 'outbound', ?, 'sent')");
-                $insReply->execute([$conv_id, "🤖 [AI Concierge] " . $aiReply]);
+                $sendResult = NotificationRelay::sendWhatsApp($phone_number, $aiReply, false);
+                $msgStatus = (isset($sendResult['ok']) && $sendResult['ok'] === true) ? 'sent' : 'failed';
+                $insReply = $db->prepare("INSERT INTO wa_messages (conversation_id, direction, message_text, status) VALUES (?, 'outbound', ?, ?)");
+                $insReply->execute([$conv_id, "🤖 [AI Concierge] " . $aiReply, $msgStatus]);
             }
 
             // ── Telegram alert ────────────────────────────────────────────────
@@ -198,7 +201,6 @@ elseif ($raw_phone && $message_id) {
                    . "<b>From:</b> " . htmlspecialchars($gName) . " (+" . htmlspecialchars($phone_number) . ")\n"
                    . "<b>Message:</b> " . htmlspecialchars($message_text);
             NotificationRelay::sendTelegram($tgMsg);
-        }
     }
 }
 

@@ -24,7 +24,7 @@ try {
 if ($userCount > 0) {
     AuthHelper::requireLoginOrRedirect();
     if (!AuthHelper::isSuperAdmin()) {
-        header('Location: index.php');
+        header('Location: /admin');
         exit;
     }
 }

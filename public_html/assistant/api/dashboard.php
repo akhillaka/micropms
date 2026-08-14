@@ -167,6 +167,33 @@ ApiHandler::run(function(\PDO $db) {
         ];
     }
 
+    // Add Service Requests to alerts
+    $srStmt = $db->prepare("
+        SELECT gsr.id, gsr.booking_id, gsr.service_type, gsr.created_at, r.room_number, g.name as guest_name
+        FROM guest_service_requests gsr
+        JOIN bookings b ON gsr.booking_id = b.id
+        JOIN guests g ON b.guest_id = g.id
+        LEFT JOIN rooms r ON b.room_id = r.id
+        WHERE gsr.property_id = ? AND gsr.status = 'pending'
+    ");
+    $srStmt->execute([$propertyId]);
+    $serviceRequests = $srStmt->fetchAll();
+
+    foreach ($serviceRequests as $req) {
+        $typeLabel = ucwords(str_replace('_', ' ', $req['service_type']));
+        $alerts[] = [
+            'type' => 'service_request',
+            'severity' => 'danger',
+            'title' => "Request: {$typeLabel}",
+            'message' => "Room {$req['room_number']} requested {$typeLabel}",
+            'booking_id' => $req['booking_id'],
+            'request_id' => $req['id'],
+            'service_type' => $req['service_type'],
+            'guest_name' => $req['guest_name'],
+            'room_number' => $req['room_number']
+        ];
+    }
+
     // Process bookings into alerts
     foreach ($bookings as $b) {
         $checkIn = strtotime($b['check_in']);
@@ -293,10 +320,16 @@ ApiHandler::run(function(\PDO $db) {
     });
 
     // Payment methods
-    $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods'");
-    $stmt->execute();
+    $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = ?");
+    $stmt->execute([$propertyId]);
     $methodsJson = $stmt->fetchColumn();
-    $methods = $methodsJson ? json_decode($methodsJson, true) : ['Cash', 'UPI'];
+    $methods = $methodsJson ? json_decode($methodsJson, true) : ['Cash', 'UPI', 'Card', 'BankTransfer', 'Online'];
+
+    // Payment categories
+    $stmt2 = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_categories' AND property_id = ?");
+    $stmt2->execute([$propertyId]);
+    $catJson = $stmt2->fetchColumn();
+    $categories = $catJson ? json_decode($catJson, true) : ['Room Revenue', 'F&B', 'Other'];
 
     ApiResponse::success([
         'summary' => [
@@ -310,7 +343,8 @@ ApiHandler::run(function(\PDO $db) {
             'pending_id_verification' => (int)$summary['pending_ids']
         ],
         'alerts' => $alerts,
-        'payment_methods' => $methods
+        'payment_methods' => $methods,
+        'payment_categories' => $categories
     ]);
 
 }, false, false, false);

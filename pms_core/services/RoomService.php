@@ -78,8 +78,8 @@ class RoomService {
     /**
      * Get all rooms with current status (for housekeeping view).
      */
-    public static function getAllWithStatus(\PDO $db): array {
-        $stmt = $db->query("
+    public static function getAllWithStatus(\PDO $db, int $propertyId): array {
+        $stmt = $db->prepare("
             SELECT r.*, c.name as category_name,
                    CASE 
                        WHEN EXISTS (
@@ -92,8 +92,10 @@ class RoomService {
                    END as effective_state
             FROM rooms r 
             JOIN room_categories c ON r.category_id = c.id 
+            WHERE r.property_id = :pid
             ORDER BY c.name, r.room_number
         ");
+        $stmt->execute(['pid' => $propertyId]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 

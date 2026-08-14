@@ -57,6 +57,7 @@ class BookingAssistant {
     this.historyFilter = 'today';
     this.historySearch = '';
     this.paymentMethods = ['Cash', 'UPI'];
+    this.paymentCategories = ['Room Revenue', 'F&B', 'Other'];
 
     this.init();
   }
@@ -111,6 +112,29 @@ class BookingAssistant {
     }
   }
 
+  playChime() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+      osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.15);
+      
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start();
+      osc.stop(ctx.currentTime + 0.8);
+    } catch (e) {
+      console.error('Failed to play synthesized chime:', e);
+    }
+  }
+
   // Background Live Sync (Real-time updates without refreshing the page)
   startLiveSync() {
     if (this.syncInterval) clearInterval(this.syncInterval);
@@ -129,6 +153,18 @@ class BookingAssistant {
         }
       };
       document.addEventListener('visibilitychange', this.boundVisibilityHandler);
+    }
+
+    // Register Service Worker and request notifications permissions
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => {
+          console.log('[SW] Registered successfully:', reg);
+          if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+          }
+        })
+        .catch(err => console.error('[SW] Registration failed:', err));
     }
   }
 
@@ -156,6 +192,9 @@ class BookingAssistant {
 
   // Route SPA screens
   showScreen(screenId) {
+    if (screenId !== 'login' && !this.currentUser) {
+      screenId = 'login';
+    }
     const screens = document.querySelectorAll('.screen');
     screens.forEach(s => s.classList.remove('active'));
     
@@ -186,6 +225,9 @@ class BookingAssistant {
       this.loadHousekeepingData();
     } else if (screenId === 'rooms') {
       this.loadHousekeepingRooms();
+    } else if (screenId === 'pos') {
+      document.getElementById('nav-btn-pos').classList.add('active');
+      this.loadPosRooms();
     }
   }
 
@@ -413,6 +455,89 @@ class BookingAssistant {
     );
   }
 
+  openEditChargeModal(entryId, desc, amount, isPayment = false) {
+    if (!this.permissions.edit_charge) {
+      this.showToast('You do not have permission to edit records.', 'danger');
+      return;
+    }
+    document.getElementById('edit-charge-id').value = entryId;
+    document.getElementById('edit-charge-desc').value = desc;
+    document.getElementById('edit-charge-amount').value = Math.abs(amount);
+    
+    document.getElementById('edit-charge-title').textContent = isPayment ? 'Edit Payment Record' : 'Edit Charge';
+    
+    document.getElementById('edit-charge-modal').style.display = 'flex';
+  }
+
+  closeEditChargeModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('edit-charge-modal').style.display = 'none';
+  }
+
+  async submitEditCharge() {
+    const entryId = document.getElementById('edit-charge-id').value;
+    const desc = document.getElementById('edit-charge-desc').value.trim();
+    const amount = parseFloat(document.getElementById('edit-charge-amount').value) || 0;
+    
+    if (!entryId) return;
+    if (!desc) {
+      this.showToast('Description is required', 'warning');
+      return;
+    }
+    if (amount <= 0) {
+      this.showToast('Amount must be greater than zero', 'warning');
+      return;
+    }
+    
+    this.showLoading('Saving changes...');
+    try {
+      const res = await this.apiCall('api/checkout.php', {
+        action: 'edit_charge',
+        booking_id: this.activeCheckoutData.booking.id,
+        entry_id: entryId,
+        description: desc,
+        amount: amount
+      });
+      this.hideLoading();
+      if (res && res.success) {
+        this.showToast(res.message, 'success');
+        this.closeEditChargeModal();
+        this.showCheckoutDetailsSheet(this.activeCheckoutData.booking.id);
+      } else {
+        this.showToast(res.message || 'Failed to update entry', 'danger');
+      }
+    } catch(e) {
+      this.hideLoading();
+      this.showToast(e.message || 'Connection error', 'danger');
+    }
+  }
+
+  async submitDeleteCharge() {
+    const entryId = document.getElementById('edit-charge-id').value;
+    if (!entryId) return;
+    if (!confirm('Are you sure you want to void this charge?')) return;
+    
+    this.showLoading('Voiding charge...');
+    try {
+      const res = await this.apiCall('api/checkout.php', {
+        action: 'delete_charge',
+        booking_id: this.activeCheckoutData.booking.id,
+        entry_id: entryId
+      });
+      this.hideLoading();
+      if (res && res.success) {
+        this.showToast(res.message, 'success');
+        this.closeEditChargeModal();
+        this.showCheckoutDetailsSheet(this.activeCheckoutData.booking.id);
+      } else {
+        this.showToast(res.message || 'Failed to void charge', 'danger');
+      }
+    } catch(e) {
+      this.hideLoading();
+      this.showToast(e.message || 'Connection error', 'danger');
+    }
+  }
+
   // Fetch staff users list for login grid
   async loadStaffListForLogin() {
     this.showScreen('login');
@@ -563,9 +688,13 @@ class BookingAssistant {
         setTile('db-stat-arrivals', todayArrivals);
         setTile('db-stat-departures', todayDepartures);
 
-        if (res.payment_methods) {
+        if (res.payment_methods && Array.isArray(res.payment_methods)) {
           this.paymentMethods = res.payment_methods;
           this.applyPaymentMethodsToUI();
+        }
+        if (res.payment_categories && Array.isArray(res.payment_categories)) {
+          this.paymentCategories = res.payment_categories;
+          this.applyPaymentCategoriesToUI();
         }
 
         // Alerts badge
@@ -576,6 +705,47 @@ class BookingAssistant {
           navBadge.style.display = 'block';
         } else {
           navBadge.style.display = 'none';
+        }
+
+        // Real-time notification chime & native OS notification
+        if (this.seenAlerts === undefined) {
+          this.seenAlerts = new Set(res.alerts.map(a => a.id || (a.title + '_' + a.message)));
+        } else {
+          let hasNewAlert = false;
+          res.alerts.forEach(alert => {
+            const key = alert.id || (alert.title + '_' + alert.message);
+            if (!this.seenAlerts.has(key)) {
+              hasNewAlert = true;
+              this.seenAlerts.add(key);
+              
+              if ('Notification' in window && Notification.permission === 'granted') {
+                if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+                  navigator.serviceWorker.ready.then(registration => {
+                    registration.showNotification(alert.title, {
+                      body: alert.message,
+                      icon: '/assistant/assets/icon-192.png',
+                      badge: '/assistant/assets/icon-192.png',
+                      vibrate: [100, 50, 100],
+                      data: { url: '/assistant/index.html' }
+                    });
+                  }).catch(() => {
+                    new Notification(alert.title, {
+                      body: alert.message,
+                      icon: '/assistant/assets/icon-192.png'
+                    });
+                  });
+                } else {
+                  new Notification(alert.title, {
+                    body: alert.message,
+                    icon: '/assistant/assets/icon-192.png'
+                  });
+                }
+              }
+            }
+          });
+          if (hasNewAlert) {
+            this.playChime();
+          }
         }
 
         // Render dashboard alerts
@@ -677,6 +847,8 @@ class BookingAssistant {
       this.showPaymentCollectScreen();
     } else if (alert.type === 'overdue_checkout' || alert.type === 'overdue_checkin' || alert.type === 'booking_hold' || alert.type === 'upcoming_checkout') {
       this.openBookingActionById(alert.booking_id);
+    } else if (alert.type === 'service_request') {
+      this.showServiceRequestModal(alert);
     }
   }
 
@@ -2053,17 +2225,29 @@ class BookingAssistant {
               const colorStyle = isPayment ? 'color: var(--color-success);' : 'color: var(--color-text-primary);';
               const recDate = entry.recorded_at ? formatNiceDate(entry.recorded_at) : '';
 
+              const posMatch = entry.description ? entry.description.match(/Order #(\d+)/) : null;
+              const isPosOrder = posMatch && !entry.description.includes('Reverse');
+              const isRazorpay = entry.transaction_ref && entry.transaction_ref.startsWith('pay_');
+
+              let actionHtml = '';
+              if (isPosOrder) {
+                actionHtml = `<a href="/admin/modules/pos/pos.php?edit_order=${posMatch[1]}" target="_blank" class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-weight: bold; color: var(--color-brand); border: 1px solid var(--color-brand); gap: 4px;"><i class="ph ph-receipt" style="font-size:0.9rem;"></i> POS Order</a>`;
+              } else if (!isRazorpay) {
+                actionHtml = `<button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center;" onclick="app.openEditChargeModal(${entry.id}, '${escapeHtml(entry.description || entry.transaction_type).replace(/'/g, "\\'")}', ${entry.amount}, ${isPayment})">✏️</button>`;
+              }
+
               const item = document.createElement('div');
               item.style.cssText = 'padding: 8px 10px; background: white; border-radius: 8px; border: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; gap: 8px;';
               item.innerHTML = `
-                <div style="min-width:0;">
+                <div style="min-width:0; flex: 1;">
                   <div style="font-weight: 800; font-size: 0.85rem; color: var(--color-text-primary);">${escapeHtml(entry.description || entry.transaction_type)}</div>
                   <div style="font-size: 0.72rem; color: var(--color-text-secondary); font-weight: 600; margin-top: 2px;">
                     ${entry.display_id ? `<span style="font-weight:700; color:var(--color-brand);">${escapeHtml(entry.display_id)}</span> • ` : ''}${escapeHtml(recDate)}${entry.payment_method ? ` • ${escapeHtml(entry.payment_method)}` : ''}
                   </div>
                 </div>
-                <div style="text-align: right; shrink: 0;">
+                <div style="text-align: right; shrink: 0; display: flex; align-items: center; gap: 8px;">
                   <span style="font-weight: 900; font-size: 0.92rem; ${colorStyle}">${amtFormatted}</span>
+                  ${actionHtml}
                 </div>
               `;
               ledgerList.appendChild(item);
@@ -2344,22 +2528,12 @@ class BookingAssistant {
         <div id="quick-payment-splits" style="display:none;margin-bottom:12px;border-top:1px solid var(--color-border);padding-top:12px;">
           <div style="font-size:0.7rem;font-weight:800;color:var(--color-text-muted);margin-bottom:8px;text-transform:uppercase;">Allocate Splits</div>
           <div style="display:flex;flex-direction:column;gap:8px;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:0.8rem;font-weight:700;width:80px;color:var(--color-text-secondary)">Room Rent:</span>
-              <input type="number" class="assistant-split-amount" data-cat="booking" value="0" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--color-border);font-size:0.9rem;font-weight:bold;" oninput="app.validateAssistantSplitSum()">
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:0.8rem;font-weight:700;width:80px;color:var(--color-text-secondary)">F & B:</span>
-              <input type="number" class="assistant-split-amount" data-cat="F&B" value="0" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--color-border);font-size:0.9rem;font-weight:bold;" oninput="app.validateAssistantSplitSum()">
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:0.8rem;font-weight:700;width:80px;color:var(--color-text-secondary)">Laundry:</span>
-              <input type="number" class="assistant-split-amount" data-cat="Laundry" value="0" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--color-border);font-size:0.9rem;font-weight:bold;" oninput="app.validateAssistantSplitSum()">
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:0.8rem;font-weight:700;width:80px;color:var(--color-text-secondary)">Misc:</span>
-              <input type="number" class="assistant-split-amount" data-cat="Misc" value="0" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--color-border);font-size:0.9rem;font-weight:bold;" oninput="app.validateAssistantSplitSum()">
-            </div>
+            ${(this.paymentCategories || []).map(cat => `
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:0.8rem;font-weight:700;width:100px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${cat}:</span>
+                <input type="number" class="assistant-split-amount" data-cat="${cat.replace(/"/g, '&quot;')}" value="0" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--color-border);font-size:0.9rem;font-weight:bold;" oninput="app.validateAssistantSplitSum()">
+              </div>
+            `).join('')}
           </div>
           <div id="assistant-split-error" style="color:red;font-size:0.75rem;font-weight:800;margin-top:6px;display:none;">Splits total does not match amount!</div>
         </div>
@@ -2385,7 +2559,14 @@ class BookingAssistant {
       container.style.display = 'block';
       const total = parseFloat(document.getElementById('quick-payment-amount').value) || 0;
       document.querySelectorAll('.assistant-split-amount').forEach(el => el.value = 0);
-      document.querySelector('.assistant-split-amount[data-cat="booking"]').value = total;
+      const firstCat = this.paymentCategories && this.paymentCategories.length > 0 ? this.paymentCategories[0] : 'Room Revenue';
+      const defaultInput = document.querySelector(`.assistant-split-amount[data-cat="${firstCat.replace(/"/g, '&quot;')}"]`);
+      if (defaultInput) {
+        defaultInput.value = total;
+      } else {
+        const anyInput = document.querySelector('.assistant-split-amount');
+        if (anyInput) anyInput.value = total;
+      }
     } else {
       container.style.display = 'none';
     }
@@ -3738,6 +3919,27 @@ class BookingAssistant {
     }
   }
 
+  applyPaymentCategoriesToUI() {
+    const pickers = [
+      document.getElementById('payment-category-picker'),
+      document.getElementById('wizard-payment-category'),
+      document.getElementById('split-payment-category')
+    ];
+    pickers.forEach(picker => {
+      if (picker && this.paymentCategories) {
+        const val = picker.value;
+        picker.innerHTML = '';
+        this.paymentCategories.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = cat;
+          opt.textContent = cat;
+          picker.appendChild(opt);
+        });
+        if (this.paymentCategories.includes(val)) picker.value = val;
+      }
+    });
+  }
+
   // ═══════════════════════════════════════════════════════
   // TUTORIAL SYSTEM
   // ═══════════════════════════════════════════════════════
@@ -3801,6 +4003,333 @@ class BookingAssistant {
     
     Voice.speak('You are ready! Tap the bell icon to start.');
   }
+
+  // --- POS SYSTEM ---
+  async loadPosRooms() {
+    this.showLoading('Loading in-house rooms...');
+    try {
+      const res = await this.apiCall('api/pos.php', { action: 'active_rooms' });
+      this.hideLoading();
+      if (res && res.success) {
+        this.posRooms = res.rooms || [];
+        this.renderPosRooms();
+      } else {
+        this.pmsAlert('Failed to load in-house rooms.', 'Error');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.pmsAlert('Network error loading POS rooms', 'Error');
+    }
+  }
+
+  renderPosRooms() {
+    const list = document.getElementById('pos-room-list');
+    document.getElementById('pos-step-rooms').style.display = 'block';
+    
+    const menuStep = document.getElementById('pos-step-menu');
+    if (menuStep) menuStep.style.display = 'none';
+
+    if (!list) return;
+    list.innerHTML = '';
+    
+    if (!this.posRooms || this.posRooms.length === 0) {
+      list.innerHTML = `<div style="text-align: center; padding: 40px 20px; color: var(--color-text-muted); grid-column: 1 / -1;">
+        <i class="ph ph-bed" style="font-size: 3rem; color: #ccc; margin-bottom: 10px; display: block;"></i>
+        No rooms are currently checked-in.
+      </div>`;
+      return;
+    }
+
+    this.posRooms.forEach(b => {
+      const el = document.createElement('div');
+      el.className = 'selection-card';
+      el.style.cssText = 'padding: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; text-align: center; cursor: pointer; background: white; border: 1px solid var(--color-border); border-radius: var(--border-radius-md);';
+      el.innerHTML = `
+        <div style="font-weight: 900; font-size: 1.2rem; color: var(--color-brand);">${b.room_number || '?'}</div>
+        <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">${b.guest_name || 'Guest'}</div>
+      `;
+      el.onclick = () => this.selectPosRoom(b);
+      list.appendChild(el);
+    });
+  }
+
+  async selectPosRoom(booking) {
+    this.posSelectedBooking = booking;
+    this.posRoomLabel = booking.room_number || '?';
+    this.posCart = []; 
+    document.getElementById('pos-step-rooms').style.display = 'none';
+    document.getElementById('pos-step-menu').style.display = 'block';
+    document.getElementById('pos-selected-room-title').textContent = `Room ${this.posRoomLabel} (${booking.guest_name || 'Guest'})`;
+    
+    this.updatePosCart();
+    await this.loadPosMenu();
+  }
+
+  posReset() {
+    this.posSelectedBooking = null;
+    document.getElementById('pos-step-rooms').style.display = 'block';
+    document.getElementById('pos-step-menu').style.display = 'none';
+  }
+
+  async loadPosMenu() {
+    this.showLoading('Loading POS menu...');
+    try {
+      const res = await this.apiCall('api/pos.php', { action: 'menu' });
+      this.hideLoading();
+      if (res && res.success) {
+        this.posMenuData = res.menu || [];
+        this.renderPosMenu();
+      } else {
+        this.pmsAlert('Failed to load menu.', 'Error');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.pmsAlert('Network error loading menu', 'Error');
+    }
+  }
+
+  renderPosMenu() {
+    const tabsContainer = document.getElementById('pos-outlet-tabs');
+    const itemsGrid = document.getElementById('pos-items-grid');
+    if (!tabsContainer || !itemsGrid) return;
+
+    tabsContainer.innerHTML = '';
+    itemsGrid.innerHTML = '';
+
+    if (!this.posMenuData || this.posMenuData.length === 0) {
+      itemsGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--color-text-muted);">No menu items found.</div>';
+      return;
+    }
+
+    // Default to first outlet
+    if (!this.activePosOutletId && this.posMenuData.length > 0) {
+      this.activePosOutletId = this.posMenuData[0].id;
+    }
+
+    this.posMenuData.forEach(outlet => {
+      const btn = document.createElement('button');
+      btn.className = `filter-chip ${this.activePosOutletId === outlet.id ? 'active' : ''}`;
+      btn.textContent = outlet.name;
+      btn.style.whiteSpace = 'nowrap';
+      btn.onclick = () => {
+        this.activePosOutletId = outlet.id;
+        this.renderPosMenu();
+      };
+      tabsContainer.appendChild(btn);
+    });
+
+    const activeOutlet = this.posMenuData.find(o => o.id === this.activePosOutletId);
+    if (activeOutlet && activeOutlet.items) {
+      activeOutlet.items.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'selection-card';
+        el.style.cssText = 'padding: 10px; display: flex; flex-direction: column; gap: 5px; cursor: pointer; background: white; border: 1px solid var(--color-border); border-radius: var(--border-radius-md);';
+        
+        const imgHtml = item.image_url ? `<img src="../${item.image_url}" style="width:100%; height:80px; object-fit:cover; border-radius:4px; margin-bottom:5px;">` : `<div style="width:100%; height:80px; background:#f3f4f6; border-radius:4px; margin-bottom:5px; display:flex; align-items:center; justify-content:center; color:#9ca3af;"><i class="ph ph-image"></i></div>`;
+        
+        el.innerHTML = `
+          ${imgHtml}
+          <div style="font-weight: 700; font-size: 0.9rem; line-height: 1.2;">${item.name}</div>
+          <div style="font-weight: 800; color: var(--color-brand); margin-top: auto;">₹${item.price}</div>
+        `;
+        el.onclick = () => this.addToPosCart(item);
+        itemsGrid.appendChild(el);
+      });
+    }
+  }
+
+  addToPosCart(item) {
+    if (!this.posCart) this.posCart = [];
+    const existing = this.posCart.find(c => c.id === item.id);
+    if (existing) {
+      existing.quantity++;
+    } else {
+      this.posCart.push({ ...item, quantity: 1, price_per_unit: item.price });
+    }
+    this.updatePosCart();
+    if (navigator.vibrate) navigator.vibrate(20);
+  }
+
+  updatePosCart() {
+    const totalEl = document.getElementById('pos-cart-total');
+    const badgeEl = document.getElementById('bottom-nav-badge'); // Reuse if possible or create pos badge
+    let total = 0;
+    let qty = 0;
+    if (this.posCart) {
+      this.posCart.forEach(c => {
+        total += (c.price * c.quantity);
+        qty += c.quantity;
+      });
+    }
+    if (totalEl) totalEl.textContent = `Total: ₹${total.toFixed(2)}`;
+    
+    // Maybe update badge in bottom nav
+    const posNavBadge = document.querySelector('#nav-btn-pos .nav-badge');
+    if (posNavBadge) {
+      if (qty > 0) {
+        posNavBadge.style.display = 'flex';
+        posNavBadge.textContent = qty;
+      } else {
+        posNavBadge.style.display = 'none';
+      }
+    }
+  }
+
+  // --- POS CART CHECKOUT ---
+  async posCheckout() {
+    let total = 0;
+    this.posCart.forEach(c => { total += (c.price * c.quantity); });
+    
+    const isConfirmed = await new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay active';
+      overlay.style.zIndex = '500';
+      
+      let itemsHtml = this.posCart.map(c => `
+        <div style="display: flex; justify-content: space-between; font-size: 0.95rem; font-weight: 700; margin-bottom: 8px;">
+          <span>${c.quantity}x ${c.name}</span>
+          <span>₹${(c.price * c.quantity).toFixed(2)}</span>
+        </div>
+      `).join('');
+
+      overlay.innerHTML = `
+        <div style="margin: auto; max-width: 350px; width: 90%;">
+          <div class="modal-content-box" style="border-radius: var(--border-radius-lg); padding: 24px;">
+            <div style="text-align: center; margin-bottom: 16px;">
+              <i class="lucide-shopping-cart" style="font-size: 2.5rem; color: var(--color-brand);"></i>
+              <h3 style="font-weight: 800; font-size: 1.2rem; margin-top: 8px;">Review Order</h3>
+              <p style="color: var(--color-text-secondary); font-size: 0.85rem; font-weight: 700;">Post to Room ${this.posRoomLabel}</p>
+            </div>
+            
+            <div style="background: var(--color-glass); padding: 16px; border-radius: var(--border-radius-md); margin-bottom: 16px; max-height: 200px; overflow-y: auto;">
+              ${itemsHtml}
+              <div style="border-top: 2px dashed var(--color-border); margin-top: 12px; padding-top: 12px; display: flex; justify-content: space-between; font-size: 1.1rem; font-weight: 900; color: var(--color-brand);">
+                <span>Total</span>
+                <span>₹${total.toFixed(2)}</span>
+              </div>
+            </div>
+            
+            <div style="display: flex; gap: 12px;">
+              <button class="btn-large btn-outline cancel-btn" style="flex: 1; border-color: var(--color-text-muted); color: var(--color-text-muted);">Cancel</button>
+              <button class="btn-large btn-success confirm-btn" style="flex: 1;">Place Order</button>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(overlay);
+      
+      overlay.querySelector('.cancel-btn').onclick = () => {
+        overlay.remove();
+        resolve(false);
+      };
+      
+      overlay.querySelector('.confirm-btn').onclick = () => {
+        overlay.remove();
+        resolve(true);
+      };
+    });
+
+    if (!isConfirmed) return;
+    this.submitPosOrder();
+  }
+
+  async submitPosOrder() {
+    if (!this.posSelectedBooking || !this.posCart || this.posCart.length === 0) return;
+    
+    this.showLoading('Posting to room...');
+    const items = this.posCart.map(c => ({
+      item_id: c.id,
+      quantity: c.quantity,
+      price_per_unit: c.price,
+      name: c.name
+    }));
+
+    try {
+      const res = await this.apiCall('api/pos.php', {
+        action: 'post_order',
+        booking_id: this.posSelectedBooking.booking_id,
+        outlet_id: this.activePosOutletId,
+        items: items
+      });
+      
+      this.hideLoading();
+      if (res && res.success) {
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        Voice.speak('Order posted successfully.');
+        this.pmsAlert(`Order posted to Room ${this.posRoomLabel}.`, 'Success');
+        this.posReset();
+      } else {
+        this.pmsAlert('Failed to post order: ' + (res?.error || 'Unknown error'), 'Error');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.pmsAlert('Network error', 'Error');
+    }
+  }
+
+  // --- SERVICE REQUESTS ---
+  showServiceRequestModal(alert) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay active';
+    overlay.style.zIndex = '500';
+    
+    overlay.innerHTML = `
+      <div style="margin: auto; max-width: 320px; width: 90%;">
+        <div class="modal-content-box" style="border-radius: var(--border-radius-lg); text-align: center; padding: 24px;">
+          <div style="font-size: 2.5rem; margin-bottom: 12px;">🛎️</div>
+          <h3 style="font-weight: 800; font-size: 1.2rem; margin-bottom: 8px;">Service Request</h3>
+          <p style="color: var(--color-text-secondary); font-weight: 600; margin-bottom: 12px; font-size: 0.95rem;">${escapeHtml(alert.message)}</p>
+          
+          <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button class="btn-large btn-outline cancel-req" style="flex: 1; border-color: var(--color-danger); color: var(--color-danger);">
+              Reject
+            </button>
+            <button class="btn-large btn-success approve-req" style="flex: 1;">
+              Approve
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(overlay);
+    
+    overlay.onclick = (e) => {
+      if (e.target === overlay) overlay.remove();
+    };
+
+    overlay.querySelector('.cancel-req').onclick = () => {
+      this.handleServiceRequestAction(alert.request_id, 'rejected');
+      overlay.remove();
+    };
+    
+    overlay.querySelector('.approve-req').onclick = () => {
+      this.handleServiceRequestAction(alert.request_id, 'completed');
+      overlay.remove();
+    };
+  }
+
+  async handleServiceRequestAction(requestId, status) {
+    this.showLoading('Updating request...');
+    try {
+      const res = await this.apiCall('api/service_requests.php?action=update_status', {
+        request_id: requestId,
+        status: status
+      });
+      this.hideLoading();
+      if (res && res.success) {
+        this.showToast(res.message, 'success');
+        this.loadDashboardData();
+      } else {
+        this.showToast(res?.message || 'Failed to update request', 'danger');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.showToast(e.message, 'danger');
+    }
+  }
+
 }
 
 // Helper date parsing formats
@@ -3852,7 +4381,7 @@ function PhoneHelperToE164(phone) {
   return clean;
 }
 
-// Boot instance
+
 window.addEventListener('DOMContentLoaded', () => {
   window.app = new BookingAssistant();
   

@@ -530,17 +530,26 @@ async function recordManualPayment(btn, method) {
     btn.disabled = true;
 
     try {
+        const payload = {
+            booking_id: bookingId,
+            amount: amt,
+            method: method,
+            ref: 'MANUAL_' + Date.now(),
+            date: date,
+            splits: splits
+        };
+        
+        if (!isSplit) {
+            const singleCatEl = document.getElementById('cp_single_category');
+            if (singleCatEl) {
+                payload.category = singleCatEl.value;
+            }
+        }
+
         const res = await fetch('/api/admin/record_payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                booking_id: bookingId,
-                amount: amt,
-                method: method,
-                ref: 'MANUAL_' + Date.now(),
-                date: date,
-                splits: splits
-            })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
         if(data.success) location.reload(); else { showToast(data.message); btn.innerHTML = originalHTML; btn.disabled = false; }
@@ -613,17 +622,25 @@ async function payViaGateway(btn) {
         description: 'Folio Payment Collection',
         order_id: orderId,
         handler: async function (response) {
+            let payload = {
+                booking_id: bookingId,
+                amount: amt,
+                method: 'Razorpay',
+                ref: response.razorpay_payment_id,
+                date: date,
+                splits: splits
+            };
+            if (!isSplit) {
+                const singleCatEl = document.getElementById('cp_single_category');
+                if (singleCatEl) {
+                    payload.category = singleCatEl.value;
+                }
+            }
+            
             const res = await fetch('/api/admin/record_payment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    booking_id: bookingId,
-                    amount: amt,
-                    method: 'Razorpay',
-                    ref: response.razorpay_payment_id,
-                    date: date,
-                    splits: splits
-                })
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
             if(data.success) location.reload(); else showToast(data.message);

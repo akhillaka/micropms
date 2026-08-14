@@ -20,7 +20,7 @@ class AuthHelper {
             'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
             'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
             'update_room_status', 'inspect_rooms', 'manage_maintenance',
-            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations'
+            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations', 'rollback_booking'
         ],
         'owner' => [
             'view_dashboard', 'create_booking', 'edit_booking', 'cancel_booking', 'check_in_out',
@@ -32,7 +32,7 @@ class AuthHelper {
             'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
             'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
             'update_room_status', 'inspect_rooms', 'manage_maintenance',
-            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations'
+            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations', 'rollback_booking'
         ],
         'admin' => [
             'view_dashboard', 'create_booking', 'edit_booking', 'cancel_booking', 'check_in_out',
@@ -44,7 +44,7 @@ class AuthHelper {
             'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
             'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
             'update_room_status', 'inspect_rooms', 'manage_maintenance',
-            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations'
+            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations', 'rollback_booking'
         ],
         'manager' => [
             'view_dashboard', 'create_booking', 'edit_booking', 'cancel_booking', 'check_in_out',
@@ -229,6 +229,105 @@ class AuthHelper {
     }
 
     /**
+     * Returns a categorized map of permissions for UI grouping.
+     */
+    public static function getGroupedPermissions(): array {
+        $groups = [
+            'Dashboard' => [
+                'view_dashboard' => 'View Dashboard',
+            ],
+            'Front Desk & Bookings' => [
+                'create_booking' => 'Create Booking',
+                'edit_booking' => 'Edit Booking',
+                'cancel_booking' => 'Cancel Booking',
+                'check_in_out' => 'Check-in / Check-out',
+                'rollback_booking' => 'Rollback Check-out',
+                'override_room_rates' => 'Override Room Rates',
+                'apply_discounts' => 'Apply Discounts',
+                'waive_cancellation_fee' => 'Waive Cancellation Fees',
+            ],
+            'Billing & Folio' => [
+                'view_folio' => 'View Folio',
+                'edit_folio' => 'Edit Folio',
+                'void_folio_item' => 'Void Folio Items',
+                'record_payment' => 'Record Payment',
+                'refund_payment' => 'Refund Payment',
+                'generate_payment_link' => 'Generate Payment Link',
+            ],
+            'Finance & Audit' => [
+                'view_finance' => 'View Finance',
+                'manage_finance' => 'Manage Finance',
+                'export_finance' => 'Export Finance Data',
+                'run_night_audit' => 'Run Night Audit',
+            ],
+            'Guests & Communication' => [
+                'manage_guests' => 'Manage Guests',
+                'upload_document' => 'Upload Documents',
+                'send_whatsapp' => 'Send WhatsApp Messages',
+                'export_guest_data' => 'Export Guest Database',
+            ],
+            'Housekeeping & Maintenance' => [
+                'housekeeping' => 'Housekeeping Overview',
+                'update_room_status' => 'Update Room Status',
+                'inspect_rooms' => 'Inspect & Verify Rooms',
+                'manage_maintenance' => 'Manage Room Maintenance',
+            ],
+            'POS & Inventory' => [
+                'manage_pos' => 'Manage Point of Sale',
+                'void_pos_order' => 'Void POS Orders',
+                'discount_pos_order' => 'Discount POS Orders',
+                'view_pos_reports' => 'View POS Reports',
+                'manage_inventory' => 'Manage Inventory & Stock',
+            ],
+            'Reporting' => [
+                'view_reports' => 'View Reports',
+                'export_reports' => 'Export Reports & Data',
+            ],
+            'Property Settings' => [
+                'manage_rooms' => 'Manage Rooms',
+                'manage_staff' => 'Manage Staff & Roles',
+                'manage_settings' => 'Manage Property Settings',
+                'manage_payment_gateways' => 'Manage Payment Gateways',
+                'manage_automations' => 'Manage Automations',
+            ],
+            'System Logs' => [
+                'view_audit_logs' => 'View Audit Logs',
+                'view_error_logs' => 'View Error Logs',
+                'resolve_error_logs' => 'Resolve Error Logs',
+            ]
+        ];
+
+        if (self::isSuperAdmin()) {
+            $groups['SaaS & Superadmin'] = [
+                'manage_properties' => 'Manage Properties',
+                'manage_saas' => 'Manage SaaS Platform',
+                'manage_billing' => 'Manage Billing',
+            ];
+        }
+
+        // Add any permissions returned by getAllPermissions that are missing from our static groups above
+        // into an "Other" category to ensure complete coverage.
+        $allFlat = self::getAllPermissions();
+        $covered = [];
+        foreach($groups as $k => $g) {
+            foreach($g as $pk => $pl) {
+                $covered[] = $pk;
+            }
+        }
+        $missing = [];
+        foreach($allFlat as $pk => $pl) {
+            if(!in_array($pk, $covered)) {
+                $missing[$pk] = $pl;
+            }
+        }
+        if(!empty($missing)) {
+            $groups['Other'] = $missing;
+        }
+
+        return $groups;
+    }
+
+    /**
      * Returns the current user's role from the session.
      * Checks both 'role' and 'access_level' for backward compatibility with active sessions.
      */
@@ -276,9 +375,16 @@ class AuthHelper {
             session_start();
         }
         if (!isset($_SESSION['property_id']) || (int)$_SESSION['property_id'] <= 0) {
-            // Check if superadmin is bypassing without a specific property selected
+            // Superadmin with no explicit property selected — use their primary_property_id if set
             if (self::isSuperAdmin()) {
-                return 1; // Superadmins might fallback to a master ID in some legacy scripts
+                $primaryId = (int)($_SESSION['primary_property_id'] ?? 0);
+                if ($primaryId > 0) {
+                    return $primaryId;
+                }
+                // Last resort: we must NOT default to a potentially random ID like 1.
+                // Log and throw an exception to prevent silent cross-tenant leaks.
+                error_log("CRITICAL: Superadmin attempted property-scoped action without a valid property_id in session.");
+                throw new \Exception("Unauthorized: No active property context found. Superadmin must select a property first.");
             }
             throw new \Exception("Unauthorized: No active property context found. Tenant isolation blocked this request.");
         }

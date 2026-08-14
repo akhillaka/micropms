@@ -152,9 +152,9 @@ $auditStmt->execute(['prop_id' => $propertyId]);
 $posAuditLogs = $auditStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch POS Settings from system_settings
-$posTax = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'POS_DEFAULT_TAX' AND property_id = " . (int)$propertyId)->fetchColumn() ?: '0';
-$posAutoCharge = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'POS_AUTO_POST_ROOM' AND property_id = " . (int)$propertyId)->fetchColumn() ?: 'true';
-$posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'POS_LOW_STOCK_DEFAULT' AND property_id = " . (int)$propertyId)->fetchColumn() ?: '5';
+$posTax = get_db_setting($db, 'POS_DEFAULT_TAX', (int)$propertyId, '0');
+$posAutoCharge = get_db_setting($db, 'POS_AUTO_POST_ROOM', (int)$propertyId, 'true');
+$posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, '5');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -244,8 +244,8 @@ $posAlertLevel = $db->query("SELECT key_value FROM system_settings WHERE key_nam
                 <!-- Search Catalog -->
                 <div class="bg-white border border-slate-100 rounded-2xl shadow-sm p-4">
                     <div class="relative">
-                        <i class="ph ph-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                        <input type="text" oninput="searchCatalog(this.value)" placeholder="Search products by name or SKU..." class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 pl-10 pr-4 py-2.5 rounded-xl text-xs font-semibold">
+                        <i class="ph ph-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input type="text" oninput="searchCatalog(this.value)" placeholder="Search products by name or SKU..." class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 !pl-12 pr-4 py-2.5 rounded-xl text-xs font-semibold">
                     </div>
                 </div>
 

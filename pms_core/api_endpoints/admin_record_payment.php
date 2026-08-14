@@ -18,8 +18,8 @@ ApiHandler::run(function(\PDO $db) {
     $method = $data['payment_method'] ?? $data['method'] ?? 'cash';
     $ref = $data['payment_ref'] ?? $data['ref'] ?? '';
     
-    if (!$bookingId || $amount == 0) {
-        ApiResponse::error('Invalid input');
+    if (!$bookingId || $amount <= 0) {
+        ApiResponse::error('Invalid input. Amount must be strictly greater than zero.');
     }
 
     // Validate booking exists and is not cancelled
@@ -86,12 +86,19 @@ ApiHandler::run(function(\PDO $db) {
                     'response' => $response,
                     'error' => $curlError
                 ]);
+                ApiResponse::error("Razorpay capture failed. HTTP Code: {$httpcode}");
             }
         }
     }
 
-    $splits = $data['splits'] ?? [];
-    $receiptDisplayId = '';
+    // Get default category from property settings
+    $catStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_categories' AND property_id = ?");
+    $catStmt->execute([$propertyId]);
+    $catJson = $catStmt->fetchColumn();
+    $paymentCats = $catJson ? json_decode($catJson, true) : [];
+    $defaultCat = (!empty($paymentCats) && is_array($paymentCats)) ? $paymentCats[0] : 'Room Revenue';
+
+    $category = !empty($data['category']) ? $data['category'] : $defaultCat;
 
     if (!empty($splits)) {
         // Validate total split amount matches payment amount
@@ -106,7 +113,7 @@ ApiHandler::run(function(\PDO $db) {
         $receipts = [];
         foreach ($splits as $split) {
             $splitAmt = floatval($split['amount']);
-            $splitCat = $split['category'] ?? 'booking';
+            $splitCat = !empty($split['category']) ? $split['category'] : $defaultCat;
             
             // Sub-tag reference for online payment gateways / UPI
             $splitRef = $ref;
@@ -158,7 +165,7 @@ ApiHandler::run(function(\PDO $db) {
         $receiptDisplayId = implode(', ', $receipts);
     } else {
         // Standard single payment flow
-        $entryId = FolioService::recordPayment($db, $bookingId, $amount, $method, $ref, 'admin', 'booking', $recordedAt);
+        $entryId = FolioService::recordPayment($db, $bookingId, $amount, $method, $ref, 'admin', $category, $recordedAt);
 
         // Record finance transaction
         $receiptStmt = $db->prepare("SELECT display_id FROM folio_ledger WHERE id = ?");
@@ -178,12 +185,22 @@ ApiHandler::run(function(\PDO $db) {
             // Update company balance
             $db->prepare("UPDATE companies SET balance = balance + ? WHERE id = ? AND property_id = ?")->execute([$amount, $booking['company_id'], $propertyId]);
         } else {
-            $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id, recorded_at) VALUES (:prop_id, 'income', 'booking', :bid, :amount, :desc, :method, :staff, :recorded_at)");
+            $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id, recorded_at) VALUES (:prop_id, 'income', :cat, :bid, :amount, :desc, :method, :staff, :recorded_at)");
+            
+            $catLabel = $category;
+            if ($category === 'booking') {
+                $catLabel = 'Room Rent';
+            } elseif ($category === 'F&B') {
+                $catLabel = 'F&B';
+            }
+            $desc = "Payment - " . ucfirst($method) . " - " . $catLabel . " (Receipt {$receiptDisplayId})";
+            
             $financeStmt->execute([
                 'prop_id' => $propertyId,
+                'cat' => $category,
                 'bid' => $bookingId,
                 'amount' => $amount,
-                'desc' => "Payment - " . ucfirst($method) . " (Receipt {$receiptDisplayId})",
+                'desc' => $desc,
                 'method' => strtolower($method),
                 'staff' => $_SESSION['user_id'] ?? null,
                 'recorded_at' => $recordedAt ?: date('Y-m-d H:i:s')

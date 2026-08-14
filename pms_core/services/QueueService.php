@@ -134,10 +134,11 @@ class QueueService {
         
         $attempts = (int)$job['attempts'] + 1;
         $maxAttempts = (int)$job['max_attempts'];
+        $errorMessage = $exception ? substr($exception->getMessage(), 0, 500) : 'Unknown error';
         
         if ($attempts >= $maxAttempts) {
-            $update = $db->prepare("UPDATE jobs_queue SET status = 'failed', attempts = ? WHERE id = ?");
-            $update->execute([$attempts, $jobId]);
+            $update = $db->prepare("UPDATE jobs_queue SET status = 'failed', attempts = ?, dead_letter = 1, error_log = ? WHERE id = ?");
+            $update->execute([$attempts, $errorMessage, $jobId]);
             
             if ($exception) {
                 error_log("Job #$jobId failed permanently. Error: " . $exception->getMessage());
@@ -147,8 +148,17 @@ class QueueService {
             $delay = pow($attempts, 2) * 10;
             $availableAt = date('Y-m-d H:i:s', time() + $delay);
             
-            $update = $db->prepare("UPDATE jobs_queue SET status = 'pending', attempts = ?, available_at = ? WHERE id = ?");
-            $update->execute([$attempts, $availableAt, $jobId]);
+            $update = $db->prepare("UPDATE jobs_queue SET status = 'pending', attempts = ?, available_at = ?, error_log = ? WHERE id = ?");
+            $update->execute([$attempts, $availableAt, $errorMessage, $jobId]);
         }
+    }
+
+    /**
+     * Recover stuck jobs that have been processing for more than 15 minutes.
+     */
+    public static function recoverStuckJobs(): void {
+        $db = Database::getInstance()->getConnection();
+        // Reset jobs stuck in processing for > 15 minutes back to pending
+        $db->exec("UPDATE jobs_queue SET status = 'pending', available_at = NOW() WHERE status = 'processing' AND updated_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)");
     }
 }

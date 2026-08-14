@@ -63,7 +63,7 @@ if (count($assignedHotels) === 0) {
 <body class="flex min-h-screen text-slate-800">
 
     <!-- LEFT SIDEBAR -->
-    <aside class="w-64 bg-[#0f172a] text-slate-300 flex flex-col justify-between p-6 shrink-0">
+    <aside class="hidden md:flex w-64 bg-[#0f172a] text-slate-300 flex-col justify-between p-6 shrink-0">
         <div class="space-y-8">
             <!-- Brand Logo -->
             <div class="flex items-center gap-2">
@@ -79,15 +79,15 @@ if (count($assignedHotels) === 0) {
                     <i class="ph ph-squares-four text-lg"></i>
                     Group dashboard
                 </a>
-                <a href="#" onclick="alert('Feature coming soon!')" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
+                <a href="/admin/group_performance.php" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
                     <i class="ph ph-chart-bar text-lg text-slate-400"></i>
                     Group performance dashboard
                 </a>
-                <a href="#" onclick="alert('Feature coming soon!')" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
+                <a href="/admin/group_calendar.php" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
                     <i class="ph ph-calendar text-lg text-slate-400"></i>
                     Group reservation calendar
                 </a>
-                <a href="#" onclick="alert('Feature coming soon!')" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
+                <a href="/admin/group_billing.php" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
                     <i class="ph ph-credit-card text-lg text-slate-400"></i>
                     Accounts and billing
                 </a>
@@ -115,8 +115,8 @@ if (count($assignedHotels) === 0) {
             <div class="flex items-center gap-3 flex-wrap">
                 <!-- Search Box -->
                 <div class="relative">
-                    <i class="ph ph-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-base"></i>
-                    <input type="text" id="propertySearch" oninput="filterProperties()" placeholder="Search properties..." class="bg-white border border-slate-200 rounded-lg pl-10 pr-4 py-2 text-sm focus:border-indigo-500 focus:outline-none w-64 shadow-sm">
+                    <i class="ph ph-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-base"></i>
+                    <input type="text" id="propertySearch" oninput="filterProperties()" placeholder="Search properties..." class="bg-white border border-slate-200 rounded-lg !pl-12 pr-4 py-2 text-sm focus:border-indigo-500 focus:outline-none w-64 shadow-sm">
                 </div>
 
                 <!-- Active Filter -->

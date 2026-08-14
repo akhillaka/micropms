@@ -46,26 +46,7 @@ ApiHandler::run(function(\PDO $db) {
         $recStmt->execute([$receiptId]);
         $receiptDisplayId = $recStmt->fetchColumn() ?: 'RCPT-' . $receiptId;
 
-        // Record finance transaction
-        $financeSql = "INSERT INTO finance_transactions (type, category, booking_id, amount, description, payment_method, staff_id) 
-                       VALUES ('income', 'booking', :bid, :amount, :desc, :method, :staff)";
-        $financeStmt = $db->prepare($financeSql);
-        $financeStmt->execute([
-            'bid' => $bookingId,
-            'amount' => $amount,
-            'desc' => "Payment - " . ucfirst(strtolower($paymentMethod)) . " (Receipt {$receiptDisplayId})",
-            'method' => strtolower($paymentMethod),
-            'staff' => $_SESSION['user_id']
-        ]);
-        $financeId = (int)$db->lastInsertId();
-        SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
-
-        $txnStmt = $db->prepare("SELECT display_id FROM finance_transactions WHERE id = ?");
-        $txnStmt->execute([$financeId]);
-        $txnDisplayId = $txnStmt->fetchColumn();
-        if ($txnDisplayId) {
-            $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref = 'MANUAL' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $receiptId]);
-        }
+        // Note: FolioService::recordPayment() above already syncs to finance_transactions.
 
         // Send Telegram notification
         try {

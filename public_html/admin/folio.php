@@ -43,11 +43,16 @@ $booking = $stmt->fetch();
 if (!$booking) render_error_page('Booking Not Found', 'The requested booking does not exist or has been deleted.', 404);
 
 $propertyId = (int)$booking['property_id'];
-$pmStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = " . (int)$activePropId);
-$pmJson = $pmStmt->fetchColumn();
+$pmJson = get_db_setting($db, 'payment_methods', (int)$activePropId, '');
 $paymentMethods = $pmJson ? json_decode($pmJson, true) : [];
 if (empty($paymentMethods)) {
     $paymentMethods = ["Cash", "UPI", "Online / Gateway"];
+}
+
+$pcJson = get_db_setting($db, 'payment_categories', (int)$activePropId, '');
+$paymentCategories = $pcJson ? json_decode($pcJson, true) : [];
+if (empty($paymentCategories)) {
+    $paymentCategories = ["Room Revenue", "F&B", "Other"];
 }
 
 $ledgerStmt = $db->prepare("SELECT * FROM folio_ledger WHERE booking_id = :id ORDER BY recorded_at ASC");
@@ -404,7 +409,8 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <p class="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-2">Quick Charges</p>
                     <div class="flex flex-wrap gap-2 mb-3">
                         <?php
-                        $quickCharges = json_decode(defined('FOLIO_QUICK_CHARGES') ? FOLIO_QUICK_CHARGES : '[]', true);
+                        $qcJson = get_db_setting($db, 'folio_quick_charges', (int)$activePropId, '[]');
+                        $quickCharges = json_decode($qcJson, true);
                         if (!is_array($quickCharges) || empty($quickCharges)) {
                             $quickCharges = [
                                 ['name' => 'Breakfast', 'icon' => 'ph-coffee', 'amount' => 150, 'desc' => 'Morning Buffet'],
@@ -584,10 +590,10 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <!-- Right: Balance Due Box -->
                     <div class="bg-emerald-50/30 border border-emerald-100/50 rounded-2xl p-5 flex flex-col justify-between items-center text-center">
                         <div>
-                            <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">Balance Due</span>
-                            <h3 class="text-3xl font-extrabold text-slate-900 mt-1 block">₹<?= htmlspecialchars((string)(number_format($balance, 2)), ENT_QUOTES, 'UTF-8') ?></h3>
+                            <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider block"><?= $balance < 0 ? 'Overpaid' : 'Balance Due' ?></span>
+                            <h3 class="text-3xl font-extrabold <?= $balance < 0 ? 'text-emerald-700' : 'text-slate-900' ?> mt-1 block">₹<?= htmlspecialchars((string)(number_format(abs($balance), 2)), ENT_QUOTES, 'UTF-8') ?></h3>
                             <span class="text-[10px] font-bold <?= htmlspecialchars((string)($balance <= 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-amber-700 bg-amber-50 border-amber-100'), ENT_QUOTES, 'UTF-8') ?> px-2.5 py-0.5 rounded-full inline-block mt-2 border">
-                                <?= htmlspecialchars((string)($balance <= 0 ? 'Settled' : 'Unpaid Balance'), ENT_QUOTES, 'UTF-8') ?>
+                                <?= htmlspecialchars((string)($balance < 0 ? 'Overpaid' : ($balance === 0.0 ? 'Settled' : 'Unpaid Balance')), ENT_QUOTES, 'UTF-8') ?>
                             </span>
                         </div>
                         <div class="w-full mt-4">
@@ -670,7 +676,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                 <p class="text-lg font-bold text-slate-800"><?= htmlspecialchars((string)($booking['guest_name'])) ?></p>
                                 <p class="text-xs text-slate-400 mt-0.5">WhatsApp: <?= htmlspecialchars((string)($booking['guest_phone'])) ?></p>
                                 <?php if($booking['age']): ?>
-                                <p class="text-xs text-slate-455 mt-0.5">Age: <?= htmlspecialchars((string)($booking['age'])) ?> years</p>
+                                <p class="text-xs text-slate-500 mt-0.5">Age: <?= htmlspecialchars((string)($booking['age'])) ?> years</p>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -877,6 +883,14 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                             <input type="number" id="cp_amount" min="0" value="<?= htmlspecialchars((string)($balance), ENT_QUOTES, 'UTF-8') ?>" class="w-full input-glass rounded-xl p-3 text-lg font-bold text-slate-800">
                         </div>
                         <div>
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Category (Single Payment)</label>
+                            <select id="cp_single_category" class="w-full input-glass rounded-xl p-3 text-sm font-bold text-slate-800 appearance-none">
+                                <?php foreach($paymentCategories as $pc): ?>
+                                    <option value="<?= htmlspecialchars((string)($pc)) ?>"><?= htmlspecialchars((string)($pc)) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Payment Date & Time</label>
                             <input type="datetime-local" id="cp_date" class="w-full input-glass rounded-xl p-3 text-sm text-slate-800" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i')), ENT_QUOTES, 'UTF-8') ?>">
                         </div>
@@ -890,22 +904,12 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <div id="cp_splits_container" class="hidden space-y-3 mt-3 border-t border-slate-100 pt-3">
                         <div class="text-[10px] font-bold text-slate-400 uppercase mb-2">Allocate amounts (Sum must equal Total Amount)</div>
                         <div class="space-y-2" id="cp_split_rows">
+                            <?php foreach($paymentCategories as $pc): ?>
                             <div class="flex gap-2 items-center">
-                                <span class="text-xs font-bold text-slate-500 w-24">Room Rent:</span>
-                                <input type="number" data-category="booking" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold cp-split-amount" placeholder="0.00" value="0" oninput="validateSplitSum()">
+                                <span class="text-xs font-bold text-slate-500 w-24 truncate" title="<?= htmlspecialchars((string)($pc)) ?>"><?= htmlspecialchars((string)($pc)) ?>:</span>
+                                <input type="number" data-category="<?= htmlspecialchars((string)($pc)) ?>" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold cp-split-amount" placeholder="0.00" value="0" oninput="validateSplitSum()">
                             </div>
-                            <div class="flex gap-2 items-center">
-                                <span class="text-xs font-bold text-slate-500 w-24">F & B:</span>
-                                <input type="number" data-category="F&B" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold cp-split-amount" placeholder="0.00" value="0" oninput="validateSplitSum()">
-                            </div>
-                            <div class="flex gap-2 items-center">
-                                <span class="text-xs font-bold text-slate-500 w-24">Laundry:</span>
-                                <input type="number" data-category="Laundry" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold cp-split-amount" placeholder="0.00" value="0" oninput="validateSplitSum()">
-                            </div>
-                            <div class="flex gap-2 items-center">
-                                <span class="text-xs font-bold text-slate-500 w-24">Misc:</span>
-                                <input type="number" data-category="Misc" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold cp-split-amount" placeholder="0.00" value="0" oninput="validateSplitSum()">
-                            </div>
+                            <?php endforeach; ?>
                         </div>
                         <div id="split_validation_msg" class="text-[10px] font-bold text-rose-500 hidden">Allocated sum does not match total amount.</div>
                     </div>
@@ -1022,8 +1026,9 @@ $statusColor = $statusMap[$bookingStatus]['color'];
             catRatePlans: <?= json_encode($catRatePlans) ?>,
             ratePlanName: <?= json_encode($ratePlanName) ?>,
             razorpayKeyId: <?= defined("RAZORPAY_KEY_ID") ? json_encode(RAZORPAY_KEY_ID) : '""' ?>,
-            guestName: <?= json_encode(addslashes($booking["guest_name"])) ?>,
-            guestPhone: <?= json_encode(addslashes($booking["guest_phone"])) ?>
+            guestName: <?= json_encode($booking["guest_name"], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+            guestPhone: <?= json_encode($booking["guest_phone"], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>
+
         };
 
         // Tab Switching Logic

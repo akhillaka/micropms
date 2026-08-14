@@ -44,6 +44,15 @@ class TelegramOperationsHandler {
             return;
         }
 
+        if ($text === '/report') {
+            if ($this->getUserRole($chatId) !== 'admin') {
+                $this->sendMessage($chatId, "Unauthorized. Only admins can request reports.");
+                return;
+            }
+            $this->handleReportCommand($chatId);
+            return;
+        }
+
         // Check if there is an active session state
         $session = $this->getSession($chatId);
         if ($session) {
@@ -644,6 +653,59 @@ class TelegramOperationsHandler {
         $stmt->execute([$chatId]);
     }
 
+    public function broadcast(string $message, int $propertyId, string $role = 'all') {
+        $stmt = $this->db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'TELEGRAM_ROLES'");
+        $stmt->execute([$propertyId]);
+        $rolesJson = $stmt->fetchColumn();
+        if (!$rolesJson) return;
+
+        $roles = json_decode($rolesJson, true);
+        $targetChatIds = [];
+
+        foreach ($roles as $cId => $userRole) {
+            if ($role === 'all' || $userRole === $role) {
+                $targetChatIds[] = (string)$cId;
+            }
+        }
+
+        foreach ($targetChatIds as $cId) {
+            $this->sendMessage($cId, $message);
+        }
+    }
+
+    private function handleReportCommand(string $chatId) {
+        $propertyId = $this->getPropertyIdForChat($chatId);
+        if (!$propertyId) return;
+
+        $this->sendMessage($chatId, "Generating Daily Shift Report...");
+        
+        require_once __DIR__ . '/PdfGenerator.php';
+        $pdfGen = new PdfGenerator();
+        $pdfPath = $pdfGen->generateDailyShiftReport($propertyId);
+        
+        $this->sendDocument($chatId, $pdfPath, "Daily Shift Report");
+        
+        if (file_exists($pdfPath)) {
+            unlink($pdfPath);
+        }
+    }
+
+    private function getUserRole(string $chatId): string {
+        $propertyId = $this->getPropertyIdForChat($chatId);
+        if (!$propertyId) return 'user';
+        
+        $stmt = $this->db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'TELEGRAM_ROLES'");
+        $stmt->execute([$propertyId]);
+        $rolesJson = $stmt->fetchColumn();
+        if ($rolesJson) {
+            $roles = json_decode($rolesJson, true);
+            if (isset($roles[$chatId])) {
+                return $roles[$chatId];
+            }
+        }
+        return 'user';
+    }
+
     // --- Utility Methods ---
 
     private function getPropertyIdForChat(string $chatId): ?int {
@@ -683,6 +745,26 @@ class TelegramOperationsHandler {
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+        $result = curl_exec($ch);
+        curl_close($ch);
+        return $result;
+    }
+
+    private function sendDocument(string $chatId, string $filePath, string $caption = '') {
+        $url = 'https://api.telegram.org/bot' . $this->botToken . '/sendDocument';
+        
+        $cFile = curl_file_create($filePath);
+        $data = [
+            'chat_id' => $chatId,
+            'document' => $cFile,
+            'caption' => $caption
+        ];
+        
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
         $result = curl_exec($ch);
         curl_close($ch);
         return $result;

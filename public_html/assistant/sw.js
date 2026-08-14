@@ -1,25 +1,111 @@
-// Self-destructing Service Worker
-// The offline process has been removed. This script ensures that any browsers
-// that previously installed the service worker will unregister it and clear caches.
+// Service Worker for Hotel Booking Assistant
+const CACHE_NAME = 'assistant-cache-v1';
+const ASSETS = [
+  '/assistant/index.html',
+  '/assistant/manifest.json',
+  '/assistant/css/guest_theme.css',
+  '/assistant/js/app.js',
+  '/assistant/js/voice.js',
+  '/assistant/js/ocr.js',
+  '/assistant/js/voice_commands.js',
+  '/assistant/assets/icon-192.png',
+  '/assistant/assets/icon-512.png'
+];
 
+// Install Event
 self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      // Pre-cache core assets if desired, but don't fail install if they aren't all present
+      return cache.addAll(ASSETS.map(url => new Request(url, { mode: 'no-cors' }))).catch(() => {});
+    })
+  );
   self.skipWaiting();
 });
 
+// Activate Event
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
+    caches.keys().then((keys) => {
       return Promise.all(
-        cacheNames.map((cacheName) => {
-          return caches.delete(cacheName);
+        keys.map((key) => {
+          if (key !== CACHE_NAME) {
+            return caches.delete(key);
+          }
         })
       );
-    }).then(() => {
-      self.registration.unregister();
     })
+  );
+  return self.clients.claim();
+});
+
+// Fetch Event (Network-first fallback to cache for offline capabilities)
+self.addEventListener('fetch', (event) => {
+  // Only intercept GET requests under assistant/
+  if (event.request.method !== 'GET') return;
+  
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        // Clone and save response to cache if successful
+        if (response && response.status === 200) {
+          const cacheCopy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, cacheCopy);
+          });
+        }
+        return response;
+      })
+      .catch(() => {
+        return caches.match(event.request);
+      })
   );
 });
 
-self.addEventListener('fetch', (event) => {
-  // Do nothing, let the browser handle it natively
+// Listen for native OS Push Notifications
+self.addEventListener('push', (event) => {
+  let payload = { title: 'Hotel Assistant Update', message: 'You have a new update.' };
+  if (event.data) {
+    try {
+      payload = event.data.json();
+    } catch (e) {
+      payload = { title: 'Hotel Assistant Update', message: event.data.text() };
+    }
+  }
+
+  const options = {
+    body: payload.message || payload.body || 'New alert in Hotel Assistant',
+    icon: '/assistant/assets/icon-192.png',
+    badge: '/assistant/assets/icon-192.png',
+    vibrate: [100, 50, 100],
+    data: {
+      url: payload.url || '/assistant/index.html'
+    }
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, options)
+  );
+});
+
+// Notification Click Event (opens app window)
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const urlToOpen = new URL(event.notification.data.url, self.location.origin).href;
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Check if there is already a window open with this url/path
+      for (let i = 0; i < windowClients.length; i++) {
+        const client = windowClients[i];
+        if (client.url === urlToOpen && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // If not, open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen);
+      }
+    })
+  );
 });

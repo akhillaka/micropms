@@ -29,7 +29,7 @@ if (isset($_GET['hotelId'])) {
             AuthHelper::setPropertyId($targetId);
         }
     }
-    header('Location: index.php');
+    header('Location: /admin');
     exit;
 }
 
@@ -69,6 +69,12 @@ if ($activePropertyId > 1) {
 
 $hotelName = !empty($propName) ? $propName : (defined('PROPERTY_NAME') ? PROPERTY_NAME : 'MicroPMS');
 $hotelLogo = defined('PROPERTY_LOGO_BASE64') ? PROPERTY_LOGO_BASE64 : '';
+
+// Fetch Deep Clean Frequency setting
+$dcStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'DEEP_CLEAN_FREQ_DAYS' AND property_id = ?");
+$dcStmt->execute([$activePropertyId]);
+$dcVal = $dcStmt->fetchColumn();
+$deepCleanFreqSetting = $dcVal !== false ? (int)$dcVal : (defined('DEEP_CLEAN_FREQ_DAYS') ? DEEP_CLEAN_FREQ_DAYS : 15);
 
 // Fetch all rooms for housekeeping quick list (filtered by property_id)
 $hkStmt = $db->prepare("SELECT r.*, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.property_id = ? ORDER BY r.room_number ASC");
@@ -199,9 +205,9 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                     <p class="text-xs text-slate-500 font-semibold mt-0.5">Property summary for <span class="text-slate-800 font-bold"><?= htmlspecialchars((string)(date('l, d M Y')), ENT_QUOTES, 'UTF-8') ?></span></p>
                 </div>
                 <div class="relative w-full md:w-80">
-                    <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg"></i>
+                    <i class="ph ph-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg"></i>
                     <input type="text" id="dashboard-search" placeholder="Search bookings, guests... (Ctrl+K)"
-                        class="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900 focus:ring-0 focus:shadow-minimal transition-all">
+                        class="w-full bg-white border border-slate-200 rounded-xl py-2.5 !pl-12 pr-4 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900 focus:ring-0 focus:shadow-minimal transition-all">
                 </div>
             </div>
 
@@ -317,6 +323,9 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                         </div>
                         <div class="p-4 space-y-3">
                             <?php foreach ($availabilityData as $avail): ?>
+                            <?php 
+                                $occ_pct = $avail['total'] > 0 ? round(($avail['occupied'] / $avail['total']) * 100) : 0;
+                            ?>
                             <div>
                                 <div class="flex items-center justify-between mb-1">
                                     <span class="text-xs font-bold text-slate-700"><?= htmlspecialchars((string)($avail['name'])) ?></span>
@@ -327,7 +336,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                                     </div>
                                 </div>
                                 <div class="occ-bar">
-                                    <div class="occ-bar-fill <?= htmlspecialchars((string)($avail['occ_pct'] >= 90 ? 'bg-rose-400' : ($avail['occ_pct'] >= 60 ? 'bg-amber-400' : 'bg-emerald-400')), ENT_QUOTES, 'UTF-8') ?>" style="width:<?= htmlspecialchars((string)($avail['occ_pct']), ENT_QUOTES, 'UTF-8') ?>%"></div>
+                                    <div class="occ-bar-fill <?= htmlspecialchars((string)($occ_pct >= 90 ? 'bg-rose-400' : ($occ_pct >= 60 ? 'bg-amber-400' : 'bg-emerald-400')), ENT_QUOTES, 'UTF-8') ?>" style="width:<?= htmlspecialchars((string)($occ_pct), ENT_QUOTES, 'UTF-8') ?>%"></div>
                                 </div>
                             </div>
                             <?php endforeach; ?>
@@ -363,7 +372,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                                 } else {
                                     $badgeColor = 'text-emerald-700 bg-emerald-50 border-emerald-100';
                                 }
-                                $deepCleanFreq = (int)(defined('DEEP_CLEAN_FREQ_DAYS') ? DEEP_CLEAN_FREQ_DAYS : 15);
+                                $deepCleanFreq = $deepCleanFreqSetting;
                                 $needsDeepClean = false;
                                 if ($deepCleanFreq > 0) {
                                     $lastDeepClean = !empty($room['last_deep_clean']) ? strtotime($room['last_deep_clean']) : 0;
@@ -401,7 +410,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
     </div>
 
     <script>
-        const bookingsData = <?= json_encode($allBookings) ?>;
+        const bookingsData = <?= json_encode($allBookings, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
         let currentFilter = 'active';
         let searchQuery = '';
         let searchTimer = null;
@@ -655,7 +664,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
 
         async function quickCheckout(bookingId) {
             const booking = bookingsData.find(b => parseInt(b.id) === parseInt(bookingId));
-            const balance = booking ? parseFloat(booking.ledger_balance) : 0;
+            const balance = (booking && booking.ledger_balance != null) ? parseFloat(booking.ledger_balance) : 0;
             if (balance > 0) {
                 showToast(`Cannot check-out: Guest owes ₹${Math.round(balance)}. Please collect payment from Folio first.`, 'error');
                 return;

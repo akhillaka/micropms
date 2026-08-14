@@ -53,12 +53,30 @@ class PricingEngine {
     private static function getRateDataForHours(int $categoryId, int $hours, ?string $ratePlanName = null): array {
         $db = Database::getInstance()->getConnection();
         
+        // Get property context if available (gracefully fall back if not set)
+        try {
+            require_once __DIR__ . '/AuthHelper.php';
+            $propId = AuthHelper::getPropertyId();
+        } catch (\Throwable $e) {
+            $propId = null;
+        }
+        
         if ($ratePlanName !== null) {
-            $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id AND rate_plan_name = :rate_name AND hours >= :hours ORDER BY hours ASC LIMIT 1");
-            $stmt->execute(['category_id' => $categoryId, 'rate_name' => $ratePlanName, 'hours' => $hours]);
+            if ($propId) {
+                $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id AND rate_plan_name = :rate_name AND hours >= :hours AND property_id = :prop_id ORDER BY hours ASC LIMIT 1");
+                $stmt->execute(['category_id' => $categoryId, 'rate_name' => $ratePlanName, 'hours' => $hours, 'prop_id' => $propId]);
+            } else {
+                $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id AND rate_plan_name = :rate_name AND hours >= :hours ORDER BY hours ASC LIMIT 1");
+                $stmt->execute(['category_id' => $categoryId, 'rate_name' => $ratePlanName, 'hours' => $hours]);
+            }
         } else {
-            $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id AND hours >= :hours ORDER BY hours ASC LIMIT 1");
-            $stmt->execute(['category_id' => $categoryId, 'hours' => $hours]);
+            if ($propId) {
+                $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id AND hours >= :hours AND property_id = :prop_id ORDER BY hours ASC LIMIT 1");
+                $stmt->execute(['category_id' => $categoryId, 'hours' => $hours, 'prop_id' => $propId]);
+            } else {
+                $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id AND hours >= :hours ORDER BY hours ASC LIMIT 1");
+                $stmt->execute(['category_id' => $categoryId, 'hours' => $hours]);
+            }
         }
         
         $row = $stmt->fetch();
@@ -68,11 +86,21 @@ class PricingEngine {
         }
         
         if ($ratePlanName !== null) {
-            $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id AND rate_plan_name = :rate_name ORDER BY hours DESC LIMIT 1");
-            $stmt->execute(['category_id' => $categoryId, 'rate_name' => $ratePlanName]);
+            if ($propId) {
+                $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id AND rate_plan_name = :rate_name AND property_id = :prop_id ORDER BY hours DESC LIMIT 1");
+                $stmt->execute(['category_id' => $categoryId, 'rate_name' => $ratePlanName, 'prop_id' => $propId]);
+            } else {
+                $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id AND rate_plan_name = :rate_name ORDER BY hours DESC LIMIT 1");
+                $stmt->execute(['category_id' => $categoryId, 'rate_name' => $ratePlanName]);
+            }
         } else {
-            $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id ORDER BY hours DESC LIMIT 1");
-            $stmt->execute(['category_id' => $categoryId]);
+            if ($propId) {
+                $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id AND property_id = :prop_id ORDER BY hours DESC LIMIT 1");
+                $stmt->execute(['category_id' => $categoryId, 'prop_id' => $propId]);
+            } else {
+                $stmt = $db->prepare("SELECT price, rate_plan_name FROM sliding_rates WHERE category_id = :category_id ORDER BY hours DESC LIMIT 1");
+                $stmt->execute(['category_id' => $categoryId]);
+            }
         }
         
         $row = $stmt->fetch();

@@ -18,7 +18,9 @@ if (file_exists($envFile)) {
             $value = $matches[2];
         }
         if (!array_key_exists($name, $_SERVER) && !array_key_exists($name, $_ENV)) {
+        if (function_exists('putenv')) {
             putenv(sprintf('%s=%s', $name, $value));
+        }
             $_ENV[$name] = $value;
             $_SERVER[$name] = $value;
         }
@@ -26,10 +28,10 @@ if (file_exists($envFile)) {
 }
 
 // Database Credentials
-define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
-define('DB_NAME', getenv('DB_NAME') ?: 'pms_db');
-define('DB_USER', getenv('DB_USER') ?: 'root');
-define('DB_PASS', getenv('DB_PASS') ?: '');
+define('DB_HOST', getenv('DB_HOST') ?: ($_ENV['DB_HOST'] ?? '127.0.0.1'));
+define('DB_NAME', getenv('DB_NAME') ?: ($_ENV['DB_NAME'] ?? 'pms_db'));
+define('DB_USER', getenv('DB_USER') ?: ($_ENV['DB_USER'] ?? 'root'));
+define('DB_PASS', (getenv('DB_PASS') !== false ? getenv('DB_PASS') : ($_ENV['DB_PASS'] ?? '')));
 
 // Helper to define constant from DB or fallback
 if (!function_exists('define_setting')) {
@@ -37,9 +39,18 @@ if (!function_exists('define_setting')) {
         global $dbConfig;
         if (!defined($key)) {
             // Priority: Database -> Env -> Default
-            $val = $dbConfig[$key] ?? getenv($key) ?: $default;
+            $val = $dbConfig[$key] ?? (getenv($key) !== false && getenv($key) !== '' ? getenv($key) : ($_ENV[$key] ?? $default));
             define($key, $val);
         }
+    }
+}
+
+if (!function_exists('get_db_setting')) {
+    function get_db_setting(\PDO $db, string $keyName, int $propertyId, string $default = ''): string {
+        $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = ? AND property_id = ?");
+        $stmt->execute([$keyName, $propertyId]);
+        $val = $stmt->fetchColumn();
+        return $val !== false ? (string)$val : $default;
     }
 }
 
@@ -144,7 +155,7 @@ if (!function_exists('load_db_settings')) {
         // Sequence Max Limits (Loops back to 1 if exceeded)
         define_setting('SEQ_FOLIO_MAX', 150);
 
-        $stableSecret = getenv('INVOICE_SECRET');
+        $stableSecret = getenv('INVOICE_SECRET') !== false && getenv('INVOICE_SECRET') !== '' ? getenv('INVOICE_SECRET') : ($_ENV['INVOICE_SECRET'] ?? '');
         if (empty($stableSecret)) {
             throw new Exception("CRITICAL ERROR: INVOICE_SECRET environment variable is missing.");
         }

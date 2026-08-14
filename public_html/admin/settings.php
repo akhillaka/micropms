@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
 if (!AuthHelper::can('manage_settings')) {
-    header('Location: index.php');
+    header('Location: /admin');
     exit;
 }
 CsrfToken::checkTimeout();
@@ -27,21 +27,32 @@ $rates = $db->prepare("SELECT s.*, c.name as category_name FROM sliding_rates s 
 $rates->execute([$propId]);
 $rates = $rates->fetchAll();
 
-$pmStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods'");
+$pmStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = ?");
+$pmStmt->execute([$propId]);
 $pmJson = $pmStmt->fetchColumn();
 $paymentMethods = $pmJson ? json_decode($pmJson, true) : [];
 if (empty($paymentMethods)) {
     $paymentMethods = ["Cash", "UPI"];
 }
 
-$incStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'FINANCE_INCOME_CATEGORIES'");
+$pcStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_categories' AND property_id = ?");
+$pcStmt->execute([$propId]);
+$pcJson = $pcStmt->fetchColumn();
+$paymentCategories = $pcJson ? json_decode($pcJson, true) : [];
+if (empty($paymentCategories)) {
+    $paymentCategories = ["Room Revenue", "F&B", "Other"];
+}
+
+$incStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'FINANCE_INCOME_CATEGORIES' AND property_id = ?");
+$incStmt->execute([$propId]);
 $incJson = $incStmt->fetchColumn();
 $incomeCategories = $incJson ? json_decode($incJson, true) : [];
 if (empty($incomeCategories)) {
     $incomeCategories = ["Misc", "F&B", "Laundry", "POS"];
 }
 
-$expStmt = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'FINANCE_EXPENSE_CATEGORIES'");
+$expStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'FINANCE_EXPENSE_CATEGORIES' AND property_id = ?");
+$expStmt->execute([$propId]);
 $expJson = $expStmt->fetchColumn();
 $expenseCategories = $expJson ? json_decode($expJson, true) : [];
 if (empty($expenseCategories)) {
@@ -50,9 +61,13 @@ if (empty($expenseCategories)) {
 
 $isSuperAdminUser = AuthHelper::isSuperAdmin() ? 1 : 0;
 if ($isSuperAdminUser) {
-    $staffUsers = $db->query("SELECT * FROM staff_users ORDER BY created_at DESC")->fetchAll();
+    $suStmt = $db->prepare("SELECT * FROM staff_users WHERE property_id = ? ORDER BY created_at DESC");
+    $suStmt->execute([$propId]);
+    $staffUsers = $suStmt->fetchAll();
 } else {
-    $staffUsers = $db->query("SELECT * FROM staff_users WHERE access_level != 'superadmin' ORDER BY created_at DESC")->fetchAll();
+    $suStmt = $db->prepare("SELECT * FROM staff_users WHERE access_level != 'superadmin' AND property_id = ? ORDER BY created_at DESC");
+    $suStmt->execute([$propId]);
+    $staffUsers = $suStmt->fetchAll();
 }
 
 $currentLogoB64 = defined('PROPERTY_LOGO_BASE64') ? PROPERTY_LOGO_BASE64 : '';
@@ -81,8 +96,13 @@ try {
 
 
 // Current counts
-$roomCount = (int)$db->query("SELECT COUNT(*) FROM rooms WHERE property_id = $propId OR ($propId = 1 AND (property_id IS NULL OR property_id = 0))")->fetchColumn();
-$staffCount = (int)$db->query("SELECT COUNT(*) FROM staff_users WHERE property_id = $propId AND is_active = 1")->fetchColumn();
+$stmtRoomCount = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ? OR (? = 1 AND (property_id IS NULL OR property_id = 0))");
+$stmtRoomCount->execute([$propId, $propId]);
+$roomCount = (int)$stmtRoomCount->fetchColumn();
+
+$stmtStaffCount = $db->prepare("SELECT COUNT(*) FROM staff_users WHERE property_id = ? AND is_active = 1");
+$stmtStaffCount->execute([$propId]);
+$staffCount = (int)$stmtStaffCount->fetchColumn();
 
 require_once __DIR__ . '/../../pms_core/saas_plans.php';
 $plansConfig = SaaSPlans::get($db);
@@ -94,32 +114,35 @@ $planLimits = $plansConfig[$currentPlan] ?? [
     'max_staff' => 5,
 ];
 
-$upsellEnabled = (defined('GUEST_PORTAL_UPSELL_ENABLED') && GUEST_PORTAL_UPSELL_ENABLED === 'true') || ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_UPSELL_ENABLED'")->fetchColumn() === 'true');
-$posEnabled = (defined('GUEST_PORTAL_POS_ENABLED') && GUEST_PORTAL_POS_ENABLED === 'true') || ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_POS_ENABLED'")->fetchColumn() === 'true');
-$selfCheckoutEnabled = (defined('GUEST_PORTAL_SELF_CHECKOUT_ENABLED') && GUEST_PORTAL_SELF_CHECKOUT_ENABLED === 'true') || ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_SELF_CHECKOUT_ENABLED'")->fetchColumn() === 'true');
-$housekeepingEnabled = (defined('GUEST_PORTAL_HOUSEKEEPING_ENABLED') && GUEST_PORTAL_HOUSEKEEPING_ENABLED === 'true') || ($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_HOUSEKEEPING_ENABLED'")->fetchColumn() === 'true');
-$earlyLateFee = floatval($db->query("SELECT key_value FROM system_settings WHERE key_name = 'GUEST_PORTAL_EARLY_LATE_FEE'")->fetchColumn() ?: '0.00');
-
+$upsellEnabled = (defined('GUEST_PORTAL_UPSELL_ENABLED') && GUEST_PORTAL_UPSELL_ENABLED === 'true') || (get_db_setting($db, 'GUEST_PORTAL_UPSELL_ENABLED', $propId) === 'true');
+$posEnabled = (defined('GUEST_PORTAL_POS_ENABLED') && GUEST_PORTAL_POS_ENABLED === 'true') || (get_db_setting($db, 'GUEST_PORTAL_POS_ENABLED', $propId) === 'true');
+$selfCheckoutEnabled = (defined('GUEST_PORTAL_SELF_CHECKOUT_ENABLED') && GUEST_PORTAL_SELF_CHECKOUT_ENABLED === 'true') || (get_db_setting($db, 'GUEST_PORTAL_SELF_CHECKOUT_ENABLED', $propId) === 'true');
+$housekeepingEnabled = (defined('GUEST_PORTAL_HOUSEKEEPING_ENABLED') && GUEST_PORTAL_HOUSEKEEPING_ENABLED === 'true') || (get_db_setting($db, 'GUEST_PORTAL_HOUSEKEEPING_ENABLED', $propId) === 'true');
+$earlyLateFee = floatval(get_db_setting($db, 'GUEST_PORTAL_EARLY_LATE_FEE', $propId, '0.00'));
 // Advanced guest portal settings queries
 $propertyId = AuthHelper::getPropertyId();
-$loyaltyEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_LOYALTY_ENABLED'")->fetchColumn() ?: 'true') === 'true';
-$loyaltyGold = intval($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_LOYALTY_GOLD'")->fetchColumn() ?: '5');
-$loyaltyPlatinum = intval($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_LOYALTY_PLATINUM'")->fetchColumn() ?: '10');
+$loyaltyEnabled = (get_db_setting($db, 'GUEST_PORTAL_LOYALTY_ENABLED', $propertyId, 'true')) === 'true';
+$loyaltyGold = intval(get_db_setting($db, 'GUEST_PORTAL_LOYALTY_GOLD', $propertyId, '5'));
+$loyaltyPlatinum = intval(get_db_setting($db, 'GUEST_PORTAL_LOYALTY_PLATINUM', $propertyId, '10'));
 
-$preArrivalEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_ENABLED'")->fetchColumn() ?: 'true') === 'true';
-$preArrivalSignature = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_SIGNATURE'")->fetchColumn() ?: 'true') === 'true';
-$preArrivalDoc = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_DOC'")->fetchColumn() ?: 'true') === 'true';
+$preArrivalEnabled = (get_db_setting($db, 'GUEST_PORTAL_PRE_ARRIVAL_ENABLED', $propertyId, 'true')) === 'true';
+$preArrivalSignature = (get_db_setting($db, 'GUEST_PORTAL_PRE_ARRIVAL_SIGNATURE', $propertyId, 'true')) === 'true';
+$preArrivalDoc = (get_db_setting($db, 'GUEST_PORTAL_PRE_ARRIVAL_DOC', $propertyId, 'true')) === 'true';
 
-$upsellBreakfastPrice = floatval($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_UPSELL_BREAKFAST_PRICE'")->fetchColumn() ?: '350.00');
-$upsellTransferPrice = floatval($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_UPSELL_TRANSFER_PRICE'")->fetchColumn() ?: '1200.00');
+$upsellBreakfastPrice = floatval(get_db_setting($db, 'GUEST_PORTAL_UPSELL_BREAKFAST_PRICE', $propertyId, '350.00'));
+$upsellTransferPrice = floatval(get_db_setting($db, 'GUEST_PORTAL_UPSELL_TRANSFER_PRICE', $propertyId, '1200.00'));
 
-$otpEnabled = ($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_OTP_ENABLED'")->fetchColumn() ?: 'false') === 'true';
+$waToken = get_db_setting($db, 'WHATSAPP_TOKEN', $propertyId, (defined('WHATSAPP_TOKEN') ? WHATSAPP_TOKEN : ''));
+$waPhoneId = get_db_setting($db, 'WHATSAPP_PHONE_NUMBER_ID', $propertyId, (defined('WHATSAPP_PHONE_NUMBER_ID') ? WHATSAPP_PHONE_NUMBER_ID : ''));
+$waWabaId = get_db_setting($db, 'WHATSAPP_WABA_ID', $propertyId, (defined('WHATSAPP_WABA_ID') ? WHATSAPP_WABA_ID : ''));
+
+$otpEnabled = (get_db_setting($db, 'GUEST_PORTAL_OTP_ENABLED', $propertyId, 'false')) === 'true';
 
 // New guest portal info settings
-$portalWifiSsid        = (string)($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_WIFI_SSID'")->fetchColumn() ?: (defined('PROPERTY_WIFI_NAME') ? PROPERTY_WIFI_NAME : ''));
-$portalWifiPassword    = (string)($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_WIFI_PASSWORD'")->fetchColumn() ?: (defined('PROPERTY_WIFI_PASS') ? PROPERTY_WIFI_PASS : ''));
-$portalHelpDeskNo      = (string)($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_HELP_DESK_NO'")->fetchColumn() ?: '');
-$portalLocalAttractions= (string)($db->query("SELECT key_value FROM system_settings WHERE property_id = $propertyId AND key_name = 'GUEST_PORTAL_LOCAL_ATTRACTIONS'")->fetchColumn() ?: '');
+$portalWifiSsid        = (string)get_db_setting($db, 'GUEST_PORTAL_WIFI_SSID', $propertyId, (defined('PROPERTY_WIFI_NAME') ? PROPERTY_WIFI_NAME : ''));
+$portalWifiPassword    = (string)get_db_setting($db, 'GUEST_PORTAL_WIFI_PASSWORD', $propertyId, (defined('PROPERTY_WIFI_PASS') ? PROPERTY_WIFI_PASS : ''));
+$portalHelpDeskNo      = (string)get_db_setting($db, 'GUEST_PORTAL_HELP_DESK_NO', $propertyId, '');
+$portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACTIONS', $propertyId, '');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -406,19 +429,35 @@ $portalLocalAttractions= (string)($db->query("SELECT key_value FROM system_setti
                     </div>
 
                     <!-- WhatsApp -->
-                    <div class="card-minimal p-5 flex items-center justify-between gap-4">
-                        <div class="flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl bg-success-50 text-success-600 flex items-center justify-center shrink-0">
-                                <i class="ph ph-whatsapp-logo text-2xl"></i>
+                    <div class="card-minimal p-5 flex flex-col gap-4">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 rounded-xl bg-success-50 text-success-600 flex items-center justify-center shrink-0">
+                                    <i class="ph ph-whatsapp-logo text-2xl"></i>
+                                </div>
+                                <div>
+                                    <h2 class="font-bold text-brand-900">WhatsApp Cloud API</h2>
+                                    <p class="text-xs text-brand-900/70">Configure credentials, templates, and quick replies in the WhatsApp settings panel.</p>
+                                </div>
+                            </div>
+                            <a href="<?php echo $adminBaseUrl; ?>automations.php" class="shrink-0 bg-brand-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-brand-800 transition-colors shadow-minimal flex items-center gap-1">
+                                <i class="ph ph-gear"></i> Automations
+                            </a>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-brand-100 pt-4 mt-2">
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Permanent Token</label>
+                                <input type="password" name="WHATSAPP_TOKEN" value="<?= htmlspecialchars((string)($waToken)) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono" placeholder="EAAD... ">
                             </div>
                             <div>
-                                <h2 class="font-bold text-brand-900">WhatsApp Cloud API</h2>
-                                <p class="text-xs text-brand-900/70">Configure credentials, templates, and quick replies in the WhatsApp settings panel.</p>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Phone Number ID</label>
+                                <input type="text" name="WHATSAPP_PHONE_NUMBER_ID" value="<?= htmlspecialchars((string)($waPhoneId)) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">WABA ID</label>
+                                <input type="text" name="WHATSAPP_WABA_ID" value="<?= htmlspecialchars((string)($waWabaId)) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
                             </div>
                         </div>
-                        <a href="modules/whatsapp/whatsapp_automations.php" class="shrink-0 bg-brand-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-brand-800 transition-colors shadow-minimal flex items-center gap-1">
-                            <i class="ph ph-gear"></i> WhatsApp Settings
-                        </a>
                     </div>
 
                     <!-- Google Sheets Sync -->
@@ -505,6 +544,11 @@ $portalLocalAttractions= (string)($db->query("SELECT key_value FROM system_setti
                                 <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Authorized Chat IDs (Comma separated)</label>
                                 <input type="text" name="TELEGRAM_OPERATIONS_CHAT_IDS" value="<?= htmlspecialchars((string)(defined('TELEGRAM_OPERATIONS_CHAT_IDS') ? TELEGRAM_OPERATIONS_CHAT_IDS : '')) ?>" placeholder="e.g. 12345678,87654321" class="w-full bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono">
                                 <p class="text-[9px] text-slate-500 mt-1 font-semibold">Only these IDs can interact with the operations menu. Don't forget to set the webhook to `/api/telegram_webhook.php`.</p>
+                            </div>
+                            <div class="mt-4">
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Telegram Roles (JSON)</label>
+                                <textarea name="TELEGRAM_ROLES" rows="3" class="w-full bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono"><?= htmlspecialchars((string)(defined('TELEGRAM_ROLES') ? TELEGRAM_ROLES : '')) ?></textarea>
+                                <p class="text-[9px] text-slate-500 mt-1 font-semibold">Example: {"12345678": "admin", "87654321": "staff"}. Maps chat IDs to roles. "admin" role is required for /report command.</p>
                             </div>
                         </div>
 
@@ -878,7 +922,29 @@ $portalLocalAttractions= (string)($db->query("SELECT key_value FROM system_setti
                         </div>
                         <button type="button" onclick="addPaymentMethodRow()" class="text-sm font-bold text-brand-accent flex items-center gap-1 hover:bg-brand-accentLight py-2 px-3 rounded-lg mt-4 transition-colors"><i class="ph ph-plus"></i> Add Method</button>
                     </div>
-                    <button type="submit" id="savePmBtn" class="w-full bg-brand-900 text-white font-bold py-4 rounded-xl active:scale-95 transition-transform text-lg flex items-center justify-center gap-2">
+
+                    <div class="card-minimal p-6 mt-6">
+                        <div class="flex items-center gap-3 mb-6 border-b border-brand-100 pb-4">
+                            <div class="w-12 h-12 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                                <i class="ph ph-tag text-2xl"></i>
+                            </div>
+                            <div>
+                                <h2 class="font-bold text-brand-900">Payment Categories</h2>
+                                <p class="text-xs text-brand-900/70">Configure categories for revenue tracking (e.g. Room Revenue, F&B)</p>
+                            </div>
+                        </div>
+                        <div id="pcList" class="space-y-3">
+                            <?php foreach($paymentCategories as $pc): ?>
+                                <div class="flex items-center gap-2">
+                                    <input type="text" name="payment_categories[]" value="<?= htmlspecialchars((string)($pc)) ?>" required class="flex-1 bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-blue-500 font-bold text-brand-900">
+                                    <button type="button" onclick="this.parentElement.remove()" class="w-11 h-11 flex-shrink-0 bg-error-50 text-error-600 rounded-xl flex items-center justify-center hover:bg-error-100"><i class="ph ph-trash text-lg"></i></button>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <button type="button" onclick="addPaymentCategoryRow()" class="text-sm font-bold text-brand-accent flex items-center gap-1 hover:bg-brand-accentLight py-2 px-3 rounded-lg mt-4 transition-colors"><i class="ph ph-plus"></i> Add Category</button>
+                    </div>
+
+                    <button type="submit" id="savePmBtn" class="w-full bg-brand-900 text-white font-bold py-4 rounded-xl active:scale-95 transition-transform text-lg flex items-center justify-center gap-2 mt-6">
                         <i class="ph ph-check-circle text-xl"></i> Save Payment Config
                     </button>
                 </form>
@@ -1260,7 +1326,34 @@ $portalLocalAttractions= (string)($db->query("SELECT key_value FROM system_setti
                             </div>
                         </div>
                     </div>
-
+                    <!-- WhatsApp API Configuration -->
+                    <div class="card-minimal p-5 mt-6">
+                        <div class="flex items-center gap-3 mb-4 border-b border-brand-100 pb-4">
+                            <div class="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center">
+                                <i class="ph ph-whatsapp-logo text-2xl"></i>
+                            </div>
+                            <div>
+                                <h2 class="font-bold text-brand-900">WhatsApp API Integration</h2>
+                                <p class="text-xs text-brand-900/70">Configure Meta Cloud API credentials</p>
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Access Token</label>
+                                <input type="password" name="WHATSAPP_TOKEN" value="<?= htmlspecialchars((string)(defined('WHATSAPP_TOKEN') ? WHATSAPP_TOKEN : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Phone Number ID</label>
+                                    <input type="text" name="WHATSAPP_PHONE_NUMBER_ID" value="<?= htmlspecialchars((string)(defined('WHATSAPP_PHONE_NUMBER_ID') ? WHATSAPP_PHONE_NUMBER_ID : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">WABA ID</label>
+                                    <input type="text" name="WHATSAPP_WABA_ID" value="<?= htmlspecialchars((string)(defined('WHATSAPP_WABA_ID') ? WHATSAPP_WABA_ID : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <button type="submit" id="savePropertyBtn" class="w-full bg-brand-900 text-white font-bold py-4 rounded-xl active:scale-95 transition-transform text-lg flex items-center justify-center gap-2">
                         <i class="ph ph-check-circle text-xl"></i> Save Settings
                     </button>
@@ -1281,7 +1374,7 @@ $portalLocalAttractions= (string)($db->query("SELECT key_value FROM system_setti
                         </div>
                         
                         <?php
-                        $qcJson = defined('FOLIO_QUICK_CHARGES') ? FOLIO_QUICK_CHARGES : '[]';
+                        $qcJson = get_db_setting($db, 'folio_quick_charges', (int)$propId, '[]');
                         $qcArray = json_decode($qcJson, true);
                         if (!is_array($qcArray) || empty($qcArray)) {
                             $qcArray = [
@@ -1295,7 +1388,7 @@ $portalLocalAttractions= (string)($db->query("SELECT key_value FROM system_setti
                             $qcJson = json_encode($qcArray);
                         }
                         ?>
-                        <input type="hidden" id="folio_quick_charges_json" name="FOLIO_QUICK_CHARGES" value="<?= htmlspecialchars((string)($qcJson)) ?>">
+                        <input type="hidden" id="folio_quick_charges_json" name="folio_quick_charges" value="<?= htmlspecialchars((string)($qcJson)) ?>">
                         
                         <div id="quick-charges-list" class="space-y-3">
                             <!-- Injected via JS -->
@@ -1860,16 +1953,21 @@ $portalLocalAttractions= (string)($db->query("SELECT key_value FROM system_setti
                         <label class="block text-xs font-bold text-brand-900/70 mb-1.5 uppercase tracking-wider">Role</label>
                         <div class="relative">
                             <select name="access_level" id="staff_access_level" required class="w-full bg-brand-50 rounded-none border border-brand-200 focus:shadow-minimal transition-all p-3.5 transition-all outline-none font-bold text-brand-900 appearance-none">
-                                <?php if (!empty($customRoles)): ?>
-                                    <optgroup label="Custom Roles">
-                                    <?php foreach ($customRoles as $cr): ?>
-                                        <option value="custom_<?= htmlspecialchars((string)($cr['id']), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($cr['name'])) ?></option>
-                                    <?php endforeach; ?>
-                                    </optgroup>
-                                <?php else: ?>
-                                    <option value="manager">Manager (Front Desk + Operations)</option>
-                                    <option value="housekeeping">Housekeeping (Rooms only)</option>
+                                <optgroup label="System Roles">
                                     <option value="owner">Owner (Full Access)</option>
+                                    <option value="manager">Manager (Front Desk + Operations)</option>
+                                    <option value="receptionist">Receptionist</option>
+                                    <option value="housekeeping">Housekeeping</option>
+                                    <option value="maintenance">Maintenance</option>
+                                    <option value="fb_cashier">F&B Cashier</option>
+                                    <option value="night_auditor">Night Auditor</option>
+                                </optgroup>
+                                <?php if (!empty($customRoles)): ?>
+                                <optgroup label="Custom Roles">
+                                    <?php foreach ($customRoles as $cr): ?>
+                                    <option value="custom_<?= htmlspecialchars((string)($cr['id']), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($cr['name'])) ?></option>
+                                    <?php endforeach; ?>
+                                </optgroup>
                                 <?php endif; ?>
                             </select>
                             <i class="ph ph-caret-down absolute right-4 top-4 text-brand-400 pointer-events-none"></i>
@@ -1909,12 +2007,21 @@ $portalLocalAttractions= (string)($db->query("SELECT key_value FROM system_setti
                     
                     <div>
                         <label class="block text-xs font-bold text-brand-900/70 mb-3 uppercase tracking-wider">Permissions</label>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <?php foreach (AuthHelper::getAllPermissions() as $key => $label): ?>
-                            <label class="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 cursor-pointer transition-all">
-                                <input type="checkbox" name="permissions[]" value="<?= htmlspecialchars((string)($key)) ?>" class="w-5 h-5 accent-indigo-600 rounded">
-                                <span class="text-sm font-bold text-slate-700"><?= htmlspecialchars((string)($label)) ?></span>
-                            </label>
+                        <div class="space-y-6">
+                            <?php foreach (AuthHelper::getGroupedPermissions() as $groupName => $perms): ?>
+                            <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                                <div class="bg-slate-50 px-4 py-2 border-b border-slate-200">
+                                    <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider"><?= htmlspecialchars((string)($groupName)) ?></h4>
+                                </div>
+                                <div class="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <?php foreach ($perms as $key => $label): ?>
+                                    <label class="flex items-center gap-3 p-2 rounded-lg hover:bg-indigo-50/50 cursor-pointer transition-all">
+                                        <input type="checkbox" name="permissions[]" value="<?= htmlspecialchars((string)($key)) ?>" class="w-4 h-4 accent-indigo-600 rounded border-slate-300">
+                                        <span class="text-sm font-medium text-slate-700 select-none"><?= htmlspecialchars((string)($label)) ?></span>
+                                    </label>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
                             <?php endforeach; ?>
                         </div>
                     </div>

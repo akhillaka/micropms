@@ -73,10 +73,35 @@ class AuditLogger {
                 }
             }
 
+            // Fallback to session property_id if omitted (crucial for tenant isolation)
+            if ($propertyId === null && isset($_SESSION['property_id'])) {
+                $propertyId = (int)$_SESSION['property_id'];
+            }
+
+            // If propertyId is missing or 1000 (from assistant super admin), infer from entity
+            if ((empty($propertyId) || $propertyId === 1000) && !empty($entityId)) {
+                if ($entityType === 'BOOKING' || $entityType === 'FOLIO') {
+                    $bStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ?");
+                    $bStmt->execute([(int)$entityId]);
+                    $infProp = $bStmt->fetchColumn();
+                    if ($infProp) $propertyId = (int)$infProp;
+                } elseif ($entityType === 'ROOM') {
+                    $rStmt = $db->prepare("SELECT property_id FROM rooms WHERE id = ?");
+                    $rStmt->execute([(int)$entityId]);
+                    $infProp = $rStmt->fetchColumn();
+                    if ($infProp) $propertyId = (int)$infProp;
+                }
+            }
+
+            // Ultimate fallback to primary property if still null
+            if (empty($propertyId) && isset($_SESSION['primary_property_id'])) {
+                $propertyId = (int)$_SESSION['primary_property_id'];
+            }
+
             $stmt = $db->prepare("INSERT INTO audit_logs (staff_id, property_id, action, entity_type, entity_id, details) VALUES (:staff_id, :property_id, :action, :entity_type, :entity_id, :details)");
             $stmt->execute([
                 'staff_id' => ($staffId !== null && (int)$staffId !== 0) ? (int)$staffId : null,
-                'property_id' => ($propertyId !== null) ? (int)$propertyId : null,
+                'property_id' => ($propertyId !== null && (int)$propertyId !== 0) ? (int)$propertyId : null,
                 'action' => $action,
                 'entity_type' => $entityType,
                 'entity_id' => $entityId !== null ? (int)$entityId : null,

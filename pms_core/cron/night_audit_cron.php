@@ -23,7 +23,9 @@ try {
 
     $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $currentDate = date('Y-m-d');
+    // Use business day date logic (if before 6 AM, it's yesterday)
+    $hour = (int)date('G');
+    $currentDate = ($hour < 6) ? date('Y-m-d', strtotime('-1 day')) : date('Y-m-d');
     $currentTime = date('H:i');
 
     $queuedCount = 0;
@@ -45,18 +47,25 @@ try {
             }
 
             if ($lastRunDate !== $currentDate) {
-                // Queue the night audit job
-                $payload = json_encode([
-                    'job_type' => 'night_audit',
-                    'run_by' => 'system_cron',
-                    'property_id' => $propertyId
-                ]);
-                
-                $queueStmt = $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('night_audit', ?, ?)");
-                $queueStmt->execute([$propertyId, $payload]);
-                
-                echo "Queued Night Audit for Property ID: {$propertyId}\n";
-                $queuedCount++;
+                // Check if it's already queued
+                $checkQueue = $db->prepare("SELECT id FROM jobs_queue WHERE queue_name = 'night_audit' AND property_id = ? AND status = 'pending'");
+                $checkQueue->execute([$propertyId]);
+                if (!$checkQueue->fetch()) {
+                    // Queue the night audit job
+                    $payload = json_encode([
+                        'job_type' => 'night_audit',
+                        'run_by' => 'system_cron',
+                        'property_id' => $propertyId
+                    ]);
+                    
+                    $queueStmt = $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('night_audit', ?, ?)");
+                    $queueStmt->execute([$propertyId, $payload]);
+                    
+                    echo "Queued Night Audit for Property ID: {$propertyId}\n";
+                    $queuedCount++;
+                } else {
+                    echo "Night Audit already queued for Property ID: {$propertyId}\n";
+                }
             }
         }
     }

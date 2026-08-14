@@ -135,7 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
 
-                header("Location: group_dashboard.php");
+                header("Location: /group-dashboard");
                 exit;
             }
         } else {

@@ -127,7 +127,7 @@ if (!$hkEnabled) {
                 const res = await fetch(`${apiBase}?action=list`);
                 const data = await res.json();
                 
-                if (data.status === 'success') {
+                if (data.success === true) {
                     renderBoard(data.data.requests);
                 } else {
                     console.error('Failed to load:', data.message);

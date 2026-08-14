@@ -119,9 +119,11 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('Guest name is required');
         }
 
-        // Check if guest with same mobile number already exists
-        $checkStmt = $db->prepare("SELECT id FROM guests WHERE phone = :phone");
-        $checkStmt->execute(['phone' => $phone]);
+        $propertyId = AuthHelper::getPropertyId();
+
+        // Check if guest with same mobile number already exists FOR THIS PROPERTY
+        $checkStmt = $db->prepare("SELECT id FROM guests WHERE phone = :phone AND property_id = :pid");
+        $checkStmt->execute(['phone' => $phone, 'pid' => $propertyId]);
         $existing = $checkStmt->fetch();
 
         if ($existing) {
@@ -134,7 +136,7 @@ ApiHandler::run(function(\PDO $db) {
                     city = COALESCE(NULLIF(:city, 'Unknown'), city), 
                     state = COALESCE(NULLIF(:state, 'Unknown'), state),
                     email = COALESCE(NULLIF(:email, ''), email)
-                WHERE id = :id
+                WHERE id = :id AND property_id = :pid
             ");
             $updateStmt->execute([
                 'name' => $name,
@@ -142,15 +144,17 @@ ApiHandler::run(function(\PDO $db) {
                 'city' => $city,
                 'state' => $state,
                 'email' => $email,
-                'id' => $guestId
+                'id' => $guestId,
+                'pid' => $propertyId
             ]);
         } else {
             // Create new guest
             $stmt = $db->prepare("
-                INSERT INTO guests (phone, name, age, city, state, email) 
-                VALUES (:phone, :name, :age, :city, :state, :email)
+                INSERT INTO guests (property_id, phone, name, age, city, state, email) 
+                VALUES (:pid, :phone, :name, :age, :city, :state, :email)
             ");
             $stmt->execute([
+                'pid' => $propertyId,
                 'phone' => $phone,
                 'name' => $name,
                 'age' => $age,

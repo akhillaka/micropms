@@ -112,7 +112,7 @@ try {
                 $_SESSION['user_id'] = 0; 
                 $_SESSION['role'] = 'owner';
                 $_SESSION['property_id'] = $pId;
-                header('Location: ../admin/index.php');
+                header('Location: /admin');
                 exit;
             }
         }

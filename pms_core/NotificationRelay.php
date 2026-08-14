@@ -202,7 +202,9 @@ class NotificationRelay {
                     return ['ok' => false, 'error' => $body['description'] ?? "HTTP $httpCode on chat ID $id"];
                 }
             } catch (\Exception $e) {
-                if (isset($ch) && is_resource($ch)) curl_close($ch);
+                if (isset($ch) && $ch !== false && (is_resource($ch) || $ch instanceof \CurlHandle)) {
+                    curl_close($ch);
+                }
                 return ['ok' => false, 'error' => $e->getMessage() . " on chat ID $id"];
             }
         }
@@ -428,10 +430,10 @@ class NotificationRelay {
         }
 
         $stmt = $db->prepare("
-            SELECT a.variable_mapping_json, t.name, t.language, t.components_json 
-            FROM wa_automations a 
-            JOIN wa_templates t ON a.template_id = t.id 
-            WHERE a.event_key = ? AND a.property_id = ? AND a.status = 'active'
+            SELECT a.*, t.name as wa_template_name, t.language as wa_template_language
+            FROM automation_rules a 
+            LEFT JOIN wa_templates t ON a.wa_template_id = t.id 
+            WHERE a.event_key = ? AND a.property_id = ?
         ");
         $stmt->execute([$eventKey, $propertyId]);
         $auto = $stmt->fetch();
@@ -445,13 +447,14 @@ class NotificationRelay {
             'hotel_name' => defined('PROPERTY_NAME') ? PROPERTY_NAME : 'Our Hotel'
         ];
         
+        $guestEmail = '';
         if ($bookingId !== null) {
             $bStmt = $db->prepare("
                 SELECT b.id as db_booking_id, IFNULL(b.display_id, b.id) as booking_id, b.created_at,
                        DATE_FORMAT(b.check_in, '%d %b %Y %h:%i %p') as check_in_date, 
                        DATE_FORMAT(b.check_out, '%d %b %Y %h:%i %p') as check_out_date,
                        b.total_amount, b.booking_status, b.rate_plan_name,
-                       g.name as guest_name, g.phone as guest_phone,
+                       g.name as guest_name, g.phone as guest_phone, g.email as guest_email,
                        r.room_number, c.name as room_type
                 FROM bookings b
                 LEFT JOIN guests g ON b.guest_id = g.id
@@ -477,58 +480,82 @@ class NotificationRelay {
                 
                 // Merge DB context
                 foreach($bData as $k => $v) { $context[$k] = $v; }
-                // Set phone number if not provided
+                // Set phone and email if not provided
                 if (empty($phoneNumber)) {
                     $phoneNumber = (string)$bData['guest_phone'];
                 }
+                $guestEmail = (string)$bData['guest_email'];
             }
         }
         
         // Merge any custom overrides
         foreach($customDataArray as $k => $v) { $context[$k] = $v; }
         
-        if (empty($phoneNumber)) {
-            return false;
-        }
-
         // Canonicalise the phone number for WhatsApp
-        $phoneNumberE164 = PhoneHelper::toE164($phoneNumber);
-        if ($phoneNumberE164 === null) {
-            $phoneNumberE164 = preg_replace('/[^0-9]/', '', $phoneNumber);
-        }
-        if (empty($phoneNumberE164)) {
-            return false;
+        $phoneNumberE164 = null;
+        if (!empty($phoneNumber)) {
+            $phoneNumberE164 = PhoneHelper::toE164($phoneNumber) ?? preg_replace('/[^0-9]/', '', $phoneNumber);
         }
 
-        $mapping = json_decode((string)$auto['variable_mapping_json'], true) ?? [];
-        
-        $params = [];
-        foreach ($mapping as $varIndex => $mappedVarName) {
-            $val = $context[$mappedVarName] ?? $mappedVarName;
-            $params[] = ['type' => 'text', 'text' => (string)$val];
-        }
-        
-        $payload = [
-            'name' => (string)$auto['name'],
-            'language' => ['code' => (string)$auto['language']]
-        ];
-        
-        if (!empty($params)) {
-            $payload['components'] = [['type' => 'body', 'parameters' => $params]];
-        }
-        
         require_once __DIR__ . '/services/QueueService.php';
         $staffId = $_SESSION['user_id'] ?? null;
-        QueueService::push('whatsapp', [
-            'phoneNumber' => $phoneNumberE164,
-            'payload' => $payload,
-            'eventKey' => $eventKey,
-            'templateName' => $auto['name'],
-            'bookingId' => $bookingId,
-            'staffId' => $staffId
-        ]);
-        
-        return true;
+        $anyTriggered = false;
+
+        // 1. WhatsApp Automation
+        if (!empty($auto['is_wa_active']) && !empty($phoneNumberE164) && !empty($auto['wa_template_id'])) {
+            $mapping = json_decode((string)$auto['wa_mapping_json'], true) ?? [];
+            $params = [];
+            foreach ($mapping as $mappedVarName) {
+                $val = $context[$mappedVarName] ?? $mappedVarName;
+                $params[] = ['type' => 'text', 'text' => (string)$val];
+            }
+            
+            $payload = [
+                'name' => (string)$auto['wa_template_name'],
+                'language' => ['code' => (string)$auto['wa_template_language']]
+            ];
+            
+            if (!empty($params)) {
+                $payload['components'] = [['type' => 'body', 'parameters' => $params]];
+            }
+            
+            QueueService::push('whatsapp', [
+                'phoneNumber' => $phoneNumberE164,
+                'payload' => $payload,
+                'eventKey' => $eventKey,
+                'templateName' => $auto['wa_template_name'],
+                'bookingId' => $bookingId,
+                'staffId' => $staffId
+            ], 0, $propertyId);
+            $anyTriggered = true;
+        }
+
+        // 2. Email Automation
+        if (!empty($auto['is_email_active']) && !empty($guestEmail) && !empty($auto['email_body_html'])) {
+            $subject = self::formatTemplate((string)$auto['email_subject'], $context);
+            $body = self::formatTemplate((string)$auto['email_body_html'], $context);
+            
+            $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('email', ?, ?)")
+               ->execute([$propertyId, json_encode([
+                   'to' => $guestEmail,
+                   'subject' => $subject,
+                   'body' => $body
+               ])]);
+            $anyTriggered = true;
+        }
+
+        // 3. Telegram Automation
+        if (!empty($auto['is_telegram_active']) && !empty($auto['telegram_body_text'])) {
+            $body = self::formatTemplate((string)$auto['telegram_body_text'], $context);
+            
+            $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('telegram', ?, ?)")
+               ->execute([$propertyId, json_encode([
+                   'message' => $body
+               ])]);
+            $anyTriggered = true;
+        }
+
+        return $anyTriggered;
     }
 
     /**

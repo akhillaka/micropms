@@ -43,7 +43,7 @@ foreach ($properties as $prop) {
     $auditHour = (int)explode(':', $auditTime)[0];
     $auditMinute = (int)explode(':', $auditTime)[1];
 
-    if ($auditEnabled === 'true' && $currentHour === $auditHour && abs($currentMinute - $auditMinute) < 30) {
+    if ($auditEnabled === 'true' && $currentHour === $auditHour && abs($currentMinute - $auditMinute) < 2) {
         echo "[NIGHT AUDIT] Running night audit for Property {$propId} ({$propName})...\n";
         $audit = new NightAudit($db, $propId);
         $result = $audit->run('cron');
@@ -91,7 +91,7 @@ if ($hour === 23) {
 // ═══════════════════════════════════════════════════════════════
 
 echo "[SWEEP] Checking abandoned holds...\n";
-$sweepStmt = $db->prepare("UPDATE bookings SET payment_status = 'cancelled' 
+$sweepStmt = $db->prepare("UPDATE bookings SET payment_status = 'cancelled', booking_status = 'cancelled' 
                            WHERE payment_status = 'pending_hold' 
                            AND created_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)");
 $sweepStmt->execute();
@@ -130,6 +130,25 @@ foreach ($warnings as $w) {
     } else {
         echo "[PRE-DEPARTURE] Triggered template warning for booking {$w['id']}.\n";
     }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 3.5. POS ABANDONED ORDERS — Pending delivery > 30 mins
+// ═══════════════════════════════════════════════════════════════
+
+echo "[POS ABANDONED] Checking abandoned POS orders...\n";
+$posStmt = $db->prepare("SELECT o.id, o.property_id, r.room_number FROM pos_orders o
+                         JOIN bookings b ON o.booking_id = b.id
+                         JOIN rooms r ON b.room_id = r.id
+                         WHERE o.status = 'paid' AND o.delivery_status = 'pending'
+                         AND o.recorded_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE)");
+$posStmt->execute();
+$abandonedOrders = $posStmt->fetchAll();
+
+foreach ($abandonedOrders as $order) {
+    $msg = "Alert: POS Order #{$order['id']} for Room {$order['room_number']} has been pending delivery for over 30 minutes.";
+    NotificationRelay::sendTelegram($msg, 'system_alert');
+    echo "[POS ABANDONED] Sent alert for order {$order['id']}.\n";
 }
 
 // ═══════════════════════════════════════════════════════════════

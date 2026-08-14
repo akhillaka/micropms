@@ -120,7 +120,8 @@ class DashboardService {
         }
 
         $prices = [];
-        $priceStmtBatch = $this->db->query("SELECT category_id, price FROM sliding_rates WHERE hours = 24");
+        $priceStmtBatch = $this->db->prepare("SELECT category_id, price FROM sliding_rates WHERE hours = 24 AND property_id = :pid");
+        $priceStmtBatch->execute(['pid' => $this->propertyId]);
         foreach ($priceStmtBatch->fetchAll() as $row) {
             $prices[$row['category_id']] = (float)$row['price'];
         }

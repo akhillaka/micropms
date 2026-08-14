@@ -86,6 +86,30 @@ class Database {
             }
         }
     }
+    public function beginTransaction(): bool {
+        if (!$this->conn->inTransaction()) {
+            return $this->conn->beginTransaction();
+        }
+        return false;
+    }
+
+    public function commit(): bool {
+        if ($this->conn->inTransaction()) {
+            return $this->conn->commit();
+        }
+        return false;
+    }
+
+    public function rollback(): bool {
+        if ($this->conn->inTransaction()) {
+            return $this->conn->rollBack();
+        }
+        return false;
+    }
+
+    public function inTransaction(): bool {
+        return $this->conn->inTransaction();
+    }
 }
 
 /**

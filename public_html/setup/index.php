@@ -42,6 +42,7 @@ try {
     }
 } catch (Throwable $e) {
     $dbConnected = false;
+    $setupError = $e->getMessage();
 }
 
 if ($setupComplete) {
@@ -375,7 +376,8 @@ if ($dbConnected) $step = 2;
             <?php else: ?>
                 <div class="db-status error">
                     <i class="ph ph-x-circle check-icon"></i>
-                    Cannot connect to database. Please check your <code>.env</code> file.
+                    Cannot connect to database. Please check your <code>.env</code> file.<br><br>
+                    <strong>Detailed Error:</strong> <?= htmlspecialchars($setupError ?? 'Unknown Error') ?>
                 </div>
             <?php endif; ?>
             <div class="actions">

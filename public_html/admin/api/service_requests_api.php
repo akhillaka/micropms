@@ -12,9 +12,10 @@ ApiHandler::run(function(\PDO $db) {
 
     if ($action === 'list') {
         $stmt = $db->prepare("
-            SELECT gsr.*, b.guest_name, r.room_number 
+            SELECT gsr.*, g.name as guest_name, r.room_number 
             FROM guest_service_requests gsr
             LEFT JOIN bookings b ON gsr.booking_id = b.id
+            LEFT JOIN guests g ON b.guest_id = g.id
             LEFT JOIN rooms r ON b.room_id = r.id
             WHERE gsr.property_id = ? 
               AND (gsr.status != 'completed' OR DATE(gsr.created_at) = CURDATE() OR DATE(gsr.resolved_at) = CURDATE())
@@ -59,4 +60,4 @@ ApiHandler::run(function(\PDO $db) {
     else {
         ApiResponse::error('Invalid action', 400);
     }
-}, true, true, false); // requires admin auth, handles csrf, etc.
+}, true, false, false); // requires admin auth, handles csrf, etc.

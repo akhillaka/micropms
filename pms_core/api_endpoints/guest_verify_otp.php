@@ -19,13 +19,23 @@ if (empty($otp)) {
 
 $sessionOtp = $_SESSION['guest_otp_code'] ?? '';
 $expiry = $_SESSION['guest_otp_expiry'] ?? 0;
+$attempts = $_SESSION['guest_otp_attempts'] ?? 0;
 
 if (empty($sessionOtp) || time() > $expiry) {
     echo json_encode(['success' => false, 'message' => 'OTP has expired. Please request a new one.']);
     exit;
 }
 
+if ($attempts >= 5) {
+    unset($_SESSION['guest_otp_code']);
+    unset($_SESSION['guest_otp_expiry']);
+    unset($_SESSION['guest_otp_attempts']);
+    echo json_encode(['success' => false, 'message' => 'Too many failed attempts. Please request a new OTP.']);
+    exit;
+}
+
 if ($otp !== $sessionOtp) {
+    $_SESSION['guest_otp_attempts'] = $attempts + 1;
     echo json_encode(['success' => false, 'message' => 'Incorrect verification code. Please try again.']);
     exit;
 }

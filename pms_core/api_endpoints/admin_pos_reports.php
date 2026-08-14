@@ -23,6 +23,12 @@ if (!CsrfToken::validate($csrfToken)) {
 $db = Database::getInstance()->getConnection();
 $propertyId = AuthHelper::getPropertyId();
 
+require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
+if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'pos_module')) {
+    echo json_encode(['success' => false, 'message' => 'POS module is not enabled for your subscription.']);
+    exit;
+}
+
 if ($propertyId <= 0) {
     echo json_encode(['success' => false, 'message' => 'Invalid property context.']);
     exit;

@@ -81,6 +81,9 @@ ApiHandler::run(function(\PDO $db) {
         }
     }
 
+    // Sort roomIds ascending to avoid cross-locking deadlocks
+    sort($roomIds);
+
     foreach ($roomIds as $roomId) {
         // Use individual room override if present, otherwise fallback to divided override
         $specificOverride = isset($roomOverrides[$roomId]) ? (float)$roomOverrides[$roomId] : $perRoomOverride;

@@ -1,6 +1,3 @@
-DROP DATABASE IF EXISTS pms_db;
-CREATE DATABASE pms_db;
-USE pms_db;
 SET FOREIGN_KEY_CHECKS=0;
 
 CREATE TABLE IF NOT EXISTS `audit_logs` (
@@ -37,7 +34,9 @@ CREATE TABLE IF NOT EXISTS `city_ledger` (
   `recorded_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `company_id` (`company_id`),
-  CONSTRAINT `city_ledger_company_fk` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+  KEY `booking_id` (`booking_id`),
+  CONSTRAINT `city_ledger_company_fk` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `city_ledger_booking_fk` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB ;
 
 
@@ -81,7 +80,9 @@ CREATE TABLE IF NOT EXISTS `finance_transactions` (
   `payment_method` varchar(50) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `staff_id` (`staff_id`),
-  CONSTRAINT `finance_transactions_ibfk_1` FOREIGN KEY (`staff_id`) REFERENCES `staff_users` (`id`) ON DELETE SET NULL
+  KEY `booking_id` (`booking_id`),
+  CONSTRAINT `finance_transactions_ibfk_1` FOREIGN KEY (`staff_id`) REFERENCES `staff_users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `finance_transactions_booking_fk` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB ;
 
 CREATE TABLE IF NOT EXISTS `folio_ledger` (
@@ -119,18 +120,20 @@ CREATE TABLE IF NOT EXISTS `guests` (
 
 CREATE TABLE IF NOT EXISTS `room_categories` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) NOT NULL DEFAULT 1,
   `name` varchar(50) NOT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `name` (`name`)
+  UNIQUE KEY `property_name_idx` (`property_id`, `name`)
 ) ENGINE=InnoDB ;
 
 CREATE TABLE IF NOT EXISTS `rooms` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) NOT NULL DEFAULT 1,
   `room_number` varchar(10) NOT NULL,
   `category_id` int(11) NOT NULL,
   `state` enum('clean','dirty','out_of_order') DEFAULT 'clean',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `room_number` (`room_number`),
+  UNIQUE KEY `property_room_idx` (`property_id`, `room_number`),
   KEY `category_id` (`category_id`),
   CONSTRAINT `rooms_ibfk_1` FOREIGN KEY (`category_id`) REFERENCES `room_categories` (`id`)
 ) ENGINE=InnoDB ;
@@ -833,7 +836,7 @@ CREATE TABLE IF NOT EXISTS `pos_orders` (
     `status` ENUM('paid', 'posted') NOT NULL DEFAULT 'paid', -- posted if added to folio
     `recorded_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (`property_id`) REFERENCES `properties`(`id`) ON DELETE CASCADE,
-    FOREIGN KEY (`booking_id`) REFERENCES `bookings`(`id`) ON DELETE SET NULL
+    FOREIGN KEY (`booking_id`) REFERENCES `bookings`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `pos_order_items` (
@@ -1271,5 +1274,89 @@ CREATE TABLE IF NOT EXISTS `inventory_restock_history` (
   CONSTRAINT `fk_restock_prop` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_restock_item` FOREIGN KEY (`item_id`) REFERENCES `inventory_items` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `saved_reports` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `dataset` varchar(50) NOT NULL,
+  `columns` text NOT NULL,
+  `filters` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `property_id` (`property_id`),
+  CONSTRAINT `saved_reports_ibfk_1` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `guest_service_requests` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) NOT NULL,
+  `booking_id` int(11) NOT NULL,
+  `service_type` varchar(50) NOT NULL,
+  `status` enum('pending','in_progress','completed') NOT NULL DEFAULT 'pending',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `property_id` (`property_id`),
+  KEY `booking_id` (`booking_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `night_audit_actions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) NOT NULL,
+  `booking_id` int(11) NOT NULL,
+  `issue_type` varchar(50) NOT NULL,
+  `amount` decimal(10,2) DEFAULT 0.00,
+  `description` text DEFAULT NULL,
+  `status` varchar(20) DEFAULT 'pending',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `resolved_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `property_id` (`property_id`),
+  KEY `booking_id` (`booking_id`),
+  CONSTRAINT `fk_night_audit_actions_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_night_audit_actions_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+
+-- Phase 17: Architectural and Enterprise Updates
+ALTER TABLE `properties` ADD COLUMN IF NOT EXISTS `timezone` VARCHAR(50) DEFAULT 'Asia/Kolkata';
+ALTER TABLE `jobs_queue` ADD COLUMN IF NOT EXISTS `dead_letter` TINYINT(1) DEFAULT 0;
+ALTER TABLE `jobs_queue` ADD COLUMN IF NOT EXISTS `error_log` TEXT DEFAULT NULL;
+ALTER TABLE `pos_inventory` ADD COLUMN IF NOT EXISTS `reorder_level` INT(11) DEFAULT 0;
+ALTER TABLE `pos_inventory` ADD COLUMN IF NOT EXISTS `reorder_quantity` INT(11) DEFAULT 0;
+
+
+
+-- Add deleted_at soft-delete column to all relevant tables
+ALTER TABLE `audit_logs` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `bookings` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `city_ledger` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `companies` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `error_logs` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `finance_transactions` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `folio_ledger` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `guests` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `housekeeping_checklist_items` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `housekeeping_logs` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `idempotency_keys` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `login_attempts` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `night_audit_log` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `payment_gateway_configs` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `pos_inventory` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `pos_orders` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `roles` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `room_categories` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `rooms` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `sequence_counters` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `sliding_rates` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `staff_properties` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `staff_users` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `system_settings` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `wa_automations` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `wa_conversations` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `wa_delivery_logs` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `wa_messages` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `wa_templates` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
 
 SET FOREIGN_KEY_CHECKS=1;

@@ -7,6 +7,13 @@ require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('manage_automations');
+    
+    $propertyId = AuthHelper::getPropertyId();
+    require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
+    if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'whatsapp_module')) {
+        ApiResponse::error('WhatsApp module is not enabled for your subscription.', 403);
+    }
+    
     $json = file_get_contents('php://input');
     $data = json_decode($json, true);
     $event_key = $data['event_key'] ?? null;

@@ -321,6 +321,8 @@ CREATE TABLE `jobs_queue` (
   `attempts` int(11) DEFAULT 0,
   `max_attempts` int(11) DEFAULT 3,
   `available_at` datetime DEFAULT current_timestamp(),
+  `dead_letter` tinyint(1) DEFAULT 0,
+  `error_log` text DEFAULT NULL,
   `created_at` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -502,7 +504,7 @@ CREATE TABLE `room_categories` (
   `property_id` int(11) NOT NULL,
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `name` (`name`),
+  UNIQUE KEY `property_name_idx` (`property_id`, `name`),
   KEY `idx_room_cat_property` (`property_id`),
   CONSTRAINT `fk_room_categories_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
   CONSTRAINT `room_categories_ibfk_1` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
@@ -528,7 +530,7 @@ CREATE TABLE `rooms` (
   `property_id` int(11) NOT NULL,
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `room_number` (`room_number`),
+  UNIQUE KEY `property_room_idx` (`property_id`, `room_number`),
   KEY `category_id` (`category_id`),
   KEY `idx_rooms_property` (`property_id`),
   CONSTRAINT `fk_rooms_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
@@ -653,6 +655,17 @@ CREATE TABLE `system_settings` (
   CONSTRAINT `system_settings_ibfk_1` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+CREATE TABLE IF NOT EXISTS admin_notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    property_id INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    type VARCHAR(50) DEFAULT 'info',
+    is_read TINYINT(1) DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX (property_id, is_read, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE `team_invitations` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `property_id` int(11) NOT NULL,
@@ -748,7 +761,7 @@ CREATE TABLE `wa_messages` (
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `conversation_id` (`conversation_id`),
-  KEY `idx_wa_messages_message_id` (`message_id`),
+  UNIQUE KEY `idx_wa_messages_message_id` (`message_id`),
   KEY `idx_wa_messages_status_dir` (`direction`,`status`),
   CONSTRAINT `wa_messages_ibfk_1` FOREIGN KEY (`conversation_id`) REFERENCES `wa_conversations` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -795,5 +808,6 @@ CREATE TABLE `night_audit_actions` (
   PRIMARY KEY (`id`),
   KEY `property_id` (`property_id`),
   KEY `booking_id` (`booking_id`),
-  CONSTRAINT `fk_night_audit_actions_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_night_audit_actions_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_night_audit_actions_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

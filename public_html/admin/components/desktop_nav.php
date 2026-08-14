@@ -5,7 +5,11 @@
  * Works on both mobile and desktop
  */
 ?>
-<?php $adminBaseUrl = substr($_SERVER['SCRIPT_NAME'], 0, strpos($_SERVER['SCRIPT_NAME'], '/admin/') + 7); ?>
+<?php
+// Always use absolute base — SCRIPT_NAME is '/router.php' when served through the router,
+// so dynamic strpos-based detection breaks. Hardcode the admin path.
+$adminBaseUrl = '/admin/';
+?>
 <div class="flex items-center gap-3">
     <!-- Notification Bell -->
     <div class="relative" id="notifications-wrap">
@@ -77,6 +81,7 @@
             <a href="<?php echo $adminBaseUrl; ?>settings.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-gear text-lg text-indigo-500"></i> Property Configuration</a>
             <a href="<?php echo $adminBaseUrl; ?>guest_portal_settings.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-device-mobile text-lg text-amber-500"></i> Guest Portal Banners</a>
             <a href="<?php echo $adminBaseUrl; ?>settings.php?tab=roles" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-shield-check text-lg text-indigo-500"></i> Staff & Roles</a>
+            <a href="<?php echo $adminBaseUrl; ?>automations.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-paper-plane-tilt text-lg text-blue-500"></i> Notification Automations</a>
         <?php endif; ?>
         
         <!-- System Section -->
@@ -104,40 +109,60 @@
 </div>
 
 <script>
+    let desktopMenuCloseHandler = null;
+
     function toggleDesktopMenu() {
         const menu = document.getElementById('desktop-menu');
         const isHidden = menu.classList.contains('hidden');
         
+        if (desktopMenuCloseHandler) {
+            document.removeEventListener('click', desktopMenuCloseHandler);
+            desktopMenuCloseHandler = null;
+        }
+
         if (isHidden) {
             menu.classList.remove('hidden');
             // Close on outside click
-            const closeHandler = (e) => {
+            desktopMenuCloseHandler = (e) => {
                 if (!e.target.closest('#desktop-menu-wrap')) {
                     menu.classList.add('hidden');
-                    document.removeEventListener('click', closeHandler);
+                    if (desktopMenuCloseHandler) {
+                        document.removeEventListener('click', desktopMenuCloseHandler);
+                        desktopMenuCloseHandler = null;
+                    }
                 }
             };
-            setTimeout(() => document.addEventListener('click', closeHandler), 10);
+            setTimeout(() => document.addEventListener('click', desktopMenuCloseHandler), 10);
         } else {
             menu.classList.add('hidden');
         }
     }
 
+    let notificationsCloseHandler = null;
+
     function toggleNotifications() {
         const menu = document.getElementById('notifications-menu');
         const isHidden = menu.classList.contains('hidden');
         
+        if (notificationsCloseHandler) {
+            document.removeEventListener('click', notificationsCloseHandler);
+            notificationsCloseHandler = null;
+        }
+
         if (isHidden) {
             menu.classList.remove('hidden');
             fetchNotifications();
             // Close on outside click
-            const closeHandler = (e) => {
+            notificationsCloseHandler = (e) => {
                 if (!e.target.closest('#notifications-wrap')) {
                     menu.classList.add('hidden');
-                    document.removeEventListener('click', closeHandler);
+                    if (notificationsCloseHandler) {
+                        document.removeEventListener('click', notificationsCloseHandler);
+                        notificationsCloseHandler = null;
+                    }
                 }
             };
-            setTimeout(() => document.addEventListener('click', closeHandler), 10);
+            setTimeout(() => document.addEventListener('click', notificationsCloseHandler), 10);
         } else {
             menu.classList.add('hidden');
         }
@@ -181,7 +206,15 @@
 
     let lastMaxNotifId = null;
 
+    // XSS-safe HTML escaping helper for dynamic content
+    function escHtml(str) {
+        const d = document.createElement('div');
+        d.textContent = String(str ?? '');
+        return d.innerHTML;
+    }
+
     function fetchNotifications() {
+
         fetch('<?php echo $adminBaseUrl; ?>api/notifications.php?action=list')
             .then(res => res.json())
             .then(data => {
@@ -200,6 +233,15 @@
                         return;
                     }
                     
+                    const getNotificationLink = (nType) => {
+                        if (nType === 'service_request' || nType === 'housekeeping') {
+                            return '<?php echo $adminBaseUrl; ?>modules/housekeeping/service_requests.php';
+                        } else if (nType === 'booking') {
+                            return '<?php echo $adminBaseUrl; ?>index.php';
+                        }
+                        return '#';
+                    };
+
                     // Filter unread notification IDs
                     const unreadNotifications = data.notifications.filter(n => n.is_read == 0);
                     if (unreadNotifications.length > 0) {
@@ -208,8 +250,20 @@
                             playNotificationSound();
                             // Find the new notification to show a toast
                             const latestNotif = unreadNotifications.find(n => parseInt(n.id) === maxUnreadId);
-                            if (latestNotif && typeof showToast === 'function') {
-                                showToast(`New Alert: ${latestNotif.title}`, 'info');
+                            if (latestNotif) {
+                                const notifLink = getNotificationLink(latestNotif.type);
+                                if (typeof showToast === 'function') {
+                                    showToast(`New Alert: ${latestNotif.title}`, 'info', 4200, notifLink !== '#' ? notifLink : null);
+                                }
+                                if ('Notification' in window && Notification.permission === 'granted') {
+                                    const nativeNotif = new Notification(latestNotif.title, { body: latestNotif.message });
+                                    nativeNotif.onclick = () => {
+                                        window.focus();
+                                        if (notifLink && notifLink !== '#') {
+                                            window.location.href = notifLink;
+                                        }
+                                    };
+                                }
                             }
                         }
                         lastMaxNotifId = maxUnreadId;
@@ -217,16 +271,37 @@
                         lastMaxNotifId = 0;
                     }
                     
-                    list.innerHTML = data.notifications.map(n => `
-                        <div class="px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer ${n.is_read == 0 ? 'bg-slate-50 border-l-2 border-brand-500' : ''}" onclick="markNotificationRead(${n.id})">
-                            <h4 class="text-sm font-bold text-slate-800">${n.title}</h4>
-                            <p class="text-xs text-slate-500 mt-1 line-clamp-2">${n.message}</p>
-                            <span class="text-[10px] text-slate-400 mt-2 block">${new Date(n.created_at).toLocaleString()}</span>
+                    list.innerHTML = data.notifications.map(n => {
+                        let icon = 'ph-bell';
+                        let color = 'text-brand-500';
+                        if (n.type === 'housekeeping') { icon = 'ph-broom'; color = 'text-amber-500'; }
+                        else if (n.type === 'booking') { icon = 'ph-calendar-check'; color = 'text-emerald-500'; }
+                        else if (n.type === 'system' || n.type === 'error') { icon = 'ph-warning'; color = 'text-red-500'; }
+                        else if (n.type === 'warning') { icon = 'ph-warning-circle'; color = 'text-amber-500'; }
+                        else if (n.type === 'success') { icon = 'ph-check-circle'; color = 'text-emerald-500'; }
+                        
+                        const link = getNotificationLink(n.type);
+                        
+                        return `
+                        <div class="px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer flex items-start gap-3 ${n.is_read == 0 ? 'bg-slate-50 border-l-2 border-brand-500' : ''}" onclick="handleNotificationClick(${n.id}, '${escHtml(link)}')">
+                            <div class="mt-0.5"><i class="ph ${icon} ${color} text-lg"></i></div>
+                            <div>
+                                <h4 class="text-sm font-bold text-slate-800">${escHtml(n.title)}</h4>
+                                <p class="text-xs text-slate-500 mt-1 line-clamp-2">${escHtml(n.message)}</p>
+                                <span class="text-[10px] text-slate-400 mt-2 block">${new Date(n.created_at).toLocaleString()}</span>
+                            </div>
                         </div>
-                    `).join('');
+                    `}).join('');
                 }
             });
     }
+
+    // Request Native Notification Permission
+    document.addEventListener('DOMContentLoaded', () => {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    });
 
     function markNotificationRead(id) {
         const fd = new FormData();
@@ -235,6 +310,13 @@
             method: 'POST',
             body: fd
         }).then(() => fetchNotifications());
+    }
+
+    function handleNotificationClick(id, link) {
+        markNotificationRead(id);
+        if (link && link !== '#') {
+            window.location.href = link;
+        }
     }
 
     function markAllNotificationsRead() {
@@ -253,8 +335,8 @@
         });
     }
 
-    // Auto-poll notifications every 60 seconds
-    setInterval(fetchNotifications, 60000);
+    // Auto-poll notifications every 10 seconds
+    setInterval(fetchNotifications, 10000);
     // Initial fetch
     setTimeout(fetchNotifications, 1000);
 </script>

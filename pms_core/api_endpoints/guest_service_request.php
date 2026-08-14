@@ -23,7 +23,7 @@ ApiHandler::run(function(\PDO $db) {
     }
     
     // Validate booking
-    $stmt = $db->prepare("SELECT id, property_id, room_id, guest_id FROM bookings WHERE id = ? AND booking_status = 'checked_in'");
+    $stmt = $db->prepare("SELECT b.id, b.property_id, b.room_id, b.guest_id, r.room_number FROM bookings b LEFT JOIN rooms r ON b.room_id = r.id WHERE b.id = ? AND b.booking_status = 'checked_in'");
     $stmt->execute([$bookingId]);
     $booking = $stmt->fetch(PDO::FETCH_ASSOC);
     
@@ -32,6 +32,11 @@ ApiHandler::run(function(\PDO $db) {
     }
     
     $propertyId = (int)$booking['property_id'];
+    
+    require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
+    if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'housekeeping_module')) {
+        ApiResponse::error('Service requests are not enabled for this property.', 403);
+    }
 
     if ($action === 'create') {
         $serviceType = $data['service_type'] ?? '';
@@ -46,6 +51,11 @@ ApiHandler::run(function(\PDO $db) {
         if ($serviceType === 'Housekeeping') {
             $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?")->execute([$booking['room_id']]);
         }
+        
+        // Notify PMS dashboard
+        $roomNum = $booking['room_number'] ?? 'Unknown';
+        $db->prepare("INSERT INTO admin_notifications (property_id, type, title, message) VALUES (?, 'service_request', ?, ?)")
+           ->execute([$propertyId, 'New Service Request', "Guest in Room {$roomNum} requested {$serviceType}."]);
         
         AuditLogger::log(0, 'PORTAL_SERVICE_REQUEST', 'BOOKING', $bookingId, [
             'service_type' => $serviceType

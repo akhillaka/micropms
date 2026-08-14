@@ -79,9 +79,17 @@ $stmtGuests->execute();
 $guests = $stmtGuests->fetchAll(PDO::FETCH_ASSOC);
 
 // Top Metrics
-$totalGuestsAll = $db->query("SELECT COUNT(DISTINCT guest_id) FROM bookings WHERE property_id = " . (int)$propertyId)->fetchColumn();
-$totalSpentAll = $db->query("SELECT SUM(total_amount) FROM bookings WHERE property_id = " . (int)$propertyId . " AND booking_status != 'cancelled'")->fetchColumn();
-$returningGuests = $db->query("SELECT COUNT(*) FROM (SELECT guest_id FROM bookings WHERE property_id = " . (int)$propertyId . " GROUP BY guest_id HAVING COUNT(id) > 1) as t")->fetchColumn();
+$stmtTg = $db->prepare("SELECT COUNT(DISTINCT guest_id) FROM bookings WHERE property_id = ?");
+$stmtTg->execute([(int)$propertyId]);
+$totalGuestsAll = $stmtTg->fetchColumn();
+
+$stmtTs = $db->prepare("SELECT SUM(total_amount) FROM bookings WHERE property_id = ? AND booking_status != 'cancelled'");
+$stmtTs->execute([(int)$propertyId]);
+$totalSpentAll = $stmtTs->fetchColumn();
+
+$stmtRg = $db->prepare("SELECT COUNT(*) FROM (SELECT guest_id FROM bookings WHERE property_id = ? GROUP BY guest_id HAVING COUNT(id) > 1) as t");
+$stmtRg->execute([(int)$propertyId]);
+$returningGuests = $stmtRg->fetchColumn();
 $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll) * 100) : 0;
 ?>
 <!DOCTYPE html>
@@ -149,8 +157,8 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
                 <div class="flex-1">
                     <label class="block text-[10px] font-bold text-brand-500 uppercase tracking-wider mb-1">Search Guest</label>
                     <div class="relative">
-                        <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-brand-400 text-lg"></i>
-                        <input type="text" name="search" id="live-search" autocomplete="off" value="<?= htmlspecialchars((string)($search)) ?>" placeholder="Name, phone, or email..." class="w-full bg-brand-50 border border-brand-200 pl-10 pr-3 py-2.5 rounded-xl text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
+                        <i class="ph ph-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-brand-400 text-lg"></i>
+                        <input type="text" name="search" id="live-search" autocomplete="off" value="<?= htmlspecialchars((string)($search)) ?>" placeholder="Name, phone, or email..." class="w-full bg-brand-50 border border-brand-200 !pl-12 pr-3 py-2.5 rounded-xl text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
                         <div id="search-dropdown" class="absolute left-0 right-0 top-full mt-1 bg-white border border-brand-200 rounded-xl shadow-lg z-50 hidden max-h-60 overflow-y-auto divide-y divide-brand-100"></div>
                     </div>
                 </div>

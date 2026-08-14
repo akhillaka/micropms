@@ -8,6 +8,14 @@ require_once __DIR__ . '/../../pms_core/Database.php';
 header('Content-Type: application/json');
 
 $db     = Database::getInstance()->getConnection();
+$propertyId = AuthHelper::getPropertyId();
+
+require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
+if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'whatsapp_module')) {
+    echo json_encode(['success' => false, 'message' => 'WhatsApp module is not enabled.']);
+    exit;
+}
+
 $action = $_GET['action'] ?? 'list';
 
 // ── List conversations ────────────────────────────────────────────────────────

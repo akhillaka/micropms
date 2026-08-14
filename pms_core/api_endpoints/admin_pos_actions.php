@@ -8,14 +8,17 @@ require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 
 ApiHandler::run(function(\PDO $db) {
+    AuthHelper::requireLogin();
+    
+    // Add Entitlement Check
+    require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
     $propertyId = AuthHelper::getPropertyId();
-
-    if ($propertyId <= 0) {
-        ApiResponse::error('Invalid property context.');
+    if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'pos_module')) {
+        ApiResponse::error('POS module is not enabled for your subscription.', 403);
     }
-
-$data = json_decode(file_get_contents('php://input'), true);
-$action = $data['action'] ?? '';
+    
+    $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    $action = $data['action'] ?? $_GET['action'] ?? '';
 
     if (empty($action)) {
         ApiResponse::error('Missing action parameter.');
@@ -161,12 +164,61 @@ try {
             throw new Exception("Invalid order status update.");
         }
 
-        $up = $db->prepare("UPDATE pos_orders SET delivery_status = ? WHERE id = ? AND property_id = ?");
-        $up->execute([$status, $orderId, $propertyId]);
+        $db->beginTransaction();
+
+        $stmt = $db->prepare("SELECT * FROM pos_orders WHERE id = ? AND property_id = ? FOR UPDATE");
+        $stmt->execute([$orderId, $propertyId]);
+        $order = $stmt->fetch();
+        if (!$order) throw new Exception("Order not found.");
+
+        if ($status === 'cancelled' && $order['delivery_status'] !== 'cancelled') {
+            if (!AuthHelper::can('void_pos_order')) throw new Exception("Unauthorized to void orders.");
+
+            // 1. Restock items
+            $stmtItems = $db->prepare("SELECT item_id, quantity FROM pos_order_items WHERE order_id = ?");
+            $stmtItems->execute([$orderId]);
+            $oldItems = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
+
+            $addStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty + ? WHERE id = ?");
+            foreach ($oldItems as $oi) {
+                $addStock->execute([$oi['quantity'], $oi['item_id']]);
+            }
+
+            // 2. Locate and Delete financial records
+            $oldFolioId = null;
+            $oldFinanceId = null;
+            $oldMethod = $order['payment_method'];
+            $oldTotal = (float)$order['total_amount'];
+            $bookingId = $order['booking_id'];
+
+            if ($oldMethod === 'room_charge' && $bookingId) {
+                $stmtF = $db->prepare("SELECT id FROM folio_ledger WHERE booking_id = ? AND amount = ? AND (description LIKE '%POS Sales charge%' OR description LIKE '%Order #{$orderId}%') ORDER BY id DESC LIMIT 1");
+                $stmtF->execute([$bookingId, $oldTotal]);
+                $row = $stmtF->fetch();
+                if ($row) $oldFolioId = $row['id'];
+            } else {
+                $stmtF = $db->prepare("SELECT id FROM finance_transactions WHERE description LIKE ? AND amount = ? ORDER BY id DESC LIMIT 1");
+                $stmtF->execute(["%Order #{$orderId}%", $oldTotal]);
+                $row = $stmtF->fetch();
+                if ($row) $oldFinanceId = $row['id'];
+            }
+
+            if ($oldFolioId) {
+                $db->prepare("DELETE FROM folio_ledger WHERE id = ? AND property_id = ?")->execute([$oldFolioId, $propertyId]);
+            }
+            if ($oldFinanceId) {
+                $db->prepare("DELETE FROM finance_transactions WHERE id = ? AND property_id = ?")->execute([$oldFinanceId, $propertyId]);
+            }
+        }
+
+        $up = $db->prepare("UPDATE pos_orders SET delivery_status = ?, status = IF(? = 'cancelled', 'cancelled', status) WHERE id = ? AND property_id = ?");
+        $up->execute([$status, $status, $orderId, $propertyId]);
 
         AuditLogger::log((int)$_SESSION['user_id'], 'POS_ORDER_STATUS_UPDATE', 'POS_ORDER', $orderId, [
             'delivery_status' => $status
         ], $propertyId);
+
+        $db->commit();
 
         echo json_encode(['success' => true, 'message' => "Order marked as {$status}."]);
         exit;
@@ -317,6 +369,9 @@ try {
         $deductStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty - ? WHERE id = ?");
         $insLine = $db->prepare("INSERT INTO pos_order_items (order_id, item_id, quantity, price_per_unit) VALUES (?, ?, ?, ?)");
 
+        // Sort items by ID to prevent MySQL deadlocks during FOR UPDATE locking
+        usort($items, fn($a, $b) => (int)$a['id'] <=> (int)$b['id']);
+
         foreach ($items as $cartItem) {
             $itemId = (int)$cartItem['id'];
             $qty = (int)$cartItem['quantity'];
@@ -339,6 +394,9 @@ try {
             $insLine->execute([$orderId, $itemId, $qty, $pricePerUnit]);
             $deductStock->execute([$qty, $itemId]);
         }
+
+        $totalAmount -= $discount;
+        if ($totalAmount < 0) $totalAmount = 0.0;
 
         // 5. Update pos_order
         $db->prepare("UPDATE pos_orders SET total_amount = ?, payment_method = ?, delivery_status = ? WHERE id = ?")->execute([$totalAmount, $method, $status, $orderId]);
@@ -451,6 +509,9 @@ try {
         $totalAmount = 0.0;
         $validatedItems = [];
 
+        // Sort items by ID to prevent MySQL deadlocks during FOR UPDATE locking
+        usort($items, fn($a, $b) => (int)$a['id'] <=> (int)$b['id']);
+
         foreach ($items as $cartItem) {
             $itemId = (int)$cartItem['id'];
             $qty = (int)$cartItem['quantity'];
@@ -477,6 +538,9 @@ try {
                 'price_per_unit' => $pricePerUnit
             ];
         }
+
+        $totalAmount -= $discount;
+        if ($totalAmount < 0) $totalAmount = 0.0;
 
         // 2. Insert POS Order record
         $status = ($method === 'room_charge') ? 'posted' : 'paid';

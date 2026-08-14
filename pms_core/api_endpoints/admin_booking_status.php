@@ -12,7 +12,7 @@ ApiHandler::run(function(\PDO $db) {
 
     $data = json_decode(file_get_contents('php://input'), true);
     $action = $data['action'] ?? null;
-    $bookingId = $data['booking_id'] ?? null;
+    $bookingId = isset($data['booking_id']) ? (string)$data['booking_id'] : null;
     $reason = $data['reason'] ?? '';
 
     if (!$action || !$bookingId) {
@@ -29,7 +29,7 @@ ApiHandler::run(function(\PDO $db) {
 
     $propertyId = AuthHelper::getPropertyId();
 
-    $stmt = $db->prepare("SELECT * FROM bookings WHERE id = :id AND property_id = :pid");
+    $stmt = $db->prepare("SELECT * FROM bookings WHERE id = :id AND property_id = :pid FOR UPDATE");
     $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
     $booking = $stmt->fetch();
 
@@ -47,10 +47,7 @@ ApiHandler::run(function(\PDO $db) {
         $stmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = :id AND property_id = :pid");
         $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
 
-        // BUG-3 fix: mark room as occupied on check-in
-        $occupyStmt = $db->prepare("UPDATE rooms SET state = 'occupied' WHERE id = :rid AND property_id = :pid");
-        $occupyStmt->execute(['rid' => $booking['room_id'], 'pid' => $propertyId]);
-
+        // Removed buggy update rooms state to occupied
         AuditLogger::log($_SESSION['user_id'] ?? null, 'CHECK_IN', 'BOOKING', $bookingId, [
             'action' => 'check_in',
             'from_status' => $currentStatus,
@@ -200,9 +197,19 @@ ApiHandler::run(function(\PDO $db) {
         if (empty($reason)) {
             throw new Exception("Reason is required for rollback");
         }
+
+        // Check if room is already occupied by another booking
+        $checkStmt = $db->prepare("SELECT id FROM bookings WHERE room_id = :room_id AND booking_status = 'checked_in' AND id != :id AND property_id = :pid");
+        $checkStmt->execute(['room_id' => $booking['room_id'], 'id' => $bookingId, 'pid' => $propertyId]);
+        if ($checkStmt->fetch()) {
+            throw new Exception("Cannot rollback: Room is currently occupied by another active booking.");
+        }
+
         // BUG-2 fix: scope UPDATE to property
         $stmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = :id AND property_id = :pid");
         $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
+
+        // Mark room as occupied again (Occupancy status is dynamic, no need to update rooms.state to invalid value)
         AuditLogger::log($_SESSION['user_id'] ?? null, 'ROLLBACK_TO_CHECKED_IN', 'BOOKING', $bookingId, [
             'action' => 'rollback_to_checked_in',
             'from_status' => $currentStatus,
@@ -234,6 +241,24 @@ ApiHandler::run(function(\PDO $db) {
         // BUG-2 fix: scope UPDATE to property
         $stmt = $db->prepare("UPDATE bookings SET booking_status = 'cancelled', payment_status = 'cancelled' WHERE id = :id AND property_id = :pid");
         $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
+
+        // Clean up pending background jobs related to this booking
+        $db->prepare("DELETE FROM jobs_queue WHERE property_id = :pid AND status = 'pending' AND JSON_EXTRACT(payload_json, '$.booking_id') = :id")
+           ->execute(['pid' => $propertyId, 'id' => $bookingId]);
+
+        // Void any unfulfilled POS orders and refund stock
+        $posStmt = $db->prepare("SELECT id FROM pos_orders WHERE booking_id = :id AND status IN ('posted', 'pending') AND property_id = :pid");
+        $posStmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
+        $activePosOrders = $posStmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (!empty($activePosOrders)) {
+            $updatePos = $db->prepare("UPDATE pos_orders SET status = 'cancelled' WHERE id = ?");
+            $restock = $db->prepare("UPDATE inventory_items ii JOIN pos_order_items poi ON ii.id = poi.item_id SET ii.stock_qty = ii.stock_qty + poi.quantity WHERE poi.order_id = ?");
+            foreach ($activePosOrders as $oid) {
+                $restock->execute([$oid]);
+                $updatePos->execute([$oid]);
+            }
+        }
 
         // Do NOT delete folio entries — preserve the ledger trail for audit.
         // If payments were collected, staff must manually process refund.
