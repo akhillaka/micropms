@@ -14,7 +14,42 @@ public_html/*.log
 
 # Local/Session test files
 cookie.txt
+cookies.txt
+csrf.txt
 test_session_setup.txt
+dump_db.php
+query.php
+fix_db.php
+rewrite_finance.php
+fix_admin_notifications.php
+setup_audit_table.php
+pms_core/patch_constraints.php
+pms_core/add_signature_col.php
+deployment.zip
+current_schema.sql
+output.html
+*.bak
+posCheckout*.txt
+pos_changes*.txt
+pos_checkout_code.txt
+appjs_lost_code.txt
+test_finance.html
+test_finance.php
+public_html/test_finance.php
+public_html/test_api.php
+public_html/debug.php
+test_night_audit.php
+test_night_audit_full.php
+test_settings.php
+
+# Python cache
+__pycache__/
+*.pyc
+
+# FPDF extras (runtime is fpdf.php + font/)
+pms_core/libs/doc/
+pms_core/libs/tutorial/
+pms_core/libs/makefont/
 
 # OS metadata
 .DS_Store
@@ -23,3 +58,5 @@ Thumbs.db
 # User Uploads
 public_html/uploads/*
 !public_html/uploads/.gitkeep
+pms_core/uploads/*
+!pms_core/uploads/.gitkeep
