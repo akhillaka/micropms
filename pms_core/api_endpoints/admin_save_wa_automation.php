@@ -28,6 +28,10 @@ ApiHandler::run(function(\PDO $db) {
     if (empty($template_id)) {
         $stmt = $db->prepare("DELETE FROM wa_automations WHERE event_key = ? AND property_id = ?");
         $stmt->execute([$event_key, $propertyId]);
+        try {
+            $db->prepare("UPDATE automation_rules SET is_wa_active = 0, wa_template_id = NULL WHERE event_key = ? AND property_id = ?")
+               ->execute([$event_key, $propertyId]);
+        } catch (\Throwable $e) {}
     } else {
         $mappingJson = json_encode($mapping);
         $stmt = $db->prepare("
@@ -36,6 +40,17 @@ ApiHandler::run(function(\PDO $db) {
             ON DUPLICATE KEY UPDATE template_id = VALUES(template_id), variable_mapping_json = VALUES(variable_mapping_json), status = VALUES(status), updated_at = NOW()
         ");
         $stmt->execute([$propertyId, $event_key, $template_id, $mappingJson, $status]);
+
+        try {
+            $sync = $db->prepare("
+                INSERT INTO automation_rules (property_id, event_key, is_wa_active, wa_template_id, wa_mapping_json)
+                VALUES (?, ?, 1, ?, ?)
+                ON DUPLICATE KEY UPDATE is_wa_active = 1, wa_template_id = VALUES(wa_template_id), wa_mapping_json = VALUES(wa_mapping_json)
+            ");
+            $sync->execute([$propertyId, $event_key, $template_id, $mappingJson]);
+        } catch (\Throwable $e) {
+            error_log('Failed to sync wa_automations into automation_rules: ' . $e->getMessage());
+        }
     }
 
     AuditLogger::log($_SESSION['user_id'] ?? null, empty($template_id) ? 'DELETE_WA_AUTOMATION' : 'SAVE_WA_AUTOMATION', 'SYSTEM', null, [

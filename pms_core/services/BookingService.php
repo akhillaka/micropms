@@ -202,11 +202,21 @@ class BookingService {
                 $phoneStmt = $db->prepare("SELECT phone FROM guests WHERE id = ? AND property_id = ?");
                 $phoneStmt->execute([$guestId, $propertyId]);
                 $guestPhone = $phoneStmt->fetchColumn();
-                if ($guestPhone) {
-                    NotificationRelay::triggerAutomation('booking_confirmed', PhoneHelper::toE164($guestPhone), $bookingId);
-                    if ($bookingStatus === 'checked_in') {
-                        NotificationRelay::triggerAutomation('guest_check_in', PhoneHelper::toE164($guestPhone), $bookingId);
-                    }
+                NotificationRelay::triggerAutomation(
+                    'booking_confirmed',
+                    $guestPhone ? PhoneHelper::toE164((string)$guestPhone) : null,
+                    $bookingId,
+                    [],
+                    $propertyId
+                );
+                if ($bookingStatus === 'checked_in') {
+                    NotificationRelay::triggerAutomation(
+                        'guest_check_in',
+                        $guestPhone ? PhoneHelper::toE164((string)$guestPhone) : null,
+                        $bookingId,
+                        [],
+                        $propertyId
+                    );
                 }
 
                 // Telegram alert to staff for every new booking

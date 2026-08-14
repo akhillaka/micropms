@@ -25,6 +25,18 @@ zip -r "$OUT" \
   -x "*dump_db.php" \
   -x "*query.php" \
   -x "*fix_db.php" \
+  -x "*patch_constraints.php" \
+  -x "*add_signature_col.php" \
+  -x "*test_api.php" \
+  -x "*test_finance.php" \
+  -x "*test_finance.html" \
+  -x "*.bak" \
+  -x "*uploads*" \
+  -x "*pms_core/libs/tutorial*" \
+  -x "*pms_core/libs/doc*" \
+  -x "*pms_core/libs/FAQ.htm" \
+  -x "*pms_core/libs/changelog.htm" \
+  -x "*pms_core/libs/install.txt" \
   >/dev/null
-echo "Wrote $OUT"
-unzip -l "$OUT" | tail -n 5
+echo "Wrote $OUT ($(du -h "$OUT" | awk '{print $1}'))"
+unzip -l "$OUT" | tail -n 8

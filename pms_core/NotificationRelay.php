@@ -265,7 +265,10 @@ class NotificationRelay {
 
         $waToken = $settings['WHATSAPP_TOKEN'] ?? (defined('WHATSAPP_TOKEN') ? WHATSAPP_TOKEN : null);
         $wabaId = $settings['WHATSAPP_WABA_ID'] ?? (defined('WHATSAPP_WABA_ID') ? WHATSAPP_WABA_ID : null);
-        $phoneId = $settings['WHATSAPP_PHONE_NUMBER_ID'] ?? (defined('WHATSAPP_PHONE_NUMBER_ID') ? WHATSAPP_PHONE_NUMBER_ID : '');
+        $phoneId = trim((string)($settings['WHATSAPP_PHONE_NUMBER_ID'] ?? (defined('WHATSAPP_PHONE_NUMBER_ID') ? WHATSAPP_PHONE_NUMBER_ID : '')));
+        if (in_array($phoneId, ['', 'your_phone_number_id'], true)) {
+            $phoneId = '';
+        }
 
         if (empty($waToken) || $waToken === 'your_whatsapp_token_here') {
             return ['ok' => false, 'error_message' => 'WhatsApp token is not configured'];
@@ -297,28 +300,35 @@ class NotificationRelay {
             }
             
             $data = [
-                'channelId' => $phoneId,
                 'to' => $cleanPhone,
                 'templateName' => $templateName,
                 'languageCode' => $languageCode,
-                'variables' => $vars
+                'variables' => implode(',', $vars),
             ];
+            if ($phoneId !== '') {
+                $data['channelId'] = $phoneId;
+            }
         } else {
             $url = $baseUrl . '/whatsapp/message/send';
             $data = [
-                'channelId' => $phoneId,
                 'to' => $cleanPhone,
                 'type' => 'text',
                 'body' => is_array($payloadData) ? ($payloadData['text']['body'] ?? '') : $payloadData
             ];
+            if ($phoneId !== '') {
+                $data['channelId'] = $phoneId;
+            }
         }
 
         $res = self::makePostRequest($url, $data, $waToken);
         if ($res && isset($res['ok']) && $res['ok'] === true) {
             $msgId = "msg_" . uniqid();
-            if (isset($res['data']['messageId'])) $msgId = (string)$res['data']['messageId'];
-            elseif (isset($res['data']['id'])) $msgId = (string)$res['data']['id'];
-            elseif (isset($res['data']['messages'][0]['id'])) $msgId = (string)$res['data']['messages'][0]['id'];
+            $payload = is_array($res['data'] ?? null) ? $res['data'] : [];
+            $inner = is_array($payload['data'] ?? null) ? $payload['data'] : $payload;
+            if (isset($inner['messageId'])) $msgId = (string)$inner['messageId'];
+            elseif (isset($inner['id'])) $msgId = (string)$inner['id'];
+            elseif (isset($inner['wamid'])) $msgId = (string)$inner['wamid'];
+            elseif (isset($inner['messages'][0]['id'])) $msgId = (string)$inner['messages'][0]['id'];
             return ['ok' => true, 'messageId' => $msgId];
         }
         
@@ -361,6 +371,12 @@ class NotificationRelay {
             $isDecodedArray = is_array($decoded);
 
             if ($httpCode >= 200 && $httpCode < 300) {
+                if ($isDecodedArray && array_key_exists('success', $decoded) && $decoded['success'] === false) {
+                    $errorMsg = is_string($decoded['message'] ?? null)
+                        ? (string)$decoded['message']
+                        : (is_string($decoded['error'] ?? null) ? (string)$decoded['error'] : 'XpressBot returned success=false');
+                    return ['ok' => false, 'error_message' => $errorMsg, 'data' => $decoded];
+                }
                 return ['ok' => true, 'data' => $isDecodedArray ? $decoded : []];
             } else {
                 // Log detailed error from the remote API
@@ -370,6 +386,8 @@ class NotificationRelay {
                     if (isset($decoded['error']['message'])) {
                         $errorCode = $decoded['error']['code'] ?? $httpCode;
                         $errorMsg = $decoded['error']['message'];
+                    } elseif (is_string($decoded['error'] ?? null) || is_string($decoded['message'] ?? null)) {
+                        $errorMsg = (string)($decoded['message'] ?? $decoded['error']);
                     } elseif (isset($decoded['description'])) { // Telegram API format
                         $errorCode = $decoded['error_code'] ?? $httpCode;
                         $errorMsg = $decoded['description'];
@@ -424,6 +442,55 @@ class NotificationRelay {
     }
 
     /**
+     * WhatsApp rules may live in automation_rules (Automations page) or wa_automations
+     * (WhatsApp Automations module). Merge so enabling either UI actually sends.
+     */
+    private static function loadAutomationRule(\PDO $db, string $eventKey, int $propertyId): ?array {
+        $stmt = $db->prepare("
+            SELECT a.*, t.name as wa_template_name, t.language as wa_template_language
+            FROM automation_rules a
+            LEFT JOIN wa_templates t ON a.wa_template_id = t.id
+            WHERE a.event_key = ? AND a.property_id = ?
+        ");
+        $stmt->execute([$eventKey, $propertyId]);
+        $auto = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+
+        $waActive = $auto && !empty($auto['is_wa_active']) && !empty($auto['wa_template_id']);
+        if ($waActive) {
+            return $auto;
+        }
+
+        $waStmt = $db->prepare("
+            SELECT a.property_id, a.event_key, a.template_id, a.variable_mapping_json, a.status,
+                   t.name as wa_template_name, t.language as wa_template_language
+            FROM wa_automations a
+            LEFT JOIN wa_templates t ON a.template_id = t.id
+            WHERE a.event_key = ? AND a.property_id = ? AND a.status = 'active'
+        ");
+        $waStmt->execute([$eventKey, $propertyId]);
+        $wa = $waStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$wa) {
+            return $auto;
+        }
+
+        if (!$auto) {
+            $auto = [
+                'is_email_active' => 0,
+                'is_telegram_active' => 0,
+                'email_subject' => '',
+                'email_body_html' => '',
+                'telegram_body_text' => '',
+            ];
+        }
+        $auto['is_wa_active'] = 1;
+        $auto['wa_template_id'] = $wa['template_id'];
+        $auto['wa_mapping_json'] = $wa['variable_mapping_json'];
+        $auto['wa_template_name'] = $wa['wa_template_name'];
+        $auto['wa_template_language'] = $wa['wa_template_language'];
+        return $auto;
+    }
+
+    /**
      * Trigger a WhatsApp automation template based on a system event.
      */
     public static function triggerAutomation(string $eventKey, ?string $phoneNumber, ?int $bookingId = null, array $customDataArray = [], ?int $propertyId = null): bool {
@@ -431,21 +498,21 @@ class NotificationRelay {
         require_once __DIR__ . '/config.php';
         
         $db = Database::getInstance()->getConnection();
-        
+
+        if ($propertyId === null && $bookingId !== null) {
+            $pidStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ?");
+            $pidStmt->execute([$bookingId]);
+            $fromBooking = (int)($pidStmt->fetchColumn() ?: 0);
+            if ($fromBooking > 0) {
+                $propertyId = $fromBooking;
+            }
+        }
         if ($propertyId === null) {
             require_once __DIR__ . '/AuthHelper.php';
             $propertyId = AuthHelper::getPropertyId();
         }
 
-        $stmt = $db->prepare("
-            SELECT a.*, t.name as wa_template_name, t.language as wa_template_language
-            FROM automation_rules a 
-            LEFT JOIN wa_templates t ON a.wa_template_id = t.id 
-            WHERE a.event_key = ? AND a.property_id = ?
-        ");
-        $stmt->execute([$eventKey, $propertyId]);
-        $auto = $stmt->fetch();
-        
+        $auto = self::loadAutomationRule($db, $eventKey, (int)$propertyId);
         if (!$auto) {
             return false;
         }
@@ -509,7 +576,7 @@ class NotificationRelay {
         $staffId = $_SESSION['user_id'] ?? null;
         $anyTriggered = false;
 
-        // 1. WhatsApp Automation
+        // 1. WhatsApp Automation — send now so it does not depend on cron_worker
         if (!empty($auto['is_wa_active']) && !empty($phoneNumberE164) && !empty($auto['wa_template_id'])) {
             $mapping = json_decode((string)$auto['wa_mapping_json'], true) ?? [];
             $params = [];
@@ -520,22 +587,37 @@ class NotificationRelay {
             
             $payload = [
                 'name' => (string)$auto['wa_template_name'],
-                'language' => ['code' => (string)$auto['wa_template_language']]
+                'language' => ['code' => (string)($auto['wa_template_language'] ?: 'en')]
             ];
             
             if (!empty($params)) {
                 $payload['components'] = [['type' => 'body', 'parameters' => $params]];
             }
-            
-            QueueService::push('whatsapp', [
-                'phoneNumber' => $phoneNumberE164,
-                'payload' => $payload,
-                'eventKey' => $eventKey,
-                'templateName' => $auto['wa_template_name'],
-                'bookingId' => $bookingId,
-                'staffId' => $staffId
-            ], 0, $propertyId);
-            $anyTriggered = true;
+
+            try {
+                self::processWhatsAppJob([
+                    'phoneNumber' => $phoneNumberE164,
+                    'payload' => $payload,
+                    'isTemplate' => true,
+                    'eventKey' => $eventKey,
+                    'templateName' => $auto['wa_template_name'],
+                    'bookingId' => $bookingId,
+                    'staffId' => $staffId,
+                    'property_id' => $propertyId,
+                ], (int)$propertyId);
+                $anyTriggered = true;
+            } catch (\Throwable $e) {
+                error_log('WhatsApp automation send failed: ' . $e->getMessage());
+                QueueService::push('whatsapp', [
+                    'phoneNumber' => $phoneNumberE164,
+                    'payload' => $payload,
+                    'isTemplate' => true,
+                    'eventKey' => $eventKey,
+                    'templateName' => $auto['wa_template_name'],
+                    'bookingId' => $bookingId,
+                    'staffId' => $staffId,
+                ], 0, $propertyId);
+            }
         }
 
         // 2. Email Automation
