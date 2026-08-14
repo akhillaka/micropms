@@ -21,7 +21,7 @@ ApiHandler::run(function(\PDO $db) {
     $secretKeys = [
         'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'WHATSAPP_TOKEN',
         'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'TELEGRAM_OPERATIONS_BOT_TOKEN',
-        'SMTP_PASS', 'WA_APP_SECRET', 'INVOICE_SECRET'
+        'SMTP_PASS', 'WA_APP_SECRET', 'INVOICE_SECRET', 'GOOGLE_VISION_API_KEY'
     ];
     foreach ($data as $key => $value) {
         if ($key === '_csrf_token') continue;

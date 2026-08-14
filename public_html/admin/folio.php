@@ -6,6 +6,7 @@ AuthHelper::requireLoginOrRedirect();
 CsrfToken::checkTimeout();
 
 require_once __DIR__ . '/../../pms_core/Database.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 $db = Database::getInstance()->getConnection();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -380,7 +381,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <i class="ph ph-whatsapp-logo text-sm"></i> Send Invoice
                 </button>
                 <?php
-                $secureToken = hash_hmac('sha256', (string)$id, INVOICE_SECRET);
+                $secureToken = GuestAccessToken::generate((string)$id);
                 $proto = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
                 $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
                 $guestPortalUrl = "{$proto}://{$host}/guest-portal?id={$id}&token={$secureToken}";

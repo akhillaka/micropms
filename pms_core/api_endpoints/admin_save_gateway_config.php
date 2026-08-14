@@ -24,6 +24,15 @@ ApiHandler::run(function(\PDO $db) {
         $extraConfig = json_encode(['salt_index' => $saltIndex]);
     }
 
+    if ($keySecret === '') {
+        $old = $db->prepare("SELECT key_secret FROM payment_gateway_configs WHERE property_id = ? AND gateway = ?");
+        $old->execute([$propId, $gateway]);
+        $existing = $old->fetchColumn();
+        if ($existing) {
+            $keySecret = (string)$existing;
+        }
+    }
+
     // Upsert the config
     $stmt = $db->prepare("
         INSERT INTO payment_gateway_configs 

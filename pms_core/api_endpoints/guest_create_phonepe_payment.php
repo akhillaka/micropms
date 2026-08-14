@@ -5,6 +5,7 @@ header('Content-Type: application/json');
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
 require_once __DIR__ . '/../../pms_core/services/PhonePeService.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 
 $data = json_decode(file_get_contents('php://input'), true);
 $bookingId = (string)($data['booking_id'] ?? '');
@@ -18,13 +19,9 @@ if (empty($bookingId) || empty($token) || $amount <= 0) {
 
 $db = Database::getInstance()->getConnection();
 
-$computedToken = hash_hmac('sha256', $bookingId, INVOICE_SECRET);
-if (!hash_equals($computedToken, $token)) {
-    echo json_encode(['success' => false, 'message' => 'Access Denied: Invalid secure token']);
-    exit;
-}
+GuestAccessToken::assert($bookingId, $token);
 
-$stmt = $db->prepare("SELECT property_id, guest_id FROM bookings WHERE id = ?");
+$stmt = $db->prepare("SELECT property_id, guest_id, booking_status, check_out FROM bookings WHERE id = ?");
 $stmt->execute([$bookingId]);
 $booking = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -32,6 +29,7 @@ if (!$booking) {
     echo json_encode(['success' => false, 'message' => 'Booking not found']);
     exit;
 }
+GuestAccessToken::denyIfInaccessible($booking);
 
 $propertyId = (int)$booking['property_id'];
 $pp = PhonePeService::forProperty($db, $propertyId);

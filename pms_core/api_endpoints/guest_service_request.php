@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/config.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 
 ApiHandler::run(function(\PDO $db) {
     $data = json_decode(file_get_contents('php://input'), true) ?? [];
@@ -16,19 +17,20 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::error('Missing authentication tokens.', 401);
     }
     
-    // Verify token
-    $computedToken = hash_hmac('sha256', (string)$bookingId, INVOICE_SECRET);
-    if (!hash_equals($computedToken, $token)) {
+    if (!GuestAccessToken::verify($bookingId, $token)) {
         ApiResponse::error('Invalid secure token.', 403);
     }
     
     // Validate booking
-    $stmt = $db->prepare("SELECT b.id, b.property_id, b.room_id, b.guest_id, r.room_number FROM bookings b LEFT JOIN rooms r ON b.room_id = r.id WHERE b.id = ? AND b.booking_status = 'checked_in'");
+    $stmt = $db->prepare("SELECT b.id, b.property_id, b.room_id, b.guest_id, b.booking_status, b.check_out, r.room_number FROM bookings b LEFT JOIN rooms r ON b.room_id = r.id WHERE b.id = ? AND b.booking_status = 'checked_in'");
     $stmt->execute([$bookingId]);
     $booking = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$booking) {
         ApiResponse::error('Active booking not found.', 404);
+    }
+    if (!GuestAccessToken::bookingIsAccessible($booking)) {
+        ApiResponse::error('This stay link has expired or the reservation is no longer accessible', 403);
     }
     
     $propertyId = (int)$booking['property_id'];

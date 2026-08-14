@@ -133,7 +133,7 @@ if (!function_exists('load_db_settings')) {
         define_setting('PROPERTY_PHONE', '');
         define_setting('PROPERTY_EMAIL', '');
         define_setting('PROPERTY_WIFI_NAME', 'Hotel_Guest_WiFi');
-        define_setting('PROPERTY_WIFI_PASS', 'Welcome2026');
+        define_setting('PROPERTY_WIFI_PASS', '');
         define_setting('PROPERTY_LOGO_BASE64', '');
 
         // Taxation Settings

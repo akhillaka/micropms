@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json');
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
@@ -25,12 +26,7 @@ if (empty($bookingId) || empty($token) || empty($ref)) {
 
 $db = Database::getInstance()->getConnection();
 
-// Verify token
-$computedToken = hash_hmac('sha256', $bookingId, INVOICE_SECRET);
-if (!hash_equals($computedToken, $token)) {
-    echo json_encode(['success' => false, 'message' => 'Access Denied: Invalid security token']);
-    exit;
-}
+GuestAccessToken::assert($bookingId, $token);
 
 try {
     $db->beginTransaction();
@@ -41,6 +37,9 @@ try {
 
     if (!$booking) {
         throw new Exception("Booking not found");
+    }
+    if (!GuestAccessToken::bookingIsAccessible($booking)) {
+        throw new Exception("This stay link has expired or the reservation is no longer accessible");
     }
 
     $dupStmt = $db->prepare("SELECT id FROM folio_ledger WHERE booking_id = ? AND transaction_ref = ? LIMIT 1");

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../pms_core/Database.php';
 require_once __DIR__ . '/../pms_core/config.php';
 require_once __DIR__ . '/../pms_core/AuditLogger.php';
+require_once __DIR__ . '/../pms_core/GuestAccessToken.php';
 
 $db = Database::getInstance()->getConnection();
 load_db_settings($db);
@@ -15,11 +16,7 @@ if (empty($bookingId) || empty($token)) {
     die("Access Denied: Missing parameters.");
 }
 
-// Compute secure token to verify authenticity
-$computedToken = hash_hmac('sha256', (string)$bookingId, INVOICE_SECRET);
-if (!hash_equals($computedToken, $token)) {
-    die("Access Denied: Invalid secure token.");
-}
+GuestAccessToken::assert($bookingId, $token, false);
 
 // Fetch booking & property info
 $stmt = $db->prepare("
@@ -35,8 +32,8 @@ $stmt = $db->prepare("
 $stmt->execute([$bookingId]);
 $booking = $stmt->fetch(PDO::FETCH_ASSOC);
 
-if (!$booking) {
-    die("Booking not found.");
+if (!$booking || !GuestAccessToken::bookingIsAccessible($booking)) {
+    die("Booking not found or this stay link has expired.");
 }
 
 // Reload DB settings for this specific property

@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json');
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -45,8 +46,11 @@ $bookings = $_SESSION['guest_otp_bookings'] ?? [];
 $resolvedBookings = [];
 
 foreach ($bookings as $b) {
+    if (!GuestAccessToken::bookingIsAccessible($b)) {
+        continue;
+    }
     $bookingId = (string)$b['id'];
-    $computedToken = hash_hmac('sha256', $bookingId, INVOICE_SECRET);
+    $computedToken = GuestAccessToken::generate($bookingId);
     
     $resolvedBookings[] = [
         'id' => $b['id'],
@@ -56,6 +60,13 @@ foreach ($bookings as $b) {
         'guest_name' => $b['guest_name'],
         'token' => $computedToken
     ];
+}
+
+if (empty($resolvedBookings)) {
+    unset($_SESSION['guest_otp_code']);
+    unset($_SESSION['guest_otp_expiry']);
+    echo json_encode(['success' => false, 'message' => 'No accessible stays found for this number.']);
+    exit;
 }
 
 // Clear OTP session variables

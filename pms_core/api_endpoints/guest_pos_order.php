@@ -5,6 +5,7 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 require_once __DIR__ . '/../../pms_core/services/FolioService.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
@@ -23,11 +24,7 @@ if ($bookingId === '' || $token === '' || empty($cartItems) || !is_array($cartIt
 
 $db = Database::getInstance()->getConnection();
 
-$computedToken = hash_hmac('sha256', $bookingId, INVOICE_SECRET);
-if (!hash_equals($computedToken, $token)) {
-    echo json_encode(['success' => false, 'message' => 'Access Denied: Invalid security token.']);
-    exit;
-}
+GuestAccessToken::assert($bookingId, $token);
 
 try {
     $db->beginTransaction();
@@ -44,6 +41,9 @@ try {
 
     if (!$booking) {
         throw new Exception("You must be actively checked-in to place orders.");
+    }
+    if (!GuestAccessToken::bookingIsAccessible($booking)) {
+        throw new Exception("This stay link has expired or the reservation is no longer accessible");
     }
 
     $propertyId = (int)$booking['property_id'];

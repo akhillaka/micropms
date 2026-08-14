@@ -124,19 +124,14 @@ class SaaSMiddleware {
                         exit;
                     }
 
-                    // Check trial/subscription expiry
-                    if (!empty($prop['valid_until'])) {
-                        $expiry = new \DateTime($prop['valid_until']);
-                        $now    = new \DateTime();
-                        if ($expiry < $now) {
-                            http_response_code(402);
-                            header('Content-Type: application/json');
-                            echo json_encode([
-                                'success' => false,
-                                'message' => 'Subscription expired on ' . $expiry->format('d M Y') . '. Please renew to continue.'
-                            ], JSON_THROW_ON_ERROR);
-                            exit;
-                        }
+                    if (!SaaSBillingEngine::checkSubscription($db, $propertyId)) {
+                        http_response_code(402);
+                        header('Content-Type: application/json');
+                        echo json_encode([
+                            'success' => false,
+                            'message' => 'Subscription is inactive, cancelled, or expired. Please renew to continue.'
+                        ], JSON_THROW_ON_ERROR);
+                        exit;
                     }
                 }
             } catch (\Exception $e) {

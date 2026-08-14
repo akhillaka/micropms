@@ -89,10 +89,19 @@ try {
 
 $customRoles = [];
 try {
-    $rolesStmt = $db->prepare("SELECT * FROM roles WHERE property_id = ? ORDER BY name ASC");
+    AuthHelper::seedRolesForProperty($db, $propId);
+    $rolesStmt = $db->prepare("SELECT * FROM roles WHERE property_id = ? AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00') ORDER BY is_system DESC, name ASC");
     $rolesStmt->execute([$propId]);
     $customRoles = $rolesStmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (\PDOException $e) {}
+} catch (\PDOException $e) {
+    try {
+        $rolesStmt = $db->prepare("SELECT * FROM roles WHERE property_id = ? ORDER BY name ASC");
+        $rolesStmt->execute([$propId]);
+        $customRoles = $rolesStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (\PDOException $e2) {}
+}
+$builtInRoles = AuthHelper::getBuiltInRoles();
+$permissionLabels = AuthHelper::getAllPermissions();
 
 
 // Current counts
@@ -692,7 +701,7 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">API Key</label>
-                                <input type="password" name="GOOGLE_VISION_API_KEY" value="<?= htmlspecialchars((string)(getenv('GOOGLE_VISION_API_KEY') ?: '')) ?>" placeholder="AIzaSy..." class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-brand-900">
+                                <input type="password" name="GOOGLE_VISION_API_KEY" value="" autocomplete="new-password" placeholder="Leave blank to keep current key" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm font-mono outline-none focus:border-brand-900">
                                 <p class="text-[10px] text-brand-900/50 mt-1">Get from Google Cloud Console > APIs > Vision API > Credentials</p>
                             </div>
                         </div>
@@ -875,7 +884,7 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                                     </div>
                                     <div>
                                         <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider mb-1">WiFi Password</label>
-                                        <input type="text" id="portal_wifi_password" value="<?= htmlspecialchars((string)($portalWifiPassword)) ?>" placeholder="Welcome2026" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono focus:border-indigo-400 focus:bg-white transition">
+                                        <input type="text" id="portal_wifi_password" value="<?= htmlspecialchars((string)($portalWifiPassword)) ?>" placeholder="Wi-Fi password" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono focus:border-indigo-400 focus:bg-white transition">
                                     </div>
                                 </div>
                                 <div class="mt-4">
@@ -983,7 +992,7 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                             </div>
                             <div class="col-span-2">
                                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Key Secret</label>
-                                <input type="password" name="key_secret" value="<?= htmlspecialchars((string)($pgConfigs['razorpay']['key_secret'] ?? '')) ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
+                                <input type="password" name="key_secret" value="" autocomplete="new-password" placeholder="Leave blank to keep current secret" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
                             </div>
                         </div>
                         <button type="submit" class="bg-indigo-50 text-indigo-700 font-bold px-4 py-2 rounded-lg text-sm hover:bg-indigo-100">Save Razorpay Config</button>
@@ -1015,7 +1024,7 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                             </div>
                             <div>
                                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Salt Key</label>
-                                <input type="password" name="key_secret" value="<?= htmlspecialchars((string)($pgConfigs['phonepe']['key_secret'] ?? '')) ?>" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
+                                <input type="password" name="key_secret" value="" autocomplete="new-password" placeholder="Leave blank to keep current secret" class="w-full border-slate-200 rounded-lg text-sm p-2 outline-none">
                             </div>
                             <div>
                                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Salt Index</label>
@@ -1098,51 +1107,79 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                 <div class="card-minimal p-6">
                     <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
                         <div>
-                            <h2 class="font-extrabold text-brand-900 text-xl">Custom Roles & Permissions</h2>
-                            <p class="text-sm font-semibold text-slate-500 mt-1">Create fine-grained roles to assign to your staff users</p>
+                            <h2 class="font-extrabold text-brand-900 text-xl">Roles & Permissions</h2>
+                            <p class="text-sm font-semibold text-slate-500 mt-1">Built-in roles and custom roles assigned to staff</p>
                         </div>
                         <button onclick="openRoleModal()" class="bg-brand-900 hover:bg-brand-800 text-white font-bold px-4 py-2.5 rounded-xl transition-colors shadow-sm flex items-center gap-2">
                             <i class="ph ph-plus-circle text-lg"></i> Create Custom Role
                         </button>
                     </div>
 
+                    <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">System roles</h3>
+                    <div class="space-y-3 mb-8">
+                        <?php foreach ($builtInRoles as $sysRole): ?>
+                            <details class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                                <summary class="cursor-pointer list-none p-4 flex items-center justify-between hover:bg-slate-50">
+                                    <div>
+                                        <h3 class="font-bold text-brand-900 text-base"><?= htmlspecialchars($sysRole['label']) ?></h3>
+                                        <p class="text-xs font-semibold text-slate-500 mt-0.5"><span class="text-indigo-600 font-bold"><?= count($sysRole['permissions']) ?></span> permissions · read-only</p>
+                                    </div>
+                                    <i class="ph ph-caret-down text-slate-400"></i>
+                                </summary>
+                                <div class="px-4 pb-4 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
+                                    <?php foreach ($sysRole['permission_labels'] as $plabel): ?>
+                                        <span class="text-[10px] font-semibold uppercase tracking-wide bg-slate-100 text-slate-600 px-2 py-1 rounded-full"><?= htmlspecialchars($plabel) ?></span>
+                                    <?php endforeach; ?>
+                                </div>
+                            </details>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Custom roles</h3>
                     <div id="roles-list-container" class="space-y-3">
-                        <?php if (empty($customRoles)): ?>
+                        <?php
+                        $userDefinedRoles = array_filter($customRoles, static function ($r) {
+                            return empty($r['is_system']);
+                        });
+                        ?>
+                        <?php if (empty($userDefinedRoles)): ?>
                             <div class="text-center py-10 bg-slate-50 rounded-2xl border border-slate-100 border-dashed">
                                 <i class="ph ph-shield-check text-4xl text-slate-300 mb-3 block"></i>
                                 <p class="text-sm text-slate-500 font-bold">No custom roles created yet.</p>
-                                <p class="text-xs text-slate-400 mt-1">Staff will use the default system roles.</p>
+                                <p class="text-xs text-slate-400 mt-1">Staff can use the system roles above, or create a custom role.</p>
                             </div>
                         <?php else: ?>
-                            <?php foreach ($customRoles as $crole): ?>
+                            <?php foreach ($userDefinedRoles as $crole): ?>
                                 <?php 
                                     $rawPerms = $crole['permissions'] ?? '[]';
                                     $cperms = json_decode($rawPerms, true);
                                     if (!is_array($cperms)) $cperms = [];
-                                    
-                                    // Ensure it's a flat indexed array of strings
                                     $flatPerms = [];
                                     array_walk_recursive($cperms, function($a) use (&$flatPerms) { $flatPerms[] = $a; });
-                                    
                                     $permCount = count($flatPerms);
-                                    
                                     $jsRoleName = htmlspecialchars((string)(json_encode($crole['name'])), ENT_QUOTES, 'UTF-8');
-                                    $jsPerms = htmlspecialchars((string)(json_encode($flatPerms)), ENT_QUOTES, 'UTF-8');
                                 ?>
-                                <div class="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-all shadow-sm">
-                                    <div>
-                                        <h3 class="font-bold text-brand-900 text-base"><?= htmlspecialchars((string)($crole['name'])) ?></h3>
-                                        <p class="text-xs font-semibold text-slate-500 mt-0.5"><span class="text-indigo-600 font-bold"><?= htmlspecialchars((string)($permCount), ENT_QUOTES, 'UTF-8') ?></span> permissions assigned</p>
+                                <details class="bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-all shadow-sm overflow-hidden">
+                                    <summary class="cursor-pointer list-none p-4 flex items-center justify-between">
+                                        <div>
+                                            <h3 class="font-bold text-brand-900 text-base"><?= htmlspecialchars((string)($crole['name'])) ?></h3>
+                                            <p class="text-xs font-semibold text-slate-500 mt-0.5"><span class="text-indigo-600 font-bold"><?= htmlspecialchars((string)($permCount), ENT_QUOTES, 'UTF-8') ?></span> permissions assigned</p>
+                                        </div>
+                                        <div class="flex gap-2" onclick="event.preventDefault(); event.stopPropagation();">
+                                            <button type="button" data-role-id="<?= htmlspecialchars((string)((int)$crole['id']), ENT_QUOTES, 'UTF-8') ?>" data-role-name="<?= htmlspecialchars((string)($crole['name'])) ?>" data-role-perms="<?= htmlspecialchars((string)(json_encode($flatPerms)), ENT_QUOTES, 'UTF-8') ?>" onclick="editRoleFromBtn(this)" class="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-brand-50 hover:text-brand-600 transition-colors" title="Edit Role">
+                                                <i class="ph ph-pencil-simple text-base"></i>
+                                            </button>
+                                            <button type="button" onclick="deleteRole(<?= htmlspecialchars((string)((int)$crole['id']), ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars((string)($jsRoleName), ENT_QUOTES, 'UTF-8') ?>)" class="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-colors" title="Delete Role">
+                                                <i class="ph ph-trash text-base"></i>
+                                            </button>
+                                        </div>
+                                    </summary>
+                                    <div class="px-4 pb-4 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
+                                        <?php foreach ($flatPerms as $pkey): ?>
+                                            <span class="text-[10px] font-semibold uppercase tracking-wide bg-indigo-50 text-indigo-700 px-2 py-1 rounded-full"><?= htmlspecialchars((string)($permissionLabels[$pkey] ?? $pkey)) ?></span>
+                                        <?php endforeach; ?>
                                     </div>
-                                    <div class="flex gap-2">
-                                        <button data-role-id="<?= htmlspecialchars((string)((int)$crole['id']), ENT_QUOTES, 'UTF-8') ?>" data-role-name="<?= htmlspecialchars((string)($crole['name'])) ?>" data-role-perms="<?= htmlspecialchars((string)(json_encode($flatPerms)), ENT_QUOTES, 'UTF-8') ?>" onclick="editRoleFromBtn(this)" class="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-brand-50 hover:text-brand-600 transition-colors" title="Edit Role">
-                                            <i class="ph ph-pencil-simple text-base"></i>
-                                        </button>
-                                        <button onclick="deleteRole(<?= htmlspecialchars((string)((int)$crole['id']), ENT_QUOTES, 'UTF-8') ?>, <?= htmlspecialchars((string)($jsRoleName), ENT_QUOTES, 'UTF-8') ?>)" class="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-colors" title="Delete Role">
-                                            <i class="ph ph-trash text-base"></i>
-                                        </button>
-                                    </div>
-                                </div>
+                                </details>
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </div>
@@ -1269,7 +1306,7 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Wi-Fi Password (Smart Reply)</label>
-                                    <input type="text" name="PROPERTY_WIFI_PASS" value="<?= htmlspecialchars((string)(defined('PROPERTY_WIFI_PASS') ? PROPERTY_WIFI_PASS : 'Welcome2026')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
+                                    <input type="text" name="PROPERTY_WIFI_PASS" value="<?= htmlspecialchars((string)(defined('PROPERTY_WIFI_PASS') ? PROPERTY_WIFI_PASS : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
                                 </div>
                             </div>
                             <!-- Logo Upload -->

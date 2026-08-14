@@ -1,6 +1,10 @@
--- Indexes, missing columns, and webhook idempotency tables.
+-- Indexes, missing columns, webhook idempotency, and Telegram sessions.
+
 ALTER TABLE `folio_ledger`
   ADD COLUMN IF NOT EXISTS `category` VARCHAR(50) DEFAULT NULL AFTER `payment_method`;
+
+ALTER TABLE `jobs_queue`
+  ADD COLUMN IF NOT EXISTS `property_id` INT NULL DEFAULT NULL AFTER `queue_name`;
 
 ALTER TABLE `jobs_queue`
   ADD INDEX IF NOT EXISTS `idx_jobs_queue_property` (`property_id`);

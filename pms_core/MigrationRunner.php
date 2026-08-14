@@ -103,8 +103,14 @@ class MigrationRunner {
                     throw new \RuntimeException("Could not read migration file: $filename");
                 }
 
-                // Execute the SQL
-                $this->db->exec($sql);
+                $statements = preg_split('/;\s*(?=(?:[^\'"]*[\'"][^\'"]*[\'"])*[^\'"]*$)/', $sql) ?: [];
+                foreach ($statements as $statement) {
+                    $statement = trim($statement);
+                    if ($statement === '' || str_starts_with($statement, '--')) {
+                        continue;
+                    }
+                    $this->db->exec($statement);
+                }
 
                 $elapsed = (int)((microtime(true) - $startTime) * 1000);
 

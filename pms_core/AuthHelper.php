@@ -81,12 +81,28 @@ class AuthHelper {
      * Seeds the default roles for a newly created property.
      */
     public static function seedRolesForProperty(\PDO $db, int $propertyId): void {
-        $stmt = $db->prepare("INSERT IGNORE INTO roles (property_id, name, permissions, is_system) VALUES (?, ?, ?, 1)");
+        try {
+            $col = $db->query("SHOW COLUMNS FROM roles LIKE 'is_system'")->fetch();
+            if (!$col) {
+                $db->exec("ALTER TABLE roles ADD COLUMN is_system TINYINT(1) NOT NULL DEFAULT 0");
+            }
+        } catch (\PDOException $e) {}
+
+        $check = $db->prepare("SELECT id FROM roles WHERE property_id = ? AND name = ? LIMIT 1");
+        $insert = $db->prepare("INSERT INTO roles (property_id, name, permissions, is_system) VALUES (?, ?, ?, 1)");
+        $update = $db->prepare("UPDATE roles SET permissions = ?, is_system = 1 WHERE id = ?");
         foreach (self::PERMISSIONS as $roleName => $perms) {
-            // Keep superadmin internal only, don't seed it to properties
-            if ($roleName === 'superadmin') continue;
-            
-            $stmt->execute([$propertyId, $roleName, json_encode($perms)]);
+            if ($roleName === 'superadmin') {
+                continue;
+            }
+            $json = json_encode($perms);
+            $check->execute([$propertyId, $roleName]);
+            $existingId = $check->fetchColumn();
+            if ($existingId) {
+                $update->execute([$json, $existingId]);
+            } else {
+                $insert->execute([$propertyId, $roleName, $json]);
+            }
         }
     }
     
@@ -163,12 +179,29 @@ class AuthHelper {
         }
         
         // Check if user has a custom role with custom permissions loaded in session
-        if (isset($_SESSION['custom_permissions']) && is_array($_SESSION['custom_permissions'])) {
+        if (!empty($_SESSION['custom_permissions']) && is_array($_SESSION['custom_permissions'])) {
             return in_array($permission, $_SESSION['custom_permissions'], true);
         }
         
         $allowedPerms = self::PERMISSIONS[$role] ?? [];
         return in_array($permission, $allowedPerms, true);
+    }
+
+    public static function getBuiltInRoles(): array {
+        $labels = self::getAllPermissions();
+        $roles = [];
+        foreach (self::PERMISSIONS as $role => $keys) {
+            if ($role === 'superadmin') {
+                continue;
+            }
+            $roles[$role] = [
+                'key' => $role,
+                'label' => ucwords(str_replace('_', ' ', $role)),
+                'permissions' => $keys,
+                'permission_labels' => array_map(static fn($k) => $labels[$k] ?? $k, $keys),
+            ];
+        }
+        return $roles;
     }
 
     /**

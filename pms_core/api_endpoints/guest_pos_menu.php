@@ -5,6 +5,7 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 
 $bookingId = $_GET['id'] ?? $_GET['booking_id'] ?? '';
 $token = $_GET['token'] ?? '';
@@ -16,20 +17,17 @@ if ($bookingId === '' || $token === '') {
 
 $db = Database::getInstance()->getConnection();
 
-$computedToken = hash_hmac('sha256', (string)$bookingId, INVOICE_SECRET);
-if (!hash_equals($computedToken, $token)) {
-    echo json_encode(['success' => false, 'message' => 'Access Denied: Invalid security token.']);
-    exit;
-}
+GuestAccessToken::assert($bookingId, $token);
 
 try {
-    $bkStmt = $db->prepare("SELECT property_id, booking_status FROM bookings WHERE id = ?");
+    $bkStmt = $db->prepare("SELECT property_id, booking_status, check_out FROM bookings WHERE id = ?");
     $bkStmt->execute([$bookingId]);
     $booking = $bkStmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$booking) {
         throw new Exception("Booking context not resolved.");
     }
+    GuestAccessToken::denyIfInaccessible($booking);
     if (($booking['booking_status'] ?? '') !== 'checked_in') {
         throw new Exception("You must be checked in to order.");
     }

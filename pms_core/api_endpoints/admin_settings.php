@@ -187,5 +187,5 @@ ApiHandler::run(function(\PDO $db) {
         throw new Exception("Unknown action");
     }
 
-}, false, true, true); // requireAdmin=false, requireCsrf=true, useTransaction=true
+}, true, true, true);
 

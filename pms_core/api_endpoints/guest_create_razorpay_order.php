@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json');
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 
 $data = json_decode(file_get_contents('php://input'), true);
 $bookingId = (string)($data['booking_id'] ?? '');
@@ -18,16 +19,11 @@ if (empty($bookingId) || empty($token) || $amount <= 0) {
 // Initialize Database to load DB settings into constants
 $db = Database::getInstance()->getConnection();
 
-// Verify token
-$computedToken = hash_hmac('sha256', $bookingId, INVOICE_SECRET);
-if (!hash_equals($computedToken, $token)) {
-    echo json_encode(['success' => false, 'message' => 'Access Denied: Invalid security token']);
-    exit;
-}
+GuestAccessToken::assert($bookingId, $token);
 
 require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
 
-$stmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ?");
+$stmt = $db->prepare("SELECT property_id, booking_status, check_out FROM bookings WHERE id = ?");
 $stmt->execute([$bookingId]);
 $booking = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -35,6 +31,7 @@ if (!$booking) {
     echo json_encode(['success' => false, 'message' => 'Booking not found']);
     exit;
 }
+GuestAccessToken::denyIfInaccessible($booking);
 
 $propertyId = $booking['property_id'];
 $rz = RazorpayService::forProperty($db, $propertyId);

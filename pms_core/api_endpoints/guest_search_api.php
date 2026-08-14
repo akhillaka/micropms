@@ -30,12 +30,13 @@ $db = Database::getInstance()->getConnection();
 load_db_settings($db, $propertyId);
 
 $stmt = $db->prepare("
-    SELECT b.id, b.display_id, b.check_in, b.check_out, g.name as guest_name 
+    SELECT b.id, b.display_id, b.check_in, b.check_out, b.booking_status, g.name as guest_name 
     FROM bookings b
     JOIN guests g ON b.guest_id = g.id
     WHERE b.property_id = ? 
       AND g.phone = ?
       AND b.booking_status IN ('confirmed', 'checked_in', 'booked')
+      AND (b.check_out IS NULL OR b.check_out >= DATE_SUB(NOW(), INTERVAL 7 DAY))
     ORDER BY b.check_in ASC
 ");
 $stmt->execute([$propertyId, $normalized]);

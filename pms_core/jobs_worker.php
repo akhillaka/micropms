@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+fwrite(STDERR, "jobs_worker.php is disabled. Use pms_core/cron_worker.php instead.\n");
+exit(1);
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/Database.php';
 require_once __DIR__ . '/NotificationRelay.php';

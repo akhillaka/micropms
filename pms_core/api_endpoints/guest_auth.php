@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json');
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 
 try {
     $data = json_decode(file_get_contents('php://input'), true);
@@ -22,7 +23,7 @@ try {
 
     // Find the booking by display_id (PNR)
     $stmt = $db->prepare("
-        SELECT b.id, b.display_id, b.booking_status, g.phone, g.email 
+        SELECT b.id, b.display_id, b.booking_status, b.check_out, g.phone, g.email 
         FROM bookings b
         JOIN guests g ON b.guest_id = g.id
         WHERE b.display_id = ?
@@ -32,6 +33,9 @@ try {
 
     if (!$booking) {
         throw new Exception("Reservation not found. Check your PNR.");
+    }
+    if (!GuestAccessToken::bookingIsAccessible($booking)) {
+        throw new Exception("This reservation is no longer accessible.");
     }
 
     // Verify identity (either phone or email matches)
@@ -59,7 +63,7 @@ try {
 
     // Generate secure token for guest portal access
     // Uses the same hashing logic expected by guest_portal.php
-    $token = hash_hmac('sha256', (string)$booking['id'], INVOICE_SECRET);
+    $token = GuestAccessToken::generate((string)$booking['id']);
 
     echo json_encode([
         'success' => true,

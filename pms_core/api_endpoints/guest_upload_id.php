@@ -5,6 +5,7 @@ header('Content-Type: application/json');
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -18,21 +19,19 @@ try {
         throw new Exception("Missing parameters.");
     }
 
-    $computedToken = hash_hmac('sha256', (string)$bookingId, INVOICE_SECRET);
-    if (!hash_equals($computedToken, $token)) {
-        throw new Exception("Access Denied: Invalid secure token.");
-    }
+    GuestAccessToken::assert($bookingId, $token);
 
     $db = Database::getInstance()->getConnection();
 
     // Verify booking
-    $bStmt = $db->prepare("SELECT id, property_id, guest_id, booking_status FROM bookings WHERE id = ?");
+    $bStmt = $db->prepare("SELECT id, property_id, guest_id, booking_status, check_out FROM bookings WHERE id = ?");
     $bStmt->execute([$bookingId]);
     $booking = $bStmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$booking) {
         throw new Exception("Reservation not found.");
     }
+    GuestAccessToken::denyIfInaccessible($booking);
 
     $uploadDir = __DIR__ . '/../../public_html/uploads/';
     if (!file_exists($uploadDir)) {

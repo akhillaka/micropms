@@ -114,21 +114,21 @@ while (time() < $endTime) {
         echo "Processing Default Job #{$defaultJob['id']}...\n";
         try {
             $allowed = [
-                'NotificationRelay::processWhatsAppJob',
-                'NotificationRelay::sendTelegramSync',
-                'GoogleSheetService::sendWebhook',
+                'NotificationRelay::processWhatsAppJob' => [NotificationRelay::class, 'processWhatsAppJob'],
+                'NotificationRelay::sendTelegramSync' => [NotificationRelay::class, 'sendTelegramSync'],
+                'GoogleSheetService::sendWebhook' => [GoogleSheetService::class, 'sendWebhook'],
             ];
             $class = $defaultJob['payload']['class'] ?? null;
             $method = $defaultJob['payload']['method'] ?? null;
             $key = is_string($class) && is_string($method) ? ($class . '::' . $method) : '';
-            if ($key === '' || !in_array($key, $allowed, true)) {
+            if ($key === '' || !isset($allowed[$key])) {
                 throw new \Exception('Rejected non-allowlisted generic job');
             }
             $args = $defaultJob['payload']['args'] ?? [];
             if (!is_array($args)) {
                 $args = [];
             }
-            call_user_func_array([$class, $method], $args);
+            call_user_func_array($allowed[$key], $args);
             QueueService::complete($defaultJob['id']);
             echo "Completed Default Job #{$defaultJob['id']}\n";
         } catch (\Throwable $e) {

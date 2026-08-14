@@ -23,6 +23,7 @@ if (!defined('INVOICE_SECRET')) {
 
 require_once __DIR__ . '/../pms_core/helpers/EmailHelper.php';
 require_once __DIR__ . '/../pms_core/InvoiceLink.php';
+require_once __DIR__ . '/../pms_core/GuestAccessToken.php';
 require_once __DIR__ . '/../pms_core/services/RazorpayService.php';
 require_once __DIR__ . '/../pms_core/NotificationRelay.php';
 
@@ -40,6 +41,13 @@ assert_true(!$rz->verifySignature($orderId, $payId, 'deadbeef'), 'razorpay check
 $token = InvoiceLink::generate(42);
 assert_true(InvoiceLink::validate($token, 42), 'invoice link validates matching booking');
 assert_true(!InvoiceLink::validate($token, 99), 'invoice link rejects other booking');
+
+$guestTok = GuestAccessToken::generate(42);
+assert_true(GuestAccessToken::verify(42, $guestTok), 'guest token verifies matching booking');
+assert_true(!GuestAccessToken::verify(99, $guestTok), 'guest token rejects other booking');
+assert_true(GuestAccessToken::bookingIsAccessible(['booking_status' => 'checked_in', 'check_out' => date('Y-m-d', strtotime('+1 day'))]), 'guest stay accessible when checked in');
+assert_true(!GuestAccessToken::bookingIsAccessible(['booking_status' => 'cancelled', 'check_out' => date('Y-m-d', strtotime('+1 day'))]), 'guest stay denied when cancelled');
+assert_true(!GuestAccessToken::bookingIsAccessible(['booking_status' => 'checked_out', 'check_out' => date('Y-m-d', strtotime('-8 days'))]), 'guest stay denied 7 days after checkout');
 
 $msg = NotificationRelay::formatTemplate('Hello {guest_name} {missing}', []);
 assert_true(str_contains($msg, 'Hello'), 'template renders with missing placeholders');
