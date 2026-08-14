@@ -124,4 +124,4 @@ ApiHandler::run(function(\PDO $db) {
         throw new Exception("Method not allowed");
     }
 
-}, false, true, false);
+}, true, true, false);

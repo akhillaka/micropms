@@ -49,5 +49,5 @@ ApiHandler::run(function(\PDO $db) {
     
     ApiResponse::success();
 
-}, false, true, false);
+}, true, true, false);
 

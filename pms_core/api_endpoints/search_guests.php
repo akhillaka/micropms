@@ -27,4 +27,4 @@ ApiHandler::run(function(\PDO $db) {
     
     ApiResponse::success(['guests' => $results]);
 
-}, true, false, true);
+}, true, false, false);

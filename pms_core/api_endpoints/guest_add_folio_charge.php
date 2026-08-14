@@ -35,7 +35,29 @@ if (!$booking) {
     exit;
 }
 
+if (($booking['booking_status'] ?? '') === 'cancelled') {
+    echo json_encode(['success' => false, 'message' => 'Cannot charge a cancelled booking']);
+    exit;
+}
+
 $propertyId = (int)$booking['property_id'];
+load_db_settings($db, $propertyId);
+$upsellEnabled = defined('GUEST_PORTAL_UPSELL_ENABLED') && GUEST_PORTAL_UPSELL_ENABLED === 'true';
+if (!$upsellEnabled) {
+    echo json_encode(['success' => false, 'message' => 'Guest upsell is disabled']);
+    exit;
+}
+
+$amount = round($amount, 2);
+if ($amount > 25000) {
+    echo json_encode(['success' => false, 'message' => 'Charge exceeds allowed guest upsell limit']);
+    exit;
+}
+
+$description = trim(strip_tags($description));
+if (strlen($description) > 200) {
+    $description = substr($description, 0, 200);
+}
 
 $ins = $db->prepare("
     INSERT INTO folio_ledger (booking_id, property_id, transaction_type, amount, description, payment_method, recorded_at) 

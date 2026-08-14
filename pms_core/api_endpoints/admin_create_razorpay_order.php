@@ -22,6 +22,14 @@ if ($amount <= 0 || !$bookingId) {
 
 require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
 $propertyId = AuthHelper::getPropertyId();
+
+$bk = $db->prepare("SELECT id FROM bookings WHERE id = ? AND property_id = ?");
+$bk->execute([(int)$bookingId, $propertyId]);
+if (!$bk->fetch()) {
+    echo json_encode(['success' => false, 'message' => 'Booking not found']);
+    exit;
+}
+
 $rz = RazorpayService::forProperty($db, $propertyId);
 
 if (!$rz) {
@@ -30,10 +38,15 @@ if (!$rz) {
 }
 
 $receipt = 'bk_' . $bookingId . '_' . time();
-$result = $rz->createOrder(round($amount * 100), 'INR', $receipt);
+$result = $rz->createOrder(round($amount * 100), 'INR', $receipt, [
+    'booking_id' => (string)$bookingId,
+    'property_id' => (string)$propertyId,
+]);
 
 if ($result['success']) {
-    echo json_encode(['success' => true, 'order_id' => $result['order_id']]);
+    $up = $db->prepare("UPDATE bookings SET razorpay_order_id = ? WHERE id = ? AND property_id = ?");
+    $up->execute([$result['order_id'], (int)$bookingId, $propertyId]);
+    echo json_encode(['success' => true, 'order_id' => $result['order_id'], 'key_id' => $rz->getKeyId()]);
 } else {
     echo json_encode(['success' => false, 'message' => 'Failed to create order', 'details' => $result['error']]);
 }

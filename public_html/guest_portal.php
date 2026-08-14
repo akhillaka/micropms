@@ -156,13 +156,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'upsell_late_checkout' && $upsellEnabled) {
         try {
             // Check if one already exists
-            $chk = $db->prepare("SELECT id FROM guest_service_requests WHERE booking_id = ? AND service_type = 'late_checkout' AND status = 'pending'");
+            $chk = $db->prepare("SELECT id FROM guest_service_requests WHERE booking_id = ? AND status = 'pending' AND (service_type = 'late_checkout' OR service_type = 'Late Checkout')");
             $chk->execute([$bookingId]);
             if ($chk->fetch()) {
                 throw new Exception("You already have a pending request for late checkout.");
             }
 
-            $postStmt = $db->prepare("INSERT INTO guest_service_requests (property_id, booking_id, service_type, status) VALUES (?, ?, 'late_checkout', 'pending')");
+            $postStmt = $db->prepare("INSERT INTO guest_service_requests (property_id, booking_id, service_type, status) VALUES (?, ?, 'Late Checkout', 'pending')");
             $postStmt->execute([(int)$booking['property_id'], $bookingId]);
 
             // Notify admin
@@ -249,7 +249,7 @@ $attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttracti
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Guest Portal - <?= htmlspecialchars($booking['property_name']) ?></title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -319,7 +319,7 @@ $attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttracti
             </div>
             
             <!-- Floating Cart -->
-            <div id="posCartBar" class="fixed bottom-[80px] left-4 right-4 bg-slate-900 text-white p-4 rounded-2xl shadow-xl flex justify-between items-center transform translate-y-[150%] transition duration-300 z-40">
+            <div id="posCartBar" class="fixed bottom-[calc(80px+env(safe-area-inset-bottom))] left-4 right-4 bg-slate-900 text-white p-4 rounded-2xl shadow-xl flex justify-between items-center transform translate-y-[150%] transition duration-300 z-40">
                 <div>
                     <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Your Order</p>
                     <p class="font-bold text-xl" id="posCartTotal">₹0.00</p>
@@ -737,36 +737,6 @@ $attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttracti
             </div>
         </div>
     <?php endif; // end check-in check ?>
-        <?php if ($posEnabled): ?>
-        <div id="view-pos" class="view-section hidden">
-            <div class="flex items-center mb-6">
-                <button onclick="switchTab('home')" class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-gray-600 mr-4 shadow-sm border border-gray-200">
-                    <i class="fas fa-chevron-left"></i>
-                </button>
-                <h2 class="text-sm font-bold text-gray-600 uppercase tracking-wider">Room Service</h2>
-            </div>
-            
-            <div id="posCategories" class="flex overflow-x-auto gap-3 pb-4 hide-scrollbar mb-4">
-                <!-- Categories loaded dynamically -->
-            </div>
-            
-            <div id="posItems" class="grid grid-cols-2 gap-4 mb-20">
-                <!-- Items loaded dynamically -->
-                <p class="col-span-2 text-center text-gray-500 text-sm py-10" id="posLoadingMsg">Loading menu...</p>
-            </div>
-            
-            <!-- Floating Cart -->
-            <div id="posCartBar" class="fixed bottom-[80px] left-4 right-4 bg-slate-900 text-white p-4 rounded-2xl shadow-xl flex justify-between items-center transform translate-y-[150%] transition duration-300 z-40">
-                <div>
-                    <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Your Order</p>
-                    <p class="font-bold text-xl" id="posCartTotal">₹0.00</p>
-                </div>
-                <button onclick="submitPosOrder()" class="bg-brand-600 hover:bg-brand-500 text-white px-6 py-2 rounded-xl font-bold text-sm shadow transition flex items-center gap-2" id="posSubmitBtn">
-                    <span>Order</span> <i class="fas fa-arrow-right"></i>
-                </button>
-            </div>
-        </div>
-        <?php endif; ?>
 
         <div id="view-profile" class="view-section hidden">
             <div class="glass-panel p-5 mb-6">
@@ -874,16 +844,23 @@ $attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttracti
         const token = '<?= $token ?>';
 
         function switchTab(tabId) {
+            const view = document.getElementById('view-' + tabId);
+            if (!view) return;
             document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             
-            document.getElementById('view-' + tabId).classList.remove('hidden');
+            view.classList.remove('hidden');
             if(document.getElementById('nav-' + tabId)) {
                 document.getElementById('nav-' + tabId).classList.add('active');
             }
             
             if (tabId === 'services') loadActiveRequests();
             if (tabId === 'profile') loadProfileDocuments();
+            if (tabId === 'pos') loadPosMenu();
+        }
+
+        function escapeHtml(str) {
+            return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
         }
 
         async function loadActiveRequests() {
@@ -891,11 +868,13 @@ $attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttracti
                 const res = await fetch(`/api/guest/service_request?action=list&booking_id=${bookingId}&token=${token}`);
                 const data = await res.json();
                 const container = document.getElementById('activeRequestsContainer');
+                const requests = data.requests || data.data?.requests || [];
                 
-                if (data.success === true && data.data && data.data.requests && data.data.requests.length > 0) {
-                    container.innerHTML = data.data.requests.map(req => {
-                        const icon = req.service_type === 'Housekeeping' ? 'fa-broom' : 'fa-bell';
-                        const statusColor = req.status === 'completed' ? 'text-green-500' : 'text-blue-500';
+                if (data.success === true && requests.length > 0) {
+                    container.innerHTML = requests.map(req => {
+                        const type = String(req.service_type || '');
+                        const icon = type === 'Housekeeping' || type === 'housekeeping' ? 'fa-broom' : 'fa-bell';
+                        const statusColor = req.status === 'completed' ? 'text-green-500' : (req.status === 'rejected' ? 'text-red-500' : 'text-blue-500');
                         return `
                         <div class="glass-panel p-3 flex items-center justify-between">
                             <div class="flex items-center gap-3">
@@ -903,8 +882,8 @@ $attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttracti
                                     <i class="fas ${icon}"></i>
                                 </div>
                                 <div>
-                                    <p class="text-sm font-bold text-gray-800">${req.service_type}</p>
-                                    <p class="text-[10px] text-gray-500">Status: <span class="capitalize">${req.status.replace('_', ' ')}</span></p>
+                                    <p class="text-sm font-bold text-gray-800">${escapeHtml(type.replace(/_/g, ' '))}</p>
+                                    <p class="text-[10px] text-gray-500">Status: <span class="capitalize">${escapeHtml(String(req.status || '').replace('_', ' '))}</span></p>
                                 </div>
                             </div>
                             <i class="fas fa-circle text-[8px] ${statusColor}"></i>
@@ -980,76 +959,75 @@ $attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttracti
         let posItems = [];
         let posCart = {};
         let posActiveOutlet = null;
-
-        if (document.getElementById('nav-pos')) {
-            document.getElementById('nav-pos').addEventListener('click', () => {
-                if(posItems.length === 0) loadPosMenu();
-            });
-        }
+        let posOutlets = [];
 
         async function loadPosMenu() {
+            const loading = document.getElementById('posLoadingMsg');
             try {
                 const res = await fetch(`/api/guest/pos_menu?id=${bookingId}&token=${token}`);
                 const data = await res.json();
                 if(data.success) {
                     posItems = data.items || [];
-                    const outlets = data.outlets || [];
-                    if(outlets.length > 0) posActiveOutlet = outlets[0].id;
-
-                    const catHtml = outlets.map(o => `
-                        <button onclick="posActiveOutlet=${o.id}; renderPosItems();" class="whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition ${posActiveOutlet==o.id ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 shadow-sm border border-slate-200 hover:bg-slate-50'}">${o.name}</button>
-                    `).join('');
-                    document.getElementById('posCategories').innerHTML = catHtml;
+                    posOutlets = data.outlets || [];
+                    if(posOutlets.length > 0 && posActiveOutlet === null) posActiveOutlet = posOutlets[0].id;
+                    renderPosCategories();
                     renderPosItems();
-                } else {
-                    document.getElementById('posLoadingMsg').textContent = 'Failed to load menu.';
+                } else if (loading) {
+                    loading.textContent = data.message || 'Failed to load menu.';
                 }
             } catch(e) {
-                document.getElementById('posLoadingMsg').textContent = 'Error connecting to menu.';
+                if (loading) loading.textContent = 'Error connecting to menu.';
             }
+        }
+
+        function renderPosCategories() {
+            const cat = document.getElementById('posCategories');
+            if (!cat) return;
+            cat.innerHTML = posOutlets.map(o => `
+                <button type="button" data-outlet-id="${o.id}" onclick="posActiveOutlet=${Number(o.id)}; renderPosItems();" class="whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition ${Number(posActiveOutlet)===Number(o.id) ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 shadow-sm border border-slate-200 hover:bg-slate-50'}">${escapeHtml(o.name)}</button>
+            `).join('');
         }
 
         function renderPosItems() {
             const container = document.getElementById('posItems');
+            if (!container) return;
             const items = posItems.filter(i => i.outlet_id == posActiveOutlet);
             
             if(items.length === 0) {
                 container.innerHTML = '<p class="col-span-2 text-center text-gray-500 text-sm py-10">No items available in this category.</p>';
+                renderPosCategories();
                 return;
             }
 
             container.innerHTML = items.map(i => {
                 const qty = posCart[i.id] || 0;
+                const name = escapeHtml(i.name);
+                const price = parseFloat(i.selling_price);
                 return `
                 <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
-                    ${i.image_url ? `<img src="${i.image_url}" class="w-full h-24 object-cover">` : `<div class="w-full h-24 bg-slate-100 flex items-center justify-center text-slate-300"><i class="fas fa-utensils text-2xl"></i></div>`}
+                    ${i.image_url ? `<img src="${escapeHtml(i.image_url)}" alt="" class="w-full h-24 object-cover">` : `<div class="w-full h-24 bg-slate-100 flex items-center justify-center text-slate-300"><i class="fas fa-utensils text-2xl"></i></div>`}
                     <div class="p-3 flex-1 flex flex-col justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-800 leading-tight mb-1">${i.name}</p>
-                            <p class="text-xs text-brand-600 font-bold mb-3">₹${parseFloat(i.selling_price).toFixed(2)}</p>
+                            <p class="text-xs font-bold text-slate-800 leading-tight mb-1">${name}</p>
+                            <p class="text-xs text-brand-600 font-bold mb-3">₹${price.toFixed(2)}</p>
                         </div>
                         ${qty > 0 ? `
                         <div class="flex items-center justify-between bg-slate-100 rounded-lg p-1">
-                            <button onclick="updateCart(${i.id}, -1, ${i.selling_price})" class="w-6 h-6 rounded bg-white shadow-sm flex items-center justify-center text-slate-700 font-bold">-</button>
+                            <button type="button" onclick="updateCart(${Number(i.id)}, -1)" class="w-6 h-6 rounded bg-white shadow-sm flex items-center justify-center text-slate-700 font-bold">-</button>
                             <span class="text-xs font-bold">${qty}</span>
-                            <button onclick="updateCart(${i.id}, 1, ${i.selling_price})" class="w-6 h-6 rounded bg-white shadow-sm flex items-center justify-center text-slate-700 font-bold">+</button>
+                            <button type="button" onclick="updateCart(${Number(i.id)}, 1)" class="w-6 h-6 rounded bg-white shadow-sm flex items-center justify-center text-slate-700 font-bold">+</button>
                         </div>
                         ` : `
-                        <button onclick="updateCart(${i.id}, 1, ${i.selling_price})" class="w-full text-[10px] uppercase font-bold text-slate-600 bg-slate-100 py-2 rounded-lg hover:bg-slate-200 transition">Add to Order</button>
+                        <button type="button" onclick="updateCart(${Number(i.id)}, 1)" class="w-full text-[10px] uppercase font-bold text-slate-600 bg-slate-100 py-2 rounded-lg hover:bg-slate-200 transition">Add to Order</button>
                         `}
                     </div>
                 </div>
                 `;
             }).join('');
-            
-            // Re-render categories to update active state
-            const buttons = document.getElementById('posCategories').querySelectorAll('button');
-            buttons.forEach(btn => {
-                btn.className = btn.getAttribute('onclick').includes(posActiveOutlet) ? 'whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition bg-slate-900 text-white' : 'whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition bg-white text-slate-600 shadow-sm border border-slate-200 hover:bg-slate-50';
-            });
+            renderPosCategories();
         }
 
-        function updateCart(itemId, change, price) {
+        function updateCart(itemId, change) {
             posCart[itemId] = Math.max(0, (posCart[itemId] || 0) + change);
             if(posCart[itemId] === 0) delete posCart[itemId];
             renderPosItems();
@@ -1170,7 +1148,7 @@ $attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttracti
                 const res = await fetch(`/api/guest/pos_order`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({id: bookingId, token: token, outlet_id: posActiveOutlet, items: items})
+                    body: JSON.stringify({booking_id: bookingId, token: token, outlet_id: posActiveOutlet, items: items})
                 });
                 const data = await res.json();
                 if(data.success) {
@@ -1178,7 +1156,7 @@ $attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttracti
                     posCart = {};
                     updateCartUI();
                     renderPosItems();
-                    switchTab('folio'); // switch to folio to show the charge
+                    window.location.reload();
                 } else {
                     alert('Failed to place order: ' + (data.message || 'Unknown error'));
                 }
@@ -1188,6 +1166,72 @@ $attractions = array_filter(array_map('trim', explode("\n", $portalLocalAttracti
                 document.getElementById('posSubmitBtn').disabled = false;
                 document.getElementById('posSubmitBtn').innerHTML = `<span>Order</span> <i class="fas fa-arrow-right"></i>`;
             }
+        }
+
+        const folioBalance = <?= json_encode((float)$balance) ?>;
+        const guestName = <?= json_encode((string)($booking['guest_name'] ?? 'Guest'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+        const guestPhone = <?= json_encode((string)($booking['guest_phone'] ?? ''), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
+        async function payWithRazorpay() {
+            if (folioBalance <= 0) return;
+            try {
+                const res = await fetch('/api/guest/create_razorpay_order', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ booking_id: bookingId, token: token, amount: folioBalance })
+                });
+                const data = await res.json();
+                if (!data.success || !data.order_id) {
+                    alert(data.message || 'Could not start payment.');
+                    return;
+                }
+                const openCheckout = () => {
+                    const rzp = new Razorpay({
+                        key: data.key_id,
+                        amount: data.amount || Math.round(folioBalance * 100),
+                        currency: 'INR',
+                        name: 'Stay payment',
+                        order_id: data.order_id,
+                        prefill: { name: guestName, contact: guestPhone },
+                        handler: async function (response) {
+                            const rec = await fetch('/api/guest/record_payment', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({
+                                    booking_id: bookingId,
+                                    token: token,
+                                    amount: folioBalance,
+                                    razorpay_payment_id: response.razorpay_payment_id,
+                                    razorpay_order_id: response.razorpay_order_id,
+                                    razorpay_signature: response.razorpay_signature
+                                })
+                            });
+                            const recData = await rec.json();
+                            if (recData.success) {
+                                window.location.reload();
+                            } else {
+                                alert(recData.message || 'Payment recording failed');
+                            }
+                        }
+                    });
+                    rzp.open();
+                };
+                if (typeof Razorpay === 'undefined') {
+                    const s = document.createElement('script');
+                    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+                    s.onload = openCheckout;
+                    s.onerror = () => alert('Could not load Razorpay checkout.');
+                    document.head.appendChild(s);
+                } else {
+                    openCheckout();
+                }
+            } catch (e) {
+                alert('Payment could not be started.');
+            }
+        }
+
+        async function payWithPhonePe() {
+            alert('Please complete PhonePe payment from the link sent by the front desk, or pay at the desk.');
         }
 
     </script>

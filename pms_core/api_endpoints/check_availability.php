@@ -16,9 +16,9 @@ ApiHandler::run(function(\PDO $db) {
     if (strlen($checkInStr) === 16) { $checkInStr .= ':00'; }
     if (strlen($checkOutStr) === 16) { $checkOutStr .= ':00'; }
 
-    $propertyId = !empty($data['property_id']) ? (int)$data['property_id'] : AuthHelper::getPropertyId();
+    $propertyId = AuthHelper::getPropertyId();
     if ($propertyId <= 0) {
-        $propertyId = 1; // Default fallback for unauthenticated public booking engine
+        ApiResponse::error('No active property context', 403);
     }
 
     // We want to find a room that does NOT have overlapping bookings AND is not out of order.
@@ -102,5 +102,5 @@ ApiHandler::run(function(\PDO $db) {
     ApiResponse::success(['categories' => array_values($categories)]);
     
 
-}, false, false, false);
+}, true, true, false);
 

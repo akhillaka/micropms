@@ -18,6 +18,7 @@ ApiHandler::run(function(\PDO $db) {
     $amount   = floatval($data['amount'] ?? 0);
     $desc     = trim($data['description'] ?? '');
     $method   = trim($data['payment_method'] ?? '');
+    $category = trim((string)($data['category'] ?? ''));
     if (!$ledgerId || !$desc) {
         ApiResponse::error('Missing fields');
     }
@@ -125,13 +126,32 @@ ApiHandler::run(function(\PDO $db) {
             $amount = -$amount;
         }
 
-        // Only update method if it was provided
-        if ($method !== '') {
+        $setCat = $category !== '';
+        if ($method !== '' && $setCat) {
+            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm, category = :cat WHERE id = :id AND property_id = :pid");
+            $stmt->execute(['amt' => $amount, 'desc' => $desc, 'pm' => $method, 'cat' => $category, 'id' => $ledgerId, 'pid' => $propertyId]);
+        } elseif ($method !== '') {
             $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'pm' => $method, 'id' => $ledgerId, 'pid' => $propertyId]);
+        } elseif ($setCat) {
+            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, category = :cat WHERE id = :id AND property_id = :pid");
+            $stmt->execute(['amt' => $amount, 'desc' => $desc, 'cat' => $category, 'id' => $ledgerId, 'pid' => $propertyId]);
         } else {
             $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'id' => $ledgerId, 'pid' => $propertyId]);
+        }
+
+        if ($setCat && $origAmt < 0) {
+            $displayId = (string)($origEntry['display_id'] ?? '');
+            if ($displayId !== '') {
+                $fin = $db->prepare("UPDATE finance_transactions SET category = :cat WHERE booking_id = :bid AND property_id = :pid AND description LIKE :pat");
+                $fin->execute([
+                    'cat' => $category,
+                    'bid' => (int)$origEntry['booking_id'],
+                    'pid' => $propertyId,
+                    'pat' => '%Receipt ' . $displayId . '%'
+                ]);
+            }
         }
     }
 
@@ -156,7 +176,8 @@ ApiHandler::run(function(\PDO $db) {
         'ledger_id' => $ledgerId,
         'amount' => $amount,
         'description' => $desc,
-        'payment_method' => $method
+        'payment_method' => $method,
+        'category' => $category
     ]);
     
     ApiResponse::success();

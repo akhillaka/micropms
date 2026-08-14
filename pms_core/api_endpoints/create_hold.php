@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../pms_core/services/BookingService.php';
 require_once __DIR__ . '/../../pms_core/services/GuestService.php';
 
 ApiHandler::run(function(\PDO $db) {
+    AuthHelper::requirePermission('create_booking');
 
     // Read from POST if set, otherwise fallback to JSON input
     if (!empty($_POST)) {
@@ -45,21 +46,32 @@ ApiHandler::run(function(\PDO $db) {
     $guestResult = GuestService::findOrCreate($db, $data['guest_name'], $guestPhone);
     $guestId = $guestResult['guest_id'];
 
-    // Process document uploads
+    // Process document uploads (MIME-validated; stored under pms_core/uploads)
     $uploadDir = realpath(__DIR__ . '/../uploads');
     if ($uploadDir && is_writable($uploadDir)) {
+        $allowedExt = ['jpg', 'jpeg', 'png', 'pdf', 'webp'];
+        $allowedMime = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $propId = AuthHelper::getPropertyId();
         foreach (['id_proof_front', 'id_proof_back', 'guest_photo'] as $key) {
             $dbCol = ($key === 'guest_photo') ? 'photo' : $key;
-            if (isset($_FILES[$key]) && $_FILES[$key]['error'] === UPLOAD_ERR_OK) {
-                $ext = strtolower(pathinfo($_FILES[$key]['name'], PATHINFO_EXTENSION));
-                if (in_array($ext, ['jpg', 'jpeg', 'png', 'pdf'])) {
-                    $filename = uniqid($key . '_') . '.' . $ext;
-                    $dest = $uploadDir . '/' . $filename;
-                    if (move_uploaded_file($_FILES[$key]['tmp_name'], $dest)) {
-                        $db->prepare("UPDATE guests SET `{$dbCol}` = :val WHERE id = :id")->execute(['val' => $filename, 'id' => $guestId]);
-                    }
-                }
+            if (!isset($_FILES[$key]) || $_FILES[$key]['error'] !== UPLOAD_ERR_OK) {
+                continue;
             }
+            $ext = strtolower(pathinfo($_FILES[$key]['name'], PATHINFO_EXTENSION));
+            $mime = $finfo ? (string)finfo_file($finfo, $_FILES[$key]['tmp_name']) : '';
+            if (!in_array($ext, $allowedExt, true) || !in_array($mime, $allowedMime, true)) {
+                continue;
+            }
+            $filename = bin2hex(random_bytes(8)) . '_' . preg_replace('/[^a-z0-9_]/', '', $key) . '.' . $ext;
+            $dest = $uploadDir . '/' . $filename;
+            if (move_uploaded_file($_FILES[$key]['tmp_name'], $dest)) {
+                $db->prepare("UPDATE guests SET `{$dbCol}` = :val WHERE id = :id AND property_id = :pid")
+                   ->execute(['val' => $filename, 'id' => $guestId, 'pid' => $propId]);
+            }
+        }
+        if ($finfo) {
+            finfo_close($finfo);
         }
     }
 
@@ -117,4 +129,4 @@ ApiHandler::run(function(\PDO $db) {
     ApiResponse::success($response);
 
 
-}, false, false, true);
+}, true, true, true);

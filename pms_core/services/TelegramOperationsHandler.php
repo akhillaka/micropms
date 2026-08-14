@@ -7,11 +7,13 @@ class TelegramOperationsHandler {
     private $botToken;
     private $allowedChatIds;
     private $db;
+    private ?int $defaultPropertyId;
 
-    public function __construct(string $botToken, array $allowedChatIds) {
+    public function __construct(string $botToken, array $allowedChatIds, ?int $defaultPropertyId = null) {
         $this->botToken = $botToken;
-        $this->allowedChatIds = $allowedChatIds;
+        $this->allowedChatIds = array_values(array_filter(array_map('strval', $allowedChatIds)));
         $this->db = Database::getInstance()->getConnection();
+        $this->defaultPropertyId = $defaultPropertyId;
     }
 
     /**
@@ -34,7 +36,7 @@ class TelegramOperationsHandler {
         $text = trim($message['text'] ?? '');
 
         if (!$this->isAuthorized($chatId)) {
-            $this->sendMessage($chatId, "Unauthorized access. Your Chat ID is: " . $chatId);
+            $this->sendMessage($chatId, "Unauthorized access.");
             return;
         }
 
@@ -170,8 +172,8 @@ class TelegramOperationsHandler {
                 $currentCheckOut->modify("+$days days");
                 $newCheckOut = $currentCheckOut->format('Y-m-d');
 
-                $stmt = $this->db->prepare("UPDATE bookings SET check_out = ? WHERE id = ?");
-                $stmt->execute([$newCheckOut, $bookingId]);
+                $stmt = $this->db->prepare("UPDATE bookings SET check_out = ? WHERE id = ? AND property_id = ?");
+                $stmt->execute([$newCheckOut, $bookingId, $propertyId]);
 
                 // Clear session
                 $this->clearSession($chatId);
@@ -410,7 +412,7 @@ class TelegramOperationsHandler {
 
         try {
             $this->db->beginTransaction();
-            $this->db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = ?")->execute([$bookingId]);
+            $this->db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = ? AND property_id = ?")->execute([$bookingId, $propertyId]);
             $this->db->prepare("UPDATE rooms SET hk_status = 'dirty' WHERE id = ?")->execute([$roomId]);
             $this->db->commit();
 
@@ -709,10 +711,14 @@ class TelegramOperationsHandler {
     // --- Utility Methods ---
 
     private function getPropertyIdForChat(string $chatId): ?int {
-        // In a true multi-tenant SaaS, you'd loop through system_settings to find which property owns this token/chatId
-        $stmt = $this->db->prepare("SELECT property_id FROM system_settings WHERE key_name = 'TELEGRAM_OPERATIONS_CHAT_IDS' AND key_value LIKE ? LIMIT 1");
-        $stmt->execute(['%' . $chatId . '%']);
-        return (int)$stmt->fetchColumn() ?: 1; // Fallback to 1
+        $stmt = $this->db->query("SELECT property_id, key_value FROM system_settings WHERE key_name = 'TELEGRAM_OPERATIONS_CHAT_IDS'");
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $ids = array_filter(array_map('trim', explode(',', (string)$row['key_value'])));
+            if (in_array($chatId, $ids, true)) {
+                return (int)$row['property_id'];
+            }
+        }
+        return $this->defaultPropertyId;
     }
 
     private function sendMessage(string $chatId, string $text, array $replyMarkup = []) {

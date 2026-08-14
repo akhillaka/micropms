@@ -16,13 +16,13 @@ $propertyId = AuthHelper::getPropertyId();
 $query = "
     SELECT 
         recorded_at AS `Date`,
-        'Room Charge' AS `Type`,
-        'Room Booking' AS `Category`,
+        CASE WHEN amount > 0 THEN 'Room Charge' ELSE 'collection' END AS `Type`,
+        CASE WHEN amount > 0 THEN 'Room Booking' ELSE 'Room Received Payment' END AS `Category`,
         CONCAT('Folio #', booking_id, ' — ', COALESCE(description, '')) AS `Description`,
         COALESCE(transaction_ref, booking_id) AS `Reference ID`,
         ABS(amount) AS `Amount (INR)`
     FROM folio_ledger
-    WHERE amount > 0
+    WHERE amount != 0
       AND property_id = :pid1
       AND recorded_at BETWEEN :start1 AND :end1
     
@@ -41,6 +41,7 @@ $query = "
     FROM finance_transactions
     WHERE property_id = :pid2
       AND recorded_at BETWEEN :start2 AND :end2
+      AND (booking_id IS NULL OR booking_id = 0)
     
     ORDER BY `Date` DESC
 ";

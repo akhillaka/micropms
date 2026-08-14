@@ -574,4 +574,5 @@ select:focus, textarea:focus {
 }
 
 /* ─── Responsive helpers ─── */
-.hidden { display: none !important; }
+/* Do not force .hidden { display:none !important } — it breaks Tailwind
+   `hidden md:block` / `hidden lg:flex` on desktop. */

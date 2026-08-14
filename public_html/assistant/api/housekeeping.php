@@ -211,4 +211,4 @@ ApiHandler::run(function(\PDO $db) {
     } else {
         ApiResponse::error('Invalid action');
     }
-}, true, false, false);
+}, true, true, false);

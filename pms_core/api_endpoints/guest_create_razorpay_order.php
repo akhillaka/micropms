@@ -45,13 +45,19 @@ if (!$rz) {
 }
 
 $receipt = 'gst_' . $bookingId . '_' . time();
-$result = $rz->createOrder(round($amount * 100), 'INR', $receipt);
+$result = $rz->createOrder(round($amount * 100), 'INR', $receipt, [
+    'booking_id' => (string)$bookingId,
+    'property_id' => (string)$propertyId,
+]);
 
 if ($result['success']) {
+    $up = $db->prepare("UPDATE bookings SET razorpay_order_id = ? WHERE id = ? AND property_id = ?");
+    $up->execute([$result['order_id'], $bookingId, $propertyId]);
     echo json_encode([
         'success' => true,
         'order_id' => $result['order_id'],
-        'key_id' => $result['key_id']
+        'key_id' => $result['key_id'],
+        'amount' => $result['amount'] ?? round($amount * 100)
     ]);
 } else {
     echo json_encode(['success' => false, 'message' => 'Failed to create order', 'details' => $result['error']]);

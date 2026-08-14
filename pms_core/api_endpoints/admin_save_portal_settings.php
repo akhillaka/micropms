@@ -42,4 +42,4 @@ ApiHandler::run(function(\PDO $db) {
     AuditLogger::log($_SESSION['user_id'], 'UPDATE_GUEST_PORTAL_SETTINGS', 'SYSTEM', null, $settings);
 
     ApiResponse::success(['message' => 'Guest Portal settings updated successfully']);
-}, false, true, false);
+}, true, true, false);

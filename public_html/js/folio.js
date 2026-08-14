@@ -276,11 +276,24 @@ async function saveGuestEdit(btn) {
     if(data.success) location.reload(); else { showToast(data.message); UI.setLoading(btn, false); }
 }
 
-function openEditLedger(id, desc, amt, method = '', displayId = '') {
+function openEditLedger(id, desc, amt, method = '', displayId = '', category = '') {
     document.getElementById('edit_l_id').value = id;
     document.getElementById('edit_l_desc').value = desc;
     document.getElementById('edit_l_amount').value = amt;
     document.getElementById('edit_l_method').value = method;
+
+    const catSelect = document.getElementById('edit_l_category');
+    const catWrap = document.getElementById('edit_l_category_wrap');
+    if (catSelect) {
+        if (category && ![...catSelect.options].some(o => o.value === category)) {
+            const opt = document.createElement('option');
+            opt.value = category;
+            opt.textContent = category;
+            catSelect.appendChild(opt);
+        }
+        catSelect.value = category || catSelect.options[0]?.value || '';
+    }
+    if (catWrap) catWrap.classList.remove('hidden');
 
     const toggleContainer = document.getElementById('edit_l_split_toggle_container');
     const splitToggle = document.getElementById('edit_l_split_toggle');
@@ -297,10 +310,11 @@ function openEditLedger(id, desc, amt, method = '', displayId = '') {
         
         // If it was already split, let's auto-fill the bifurcation
         if (displayId && displayId !== '') {
-            const siblingRows = document.querySelectorAll(`tr[data-display-id="${displayId}"]`);
+            const siblingRows = document.querySelectorAll(`tr[data-display-id="${CSS.escape(displayId)}"]`);
             if (siblingRows.length > 1) {
                 if (splitToggle) splitToggle.checked = true;
                 if (splitsContainer) splitsContainer.classList.remove('hidden');
+                if (catWrap) catWrap.classList.add('hidden');
                 
                 let combinedTotal = 0;
                 siblingRows.forEach(row => {
@@ -308,7 +322,7 @@ function openEditLedger(id, desc, amt, method = '', displayId = '') {
                     const val = parseFloat(row.getAttribute('data-amount')) || 0;
                     combinedTotal += val;
                     
-                    const input = document.querySelector(`.edit-l-split-amount[data-category="${cat}"]`);
+                    const input = document.querySelector(`.edit-l-split-amount[data-category="${CSS.escape(cat)}"]`);
                     if (input) {
                         input.value = val;
                     }
@@ -327,11 +341,14 @@ function openEditLedger(id, desc, amt, method = '', displayId = '') {
 
 function toggleEditSplitPayment(visible) {
     const container = document.getElementById('edit_l_splits_container');
+    const catWrap = document.getElementById('edit_l_category_wrap');
+    if (catWrap) catWrap.classList.toggle('hidden', !!visible);
     if (visible) {
         container.classList.remove('hidden');
         const total = parseFloat(document.getElementById('edit_l_amount').value) || 0;
         document.querySelectorAll('.edit-l-split-amount').forEach(el => el.value = 0);
-        document.querySelector('.edit-l-split-amount[data-category="booking"]').value = total;
+        const first = document.querySelector('.edit-l-split-amount');
+        if (first) first.value = total;
     } else {
         container.classList.add('hidden');
     }
@@ -360,6 +377,7 @@ async function saveLedgerEdit(btn) {
     const desc = document.getElementById('edit_l_desc').value;
     const amt = document.getElementById('edit_l_amount').value;
     const method = document.getElementById('edit_l_method').value;
+    const category = document.getElementById('edit_l_category')?.value || '';
 
     const isSplit = document.getElementById('edit_l_split_toggle').checked;
     let splits = [];
@@ -383,7 +401,7 @@ async function saveLedgerEdit(btn) {
         const res = await fetch('/api/admin/edit_ledger', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ ledger_id: id, description: desc, amount: amt, payment_method: method, splits: splits })
+            body: JSON.stringify({ ledger_id: id, description: desc, amount: amt, payment_method: method, category: category, splits: splits })
         });
         const data = await res.json();
         if(data.success) location.reload(); else { showToast(data.message); UI.setLoading(btn, false); }
@@ -627,6 +645,9 @@ async function payViaGateway(btn) {
                 amount: amt,
                 method: 'Razorpay',
                 ref: response.razorpay_payment_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
                 date: date,
                 splits: splits
             };

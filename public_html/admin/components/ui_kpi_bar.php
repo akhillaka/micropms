@@ -10,30 +10,57 @@ if (!isset($db)) {
     $db = Database::getInstance()->getConnection();
 }
 
-// 1. Today's Revenue
-$revStmt = $db->prepare("
-    SELECT COALESCE(SUM(amount), 0) FROM finance_transactions WHERE type = 'income' AND DATE(recorded_at) = CURDATE()
-");
-$revStmt->execute();
-$kpiRevenueToday = $revStmt->fetchColumn() ?: 0;
+$kpiPropertyId = 0;
+try {
+    require_once __DIR__ . '/../../../pms_core/AuthHelper.php';
+    $kpiPropertyId = (int)AuthHelper::getPropertyId();
+} catch (\Throwable $e) {
+    $kpiPropertyId = 0;
+}
 
-// 2. Occupancy %
-$kpiTotalRooms = (int)$db->query("SELECT COUNT(*) FROM rooms")->fetchColumn();
-$kpiOccupiedCount = (int)$db->query("
-    SELECT COUNT(DISTINCT room_id) FROM bookings 
-    WHERE booking_status = 'checked_in'
-")->fetchColumn();
+// 1. Today's Revenue (folio payments for bookings + non-booking finance income)
+if ($kpiPropertyId > 0) {
+    $revStmt = $db->prepare("
+        SELECT COALESCE(SUM(amt), 0) FROM (
+            SELECT ABS(amount) AS amt FROM folio_ledger
+            WHERE property_id = ? AND amount < 0 AND DATE(recorded_at) = CURDATE()
+            UNION ALL
+            SELECT amount FROM finance_transactions
+            WHERE property_id = ? AND type = 'income' AND DATE(recorded_at) = CURDATE()
+              AND (booking_id IS NULL OR booking_id = 0)
+        ) t
+    ");
+    $revStmt->execute([$kpiPropertyId, $kpiPropertyId]);
+    $kpiRevenueToday = $revStmt->fetchColumn() ?: 0;
+
+    $roomStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ?");
+    $roomStmt->execute([$kpiPropertyId]);
+    $kpiTotalRooms = (int)$roomStmt->fetchColumn();
+
+    $occStmt = $db->prepare("SELECT COUNT(DISTINCT room_id) FROM bookings WHERE booking_status = 'checked_in' AND property_id = ?");
+    $occStmt->execute([$kpiPropertyId]);
+    $kpiOccupiedCount = (int)$occStmt->fetchColumn();
+
+    $pendStmt = $db->prepare("
+        SELECT COUNT(*) FROM bookings
+        WHERE property_id = ?
+          AND ((booking_status = 'booked' AND DATE(check_in) = CURDATE())
+            OR (booking_status = 'checked_in' AND DATE(check_out) = CURDATE()))
+    ");
+    $pendStmt->execute([$kpiPropertyId]);
+    $kpiPendingActions = (int)$pendStmt->fetchColumn();
+
+    $dirtyStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ? AND state = 'dirty'");
+    $dirtyStmt->execute([$kpiPropertyId]);
+    $kpiDirtyCount = (int)$dirtyStmt->fetchColumn();
+} else {
+    $kpiRevenueToday = 0;
+    $kpiTotalRooms = 0;
+    $kpiOccupiedCount = 0;
+    $kpiPendingActions = 0;
+    $kpiDirtyCount = 0;
+}
 $kpiOccupancyPct = $kpiTotalRooms > 0 ? round(($kpiOccupiedCount / $kpiTotalRooms) * 100) : 0;
-
-// 3. Pending Actions (arrivals/departures today)
-$kpiPendingActions = (int)$db->query("
-    SELECT COUNT(*) FROM bookings 
-    WHERE (booking_status = 'booked' AND DATE(check_in) = CURDATE())
-       OR (booking_status = 'checked_in' AND DATE(check_out) = CURDATE())
-")->fetchColumn();
-
-// 4. Dirty Rooms
-$kpiDirtyCount = (int)$db->query("SELECT COUNT(*) FROM rooms WHERE state = 'dirty'")->fetchColumn();
 ?>
 
 <!-- KPI Strip: Reusable component -->

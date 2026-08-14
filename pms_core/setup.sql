@@ -1293,7 +1293,9 @@ CREATE TABLE IF NOT EXISTS `guest_service_requests` (
   `property_id` int(11) NOT NULL,
   `booking_id` int(11) NOT NULL,
   `service_type` varchar(50) NOT NULL,
-  `status` enum('pending','in_progress','completed') NOT NULL DEFAULT 'pending',
+  `status` enum('pending','in_progress','completed','rejected') NOT NULL DEFAULT 'pending',
+  `resolved_at` datetime DEFAULT NULL,
+
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),

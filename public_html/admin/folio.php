@@ -534,7 +534,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                         <?php elseif (preg_match('/Order #(\d+)/', $l['description'], $matches) && strpos($l['description'], 'Reverse') === false): ?>
                                             <a href="modules/pos/pos.php?edit_order=<?= htmlspecialchars((string)($matches[1]), ENT_QUOTES, 'UTF-8') ?>" class="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 transition-colors text-[10px] uppercase tracking-wider inline-flex items-center gap-1" title="Edit POS Order"><i class="ph-bold ph-pencil-simple text-[10px]"></i> POS Order</a>
                                         <?php else: ?>
-                                            <button onclick="openEditLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['description'] ?? ''))) ?>', <?= htmlspecialchars((string)(abs($l['amount'])), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['payment_method'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['display_id'] ?? ''))) ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
+                                            <button onclick="openEditLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['description'] ?? ''))) ?>', <?= htmlspecialchars((string)(abs($l['amount'])), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['payment_method'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['display_id'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['category'] ?? ''))) ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
                                             <button onclick="deleteLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>)" class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-trash text-sm"></i></button>
                                         <?php endif; ?>
                                     </td>
@@ -834,6 +834,14 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div id="edit_l_category_wrap">
+                        <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Payment Category</label>
+                        <select id="edit_l_category" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
+                            <?php foreach($paymentCategories as $pc): ?>
+                                <option value="<?= htmlspecialchars((string)($pc)) ?>"><?= htmlspecialchars((string)($pc)) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
 
                     <div class="flex items-center gap-2 my-2" id="edit_l_split_toggle_container">
                         <input type="checkbox" id="edit_l_split_toggle" onchange="toggleEditSplitPayment(this.checked)" class="rounded text-indigo-600 focus:ring-indigo-500">
@@ -843,22 +851,12 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <div id="edit_l_splits_container" class="hidden space-y-3 mt-3 border-t border-slate-100 pt-3">
                         <div class="text-[10px] font-bold text-slate-400 uppercase mb-2">Allocate amounts (Sum must equal Total Amount)</div>
                         <div class="space-y-2" id="edit_l_split_rows">
+                            <?php foreach($paymentCategories as $pc): ?>
                             <div class="flex gap-2 items-center">
-                                <span class="text-xs font-bold text-slate-500 w-24">Room Rent:</span>
-                                <input type="number" data-category="booking" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold edit-l-split-amount" placeholder="0.00" value="0" oninput="validateEditSplitSum()">
+                                <span class="text-xs font-bold text-slate-500 w-24 truncate" title="<?= htmlspecialchars((string)($pc)) ?>"><?= htmlspecialchars((string)($pc)) ?>:</span>
+                                <input type="number" data-category="<?= htmlspecialchars((string)($pc)) ?>" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold edit-l-split-amount" placeholder="0.00" value="0" oninput="validateEditSplitSum()">
                             </div>
-                            <div class="flex gap-2 items-center">
-                                <span class="text-xs font-bold text-slate-500 w-24">F & B:</span>
-                                <input type="number" data-category="F&B" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold edit-l-split-amount" placeholder="0.00" value="0" oninput="validateEditSplitSum()">
-                            </div>
-                            <div class="flex gap-2 items-center">
-                                <span class="text-xs font-bold text-slate-500 w-24">Laundry:</span>
-                                <input type="number" data-category="Laundry" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold edit-l-split-amount" placeholder="0.00" value="0" oninput="validateEditSplitSum()">
-                            </div>
-                            <div class="flex gap-2 items-center">
-                                <span class="text-xs font-bold text-slate-500 w-24">Misc:</span>
-                                <input type="number" data-category="Misc" class="flex-1 input-glass rounded-xl p-2 text-xs font-bold edit-l-split-amount" placeholder="0.00" value="0" oninput="validateEditSplitSum()">
-                            </div>
+                            <?php endforeach; ?>
                         </div>
                         <div id="edit_l_split_validation_msg" class="text-[10px] font-bold text-rose-500 hidden">Allocated sum does not match total amount.</div>
                     </div>
@@ -1025,7 +1023,11 @@ $statusColor = $statusMap[$bookingStatus]['color'];
             balance: <?= htmlspecialchars((string)($balance), ENT_QUOTES, 'UTF-8') ?>,
             catRatePlans: <?= json_encode($catRatePlans) ?>,
             ratePlanName: <?= json_encode($ratePlanName) ?>,
-            razorpayKeyId: <?= defined("RAZORPAY_KEY_ID") ? json_encode(RAZORPAY_KEY_ID) : '""' ?>,
+            razorpayKeyId: <?= json_encode((function () use ($db, $activePropId) {
+                require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
+                $rz = RazorpayService::forProperty($db, (int)$activePropId);
+                return $rz ? $rz->getKeyId() : '';
+            })(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
             guestName: <?= json_encode($booking["guest_name"], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
             guestPhone: <?= json_encode($booking["guest_phone"], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>
 

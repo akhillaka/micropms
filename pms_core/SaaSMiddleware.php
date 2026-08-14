@@ -22,38 +22,60 @@ class SaaSMiddleware {
         // 1. Custom HTTP Header (cross-validated against staff_properties or superadmin check)
         // 2. Resolved host domain context
         // 3. Active session value
-        $propertyId = 1;
+        $propertyId = 0;
+        $loggedIn = isset($_SESSION['user_id']);
 
         if (isset($_SERVER['HTTP_X_TENANT_ID'])) {
             $requestedId = (int)$_SERVER['HTTP_X_TENANT_ID'];
-            $sessionPropertyId = AuthHelper::getPropertyId();
-            $isSuperAdmin = AuthHelper::isSuperAdmin();
+            if ($loggedIn) {
+                $sessionPropertyId = AuthHelper::getPropertyId();
+                $isSuperAdmin = AuthHelper::isSuperAdmin();
 
-            if ($isSuperAdmin || $requestedId === $sessionPropertyId) {
-                $propertyId = $requestedId;
-            } else {
-                // Verify if staff is mapped to this property in staff_properties
-                try {
-                    $stmt = $db->prepare("SELECT COUNT(*) FROM staff_properties WHERE staff_id = ? AND property_id = ?");
-                    $stmt->execute([$_SESSION['user_id'] ?? 0, $requestedId]);
-                    if ((int)$stmt->fetchColumn() > 0) {
-                        $propertyId = $requestedId;
-                    } else {
+                if ($isSuperAdmin || $requestedId === $sessionPropertyId) {
+                    $propertyId = $requestedId;
+                } else {
+                    try {
+                        $stmt = $db->prepare("SELECT COUNT(*) FROM staff_properties WHERE staff_id = ? AND property_id = ?");
+                        $stmt->execute([$_SESSION['user_id'] ?? 0, $requestedId]);
+                        $propertyId = ((int)$stmt->fetchColumn() > 0) ? $requestedId : $sessionPropertyId;
+                    } catch (\PDOException $e) {
                         $propertyId = $sessionPropertyId;
                     }
-                } catch (\PDOException $e) {
-                    $propertyId = $sessionPropertyId;
                 }
+            } else {
+                $propertyId = 0;
             }
         } elseif (isset($_SERVER['HTTP_HOST'])) {
             $resolvedId = SaaSBillingEngine::resolveDomainTenant($db, $_SERVER['HTTP_HOST']);
-            $propertyId = ($resolvedId !== null) ? $resolvedId : AuthHelper::getPropertyId();
-        } else {
+            if ($resolvedId !== null) {
+                if ($loggedIn) {
+                    $sessionPropertyId = AuthHelper::getPropertyId();
+                    if (AuthHelper::isSuperAdmin() || $resolvedId === $sessionPropertyId) {
+                        $propertyId = $resolvedId;
+                    } else {
+                        try {
+                            $stmt = $db->prepare("SELECT COUNT(*) FROM staff_properties WHERE staff_id = ? AND property_id = ?");
+                            $stmt->execute([$_SESSION['user_id'] ?? 0, $resolvedId]);
+                            $propertyId = ((int)$stmt->fetchColumn() > 0) ? $resolvedId : $sessionPropertyId;
+                        } catch (\PDOException $e) {
+                            $propertyId = $sessionPropertyId;
+                        }
+                    }
+                } else {
+                    $propertyId = $resolvedId;
+                }
+            } elseif ($loggedIn) {
+                $propertyId = AuthHelper::getPropertyId();
+            } else {
+                $propertyId = self::resolveLoopbackTenant($db) ?? 0;
+            }
+        } elseif ($loggedIn) {
             $propertyId = AuthHelper::getPropertyId();
         }
 
-        // Set context in session / helper
-        AuthHelper::setPropertyId($propertyId);
+        if ($propertyId > 0) {
+            AuthHelper::setPropertyId($propertyId);
+        }
 
         // Fetch custom permissions for this property context if not superadmin
         if (isset($_SESSION['user_id']) && !AuthHelper::isSuperAdmin()) {
@@ -123,6 +145,31 @@ class SaaSMiddleware {
         }
 
         return $propertyId;
+    }
+
+    /**
+     * Local PHP built-in server has no custom_domain. Bind the only active
+     * property (or id 1000 when present) so PIN login can list staff.
+     */
+    private static function resolveLoopbackTenant(\PDO $db): ?int {
+        $host = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
+        $host = preg_replace('/:\d+$/', '', $host) ?? $host;
+        if (!in_array($host, ['127.0.0.1', 'localhost', '::1'], true)) {
+            return null;
+        }
+        try {
+            $ids = $db->query("SELECT id FROM properties WHERE is_active = 1 ORDER BY id ASC")->fetchAll(\PDO::FETCH_COLUMN);
+            $ids = array_map('intval', $ids ?: []);
+            if (count($ids) === 1) {
+                return $ids[0];
+            }
+            if (in_array(1000, $ids, true)) {
+                return 1000;
+            }
+            return $ids[0] ?? null;
+        } catch (\PDOException $e) {
+            return null;
+        }
     }
 
     /**

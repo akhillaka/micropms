@@ -27,9 +27,9 @@ ApiHandler::run(function(\PDO $db) {
         FROM bookings b
         JOIN rooms r ON b.room_id = r.id
         LEFT JOIN guests g ON b.guest_id = g.id
-        WHERE b.id = :id AND b.payment_status != 'cancelled'
+        WHERE b.id = :id AND b.payment_status != 'cancelled' AND b.property_id = :pid
     ");
-    $bStmt->execute(['id' => $bookingId]);
+    $bStmt->execute(['id' => $bookingId, 'pid' => AuthHelper::getPropertyId()]);
     $booking = $bStmt->fetch();
 
     if (!$booking) {
@@ -75,4 +75,4 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::error('Recording payment failed: ' . $ex->getMessage());
     }
 
-}, true, false, false);
+}, true, true, false);

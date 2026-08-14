@@ -266,12 +266,23 @@ class FolioService {
 
         try {
             // Retrieve entry data first for audit log detail
-            $infoStmt = $db->prepare("SELECT booking_id, amount, description FROM folio_ledger WHERE id = ?");
+            $infoStmt = $db->prepare("SELECT booking_id, amount, description, transaction_type, property_id FROM folio_ledger WHERE id = ?");
             $infoStmt->execute([$entryId]);
             $entry = $infoStmt->fetch();
 
-            $stmt = $db->prepare("DELETE FROM folio_ledger WHERE id = ?");
-            $res = $stmt->execute([$entryId]);
+            if (!$entry) {
+                throw new \InvalidArgumentException('Ledger entry not found');
+            }
+
+            if (class_exists('AuthHelper')) {
+                $activeProp = AuthHelper::getPropertyId();
+                if ((int)$entry['property_id'] !== $activeProp) {
+                    throw new \Exception('Access denied: folio entry belongs to a different property');
+                }
+            }
+
+            $stmt = $db->prepare("DELETE FROM folio_ledger WHERE id = ? AND property_id = ?");
+            $res = $stmt->execute([$entryId, (int)$entry['property_id']]);
             
             // Delete orphaned finance ledger entry if it was a payment
             if ($res && strtolower($entry['transaction_type'] ?? '') === 'payment') {

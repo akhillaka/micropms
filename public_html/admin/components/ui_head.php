@@ -103,7 +103,6 @@ try {
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
     * { border-color: #E2E8F0; }
-    .hidden { display: none !important; }
 
     /* ── Cards ── */
     .card-minimal {

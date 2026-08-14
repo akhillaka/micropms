@@ -233,7 +233,7 @@ ApiHandler::run(function(\PDO $db) {
                 FROM (
                     SELECT 'income' as type, payment_method, ABS(amount) as amount FROM folio_ledger WHERE amount < 0 AND DATE(recorded_at) >= :sd1 AND DATE(recorded_at) <= :ed1 AND property_id = :p1
                     UNION ALL
-                    SELECT type, payment_method, amount FROM finance_transactions WHERE DATE(recorded_at) >= :sd2 AND DATE(recorded_at) <= :ed2 AND property_id = :p2
+                    SELECT type, payment_method, amount FROM finance_transactions WHERE DATE(recorded_at) >= :sd2 AND DATE(recorded_at) <= :ed2 AND property_id = :p2 AND (booking_id IS NULL OR booking_id = 0)
                 ) as combined
                 GROUP BY payment_method
                 ORDER BY receipts DESC

@@ -70,7 +70,8 @@ class SaaSBillingEngine {
      */
     public static function resolveDomainTenant(\PDO $db, string $httpHost): ?int {
         $cleanHost = strtolower(trim($httpHost));
-        
+        $cleanHost = preg_replace('/:\d+$/', '', $cleanHost) ?? $cleanHost;
+
         $stmt = $db->prepare("SELECT id FROM properties WHERE custom_domain = ? AND is_active = 1 LIMIT 1");
         $stmt->execute([$cleanHost]);
         $id = $stmt->fetchColumn();

@@ -64,7 +64,10 @@ class InvoiceLink {
      * Compute HMAC-SHA256 using the server secret.
      */
     private static function computeHmac(string $data): string {
-        $secret = defined('INVOICE_SECRET') ? INVOICE_SECRET : 'fallback-secret-change-me';
+        $secret = defined('INVOICE_SECRET') ? (string)INVOICE_SECRET : '';
+        if ($secret === '' || $secret === 'fallback-secret-change-me') {
+            throw new \RuntimeException('INVOICE_SECRET is not configured');
+        }
         return hash_hmac('sha256', $data, $secret);
     }
 

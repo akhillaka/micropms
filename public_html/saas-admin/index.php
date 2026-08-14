@@ -226,8 +226,16 @@ try {
                     $stmt = $db->prepare($sql);
                     $stmt->execute($params);
                 } else {
-                    $passHash = password_hash(!empty($password) ? $password : 'pass123', PASSWORD_BCRYPT);
-                    $pinHash = password_hash(!empty($pin) && preg_match('/^\d{4}$/', $pin) ? $pin : '1234', PASSWORD_BCRYPT);
+                    if (strlen($password) < 8) {
+                        echo json_encode(['success' => false, 'message' => 'Password must be at least 8 characters.']);
+                        exit;
+                    }
+                    if (!preg_match('/^\d{4}$/', $pin)) {
+                        echo json_encode(['success' => false, 'message' => 'PIN must be exactly 4 digits.']);
+                        exit;
+                    }
+                    $passHash = password_hash($password, PASSWORD_BCRYPT);
+                    $pinHash = password_hash($pin, PASSWORD_BCRYPT);
                     
                     $stmt = $db->prepare("INSERT INTO staff_users (username, password_hash, pin_hash, access_level, role, property_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$username, $passHash, $pinHash, $accessLevel, $role, $pId, $isActive]);

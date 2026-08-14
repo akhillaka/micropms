@@ -34,7 +34,7 @@ class QueueService {
         try {
             // Attempt to use MySQL 8.0 SKIP LOCKED for high concurrency
             $stmt = $db->prepare("
-                SELECT id, payload_json, attempts 
+                SELECT id, payload_json, attempts, property_id 
                 FROM jobs_queue 
                 WHERE status = 'pending' 
                   AND queue_name = ? 
@@ -60,7 +60,8 @@ class QueueService {
             return [
                 'id' => (int)$job['id'],
                 'payload' => json_decode($job['payload_json'], true) ?? [],
-                'attempts' => (int)$job['attempts']
+                'attempts' => (int)$job['attempts'],
+                'property_id' => isset($job['property_id']) ? (int)$job['property_id'] : null
             ];
             
         } catch (\PDOException $e) {
@@ -100,14 +101,15 @@ class QueueService {
             return null;
         }
         
-        $selStmt = $db->prepare("SELECT id, payload_json, attempts FROM jobs_queue WHERE id = ?");
+        $selStmt = $db->prepare("SELECT id, payload_json, attempts, property_id FROM jobs_queue WHERE id = ?");
         $selStmt->execute([$jobId]);
         $job = $selStmt->fetch();
         
         return [
             'id' => (int)$job['id'],
             'payload' => json_decode($job['payload_json'], true) ?? [],
-            'attempts' => (int)$job['attempts']
+            'attempts' => (int)$job['attempts'],
+            'property_id' => isset($job['property_id']) ? (int)$job['property_id'] : null
         ];
     }
 

@@ -53,10 +53,18 @@ ApiHandler::run(function(\PDO $db) {
     $data = json_decode(file_get_contents('php://input'), true) ?? [];
     $action = $data['action'] ?? $_GET['action'] ?? '';
 
-    $propertyId = AuthHelper::getPropertyId();
+    $propertyId = 0;
+    try {
+        $propertyId = AuthHelper::getPropertyId();
+    } catch (\Throwable $e) {
+        $propertyId = 0;
+    }
 
     // Action: Get List of Active Staff with Assistant Access
     if ($action === 'list_staff') {
+        if ($propertyId <= 0) {
+            ApiResponse::success(['staff' => []]);
+        }
         $stmt = $db->prepare("SELECT id, username, access_level FROM staff_users WHERE is_active = 1 AND assistant_access = 1 AND property_id = ? ORDER BY username ASC");
         $stmt->execute([$propertyId]);
         $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -90,8 +98,8 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('Too many failed attempts. Please wait 15 minutes or contact your manager.');
         }
 
-        $stmt = $db->prepare("SELECT * FROM staff_users WHERE id = :id AND is_active = 1 AND assistant_access = 1 AND property_id = :prop_id");
-        $stmt->execute(['id' => $userId, 'prop_id' => $propertyId]);
+        $stmt = $db->prepare("SELECT * FROM staff_users WHERE id = :id AND is_active = 1 AND assistant_access = 1");
+        $stmt->execute(['id' => $userId]);
         $user = $stmt->fetch();
 
         if (!$user) {
@@ -127,8 +135,11 @@ ApiHandler::run(function(\PDO $db) {
             $_SESSION['assistant_role']   = $user['assistant_role'] ?? 'receptionist';
             $_SESSION['primary_property_id'] = (int)($user['property_id'] ?? 0);
             $_SESSION['property_id'] = (int)($user['property_id'] ?? 0);
-            if ($_SESSION['property_id'] <= 0) {
-                $_SESSION['property_id'] = 1000;
+            if ($_SESSION['property_id'] <= 0 && $propertyId > 0) {
+                $_SESSION['property_id'] = $propertyId;
+            }
+            if ($_SESSION['property_id'] > 0) {
+                AuthHelper::setPropertyId((int)$_SESSION['property_id']);
             }
 
             // Compute granular permissions from assistant_role

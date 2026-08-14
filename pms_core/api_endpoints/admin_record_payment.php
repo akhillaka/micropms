@@ -16,7 +16,9 @@ ApiHandler::run(function(\PDO $db) {
     $amount = floatval($data['amount'] ?? 0);
     // Accept both 'method' and 'payment_method' for backward compatibility
     $method = $data['payment_method'] ?? $data['method'] ?? 'cash';
-    $ref = $data['payment_ref'] ?? $data['ref'] ?? '';
+    $ref = $data['razorpay_payment_id'] ?? $data['payment_ref'] ?? $data['ref'] ?? '';
+    $razorpayOrderId = (string)($data['razorpay_order_id'] ?? '');
+    $razorpaySignature = (string)($data['razorpay_signature'] ?? '');
     
     if (!$bookingId || $amount <= 0) {
         ApiResponse::error('Invalid input. Amount must be strictly greater than zero.');
@@ -50,6 +52,8 @@ ApiHandler::run(function(\PDO $db) {
         }
     }
 
+    $splits = $data['splits'] ?? [];
+
     $recordedAt = !empty($data['date']) ? $data['date'] : null;
     if ($recordedAt) {
         // Ensure valid date format, append current time if only date is provided
@@ -59,36 +63,39 @@ ApiHandler::run(function(\PDO $db) {
     }
 
     // Auto-capture Razorpay payment if applicable
-    if ($method === 'online' && str_starts_with($ref, 'pay_')) {
-        require_once __DIR__ . '/../../pms_core/config.php';
-        $keyId = defined('RAZORPAY_KEY_ID') ? RAZORPAY_KEY_ID : '';
-        $keySecret = defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : '';
-        
-        if (!empty($keyId) && !empty($keySecret)) {
-            $ch = curl_init("https://api.razorpay.com/v1/payments/{$ref}/capture");
-            curl_setopt($ch, CURLOPT_USERPWD, $keyId . ':' . $keySecret);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-                'amount' => round($amount * 100),
-                'currency' => 'INR'
-            ]));
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-            $response = curl_exec($ch);
-            $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $curlError = curl_error($ch);
-            curl_close($ch);
-            
-            // Log Razorpay capture attempt
-            if ($httpcode < 200 || $httpcode >= 300) {
-                AuditLogger::log($_SESSION['user_id'], 'RAZORPAY_CAPTURE_FAILED', 'FOLIO', $bookingId, [
-                    'http_code' => $httpcode,
-                    'response' => $response,
-                    'error' => $curlError
-                ]);
-                ApiResponse::error("Razorpay capture failed. HTTP Code: {$httpcode}");
-            }
+    $isRazorpay = (strtolower((string)$method) === 'online' || strcasecmp((string)$method, 'Razorpay') === 0)
+        && str_starts_with((string)$ref, 'pay_');
+    if ($isRazorpay) {
+        require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
+        $rz = RazorpayService::forProperty($db, $propertyId);
+        if (!$rz) {
+            ApiResponse::error('Razorpay is not configured for this property.');
         }
+        $storedOrder = (string)($booking['razorpay_order_id'] ?? '');
+        if ($razorpayOrderId === '' || $razorpaySignature === '' || $storedOrder === '' || !hash_equals($storedOrder, $razorpayOrderId)) {
+            ApiResponse::error('Payment signature missing or order mismatch.');
+        }
+        if (!$rz->verifySignature($razorpayOrderId, (string)$ref, $razorpaySignature)) {
+            ApiResponse::error('Invalid Razorpay payment signature.');
+        }
+        $fetched = $rz->fetchPayment((string)$ref);
+        if (empty($fetched['success'])) {
+            ApiResponse::error('Could not verify payment with Razorpay.');
+        }
+        $amountPaise = (int)($fetched['amount'] ?? 0);
+        if ($amountPaise > 0) {
+            $amount = $amountPaise / 100;
+        }
+        $capture = $rz->capturePayment((string)$ref, $amountPaise > 0 ? $amountPaise : (int)round($amount * 100));
+        $alreadyCaptured = !$capture['success'] && stripos((string)($capture['error'] ?? ''), 'already captured') !== false;
+        $status = strtolower((string)($fetched['status'] ?? ''));
+        if (!$capture['success'] && !$alreadyCaptured && $status !== 'captured') {
+            AuditLogger::log($_SESSION['user_id'] ?? 0, 'RAZORPAY_CAPTURE_FAILED', 'FOLIO', $bookingId, [
+                'error' => $capture['error'] ?? 'unknown'
+            ], $propertyId);
+            ApiResponse::error('Razorpay capture failed.');
+        }
+        $method = 'online';
     }
 
     // Get default category from property settings

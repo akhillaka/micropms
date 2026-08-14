@@ -32,16 +32,41 @@ ApiHandler::run(function(\PDO $db) {
     }
     
     $propertyId = (int)$booking['property_id'];
-    
-    require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
-    if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'housekeeping_module')) {
-        ApiResponse::error('Service requests are not enabled for this property.', 403);
-    }
 
     if ($action === 'create') {
-        $serviceType = $data['service_type'] ?? '';
-        if (empty($serviceType)) {
-            ApiResponse::error('Service type is required.', 400);
+        $allowedTypes = [
+            'Housekeeping', 'Extra Towels', 'Toiletries', 'Extra Bed', 'Blanket',
+            'Extend Stay', 'Room Upgrade', 'Maintenance', 'Room Service',
+            'Late Checkout', 'Wake-up Call'
+        ];
+        $aliases = [
+            'late_checkout' => 'Late Checkout',
+            'latecheckout' => 'Late Checkout',
+            'housekeeping' => 'Housekeeping',
+            'extra_towels' => 'Extra Towels',
+            'toiletries' => 'Toiletries',
+            'extra_bed' => 'Extra Bed',
+            'blanket' => 'Blanket',
+            'extend_stay' => 'Extend Stay',
+            'room_upgrade' => 'Room Upgrade',
+            'maintenance' => 'Maintenance',
+            'room_service' => 'Room Service',
+            'wakeup_call' => 'Wake-up Call',
+            'wake-up call' => 'Wake-up Call',
+        ];
+        $rawType = trim(strip_tags((string)($data['service_type'] ?? '')));
+        $aliasKey = strtolower(str_replace(['-', ' '], '_', $rawType));
+        $serviceType = $aliases[$aliasKey] ?? $rawType;
+        if ($serviceType === '' || !in_array($serviceType, $allowedTypes, true)) {
+            ApiResponse::error('Invalid service type.', 400);
+        }
+
+        $housekeepingTypes = ['Housekeeping', 'Extra Towels', 'Toiletries', 'Extra Bed', 'Blanket'];
+        if (in_array($serviceType, $housekeepingTypes, true)) {
+            require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
+            if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'housekeeping_module')) {
+                ApiResponse::error('Housekeeping requests are not enabled for this property.', 403);
+            }
         }
         
         $insert = $db->prepare("INSERT INTO guest_service_requests (property_id, booking_id, service_type, status) VALUES (?, ?, ?, 'pending')");

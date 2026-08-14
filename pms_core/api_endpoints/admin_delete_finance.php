@@ -22,5 +22,5 @@ if (!isset($data['id'])) {
     
     ApiResponse::success();
 
-}, false, true, false);
+}, true, true, false);
 

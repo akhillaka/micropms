@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../pms_core/HttpScriptGuard.php';
 require_once __DIR__ . '/../pms_core/Database.php';
 
 echo "<h1>Database Setup</h1>";

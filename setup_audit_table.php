@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/pms_core/HttpScriptGuard.php';
 require_once __DIR__ . '/pms_core/Database.php';
 $db = Database::getInstance()->getConnection();
 $db->exec("

@@ -8,14 +8,17 @@ require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 require_once __DIR__ . '/../../pms_core/services/FolioService.php';
+require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
 
 $data = json_decode(file_get_contents('php://input'), true);
 $bookingId = (string)($data['booking_id'] ?? '');
 $token = $data['token'] ?? '';
 $amount = floatval($data['amount'] ?? 0);
-$ref = $data['payment_ref'] ?? $data['ref'] ?? '';
+$ref = $data['razorpay_payment_id'] ?? $data['payment_ref'] ?? $data['ref'] ?? '';
+$orderId = (string)($data['razorpay_order_id'] ?? '');
+$signature = (string)($data['razorpay_signature'] ?? '');
 
-if (empty($bookingId) || empty($token) || $amount <= 0 || empty($ref)) {
+if (empty($bookingId) || empty($token) || empty($ref)) {
     echo json_encode(['success' => false, 'message' => 'Invalid inputs']);
     exit;
 }
@@ -32,8 +35,7 @@ if (!hash_equals($computedToken, $token)) {
 try {
     $db->beginTransaction();
 
-    // Validate booking exists
-    $bStmt = $db->prepare("SELECT b.*, r.room_number, g.name as guest_name FROM bookings b JOIN rooms r ON b.room_id = r.id LEFT JOIN guests g ON b.guest_id = g.id WHERE b.id = ?");
+    $bStmt = $db->prepare("SELECT b.*, r.room_number, g.name as guest_name FROM bookings b JOIN rooms r ON b.room_id = r.id LEFT JOIN guests g ON b.guest_id = g.id WHERE b.id = ? FOR UPDATE");
     $bStmt->execute([$bookingId]);
     $booking = $bStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -41,30 +43,48 @@ try {
         throw new Exception("Booking not found");
     }
 
-    // Auto-capture Razorpay payment
-    $keyId = defined('RAZORPAY_KEY_ID') ? RAZORPAY_KEY_ID : '';
-    $keySecret = defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : '';
-    
-    if (!empty($keyId) && !empty($keySecret)) {
-        $ch = curl_init("https://api.razorpay.com/v1/payments/{$ref}/capture");
-        curl_setopt($ch, CURLOPT_USERPWD, $keyId . ':' . $keySecret);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-            'amount' => round($amount * 100),
-            'currency' => 'INR'
-        ]));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        $response = curl_exec($ch);
-        $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        
-        if ($httpcode < 200 || $httpcode >= 300) {
-            // Already captured or verification error (continue anyway but log it)
+    $dupStmt = $db->prepare("SELECT id FROM folio_ledger WHERE booking_id = ? AND transaction_ref = ? LIMIT 1");
+    $dupStmt->execute([(int)$bookingId, $ref]);
+    if ($dupStmt->fetchColumn()) {
+        $db->commit();
+        echo json_encode(['success' => true, 'message' => 'Payment already recorded']);
+        exit;
+    }
+
+    // Auto-capture Razorpay payment — do not post the folio if capture fails
+    $propertyId = (int)$booking['property_id'];
+    $rz = RazorpayService::forProperty($db, $propertyId);
+    if (!$rz) {
+        throw new Exception("Payment gateway is not configured");
+    }
+
+    $storedOrder = (string)($booking['razorpay_order_id'] ?? '');
+    if ($orderId === '' || $signature === '' || $storedOrder === '' || !hash_equals($storedOrder, $orderId)) {
+        throw new Exception("Payment signature missing or order mismatch.");
+    }
+    if (!$rz->verifySignature($orderId, $ref, $signature)) {
+        throw new Exception("Invalid payment signature.");
+    }
+
+    $fetched = $rz->fetchPayment($ref);
+    if (empty($fetched['success'])) {
+        throw new Exception("Could not verify payment with gateway.");
+    }
+    $amountPaise = (int)($fetched['amount'] ?? 0);
+    $amount = $amountPaise > 0 ? ($amountPaise / 100) : $amount;
+    if ($amount <= 0) {
+        throw new Exception("Invalid captured amount.");
+    }
+
+    $capture = $rz->capturePayment($ref, $amountPaise > 0 ? $amountPaise : (int)round($amount * 100));
+    $alreadyCaptured = !$capture['success'] && isset($capture['error']) && stripos((string)$capture['error'], 'already captured') !== false;
+    if (!$capture['success'] && !$alreadyCaptured) {
+        $status = strtolower((string)($fetched['status'] ?? ''));
+        if (!in_array($status, ['captured', 'authorized'], true) && $status !== 'captured') {
             AuditLogger::log(0, 'PORTAL_RAZORPAY_CAPTURE_FAILED', 'FOLIO', $bookingId, [
-                'http_code' => $httpcode,
-                'response' => $response
-            ], (int)$booking['property_id']);
+                'error' => $capture['error'] ?? 'unknown'
+            ], $propertyId);
+            throw new Exception("Payment capture failed. Folio was not updated.");
         }
     }
 
@@ -106,7 +126,7 @@ try {
         'method' => 'Razorpay',
         'ref' => $ref
     ];
-    NotificationRelay::sendTelegram($tgMsg, 'payment_received', $context);
+    NotificationRelay::sendTelegram($tgMsg, 'payment_received', $context, (int)$booking['property_id']);
 
     $db->commit();
     echo json_encode(['success' => true, 'message' => 'Payment recorded successfully!']);

@@ -126,6 +126,12 @@ switch ($request) {
         require __DIR__ . '/guest_login.php';
         break;
 
+    case '/assistant':
+    case '/assistant/':
+    case '/assistant/index':
+        require __DIR__ . '/assistant/index.html';
+        break;
+
     case '/guest-portal':
         require __DIR__ . '/guest_portal.php';
         break;

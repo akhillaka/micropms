@@ -21,7 +21,12 @@ class NotificationRelay {
      * Replace placeholders with context data.
      */
     public static function formatTemplate(string $template, array $context): string {
-        if (!isset($context['hotel_name'])) {
+        foreach (['guest_name', 'action_url', 'first_name', 'hotel_name', 'room_number'] as $fallbackKey) {
+            if (!isset($context[$fallbackKey])) {
+                $context[$fallbackKey] = '';
+            }
+        }
+        if (!isset($context['hotel_name']) || $context['hotel_name'] === '') {
             $context['hotel_name'] = defined('PROPERTY_NAME') ? PROPERTY_NAME : 'Our Hotel';
         }
         
@@ -221,9 +226,12 @@ class NotificationRelay {
         }
 
         $payload = json_encode([
+            'phoneNumber' => $phoneNumber,
             'phone' => $phoneNumber,
+            'payload' => $payloadData,
             'message' => $payloadData,
-            'is_hsm' => $isTemplate
+            'is_hsm' => $isTemplate,
+            'isTemplate' => $isTemplate,
         ]);
 
         try {
@@ -561,26 +569,41 @@ class NotificationRelay {
     /**
      * Process a WhatsApp job from the queue.
      */
-    public static function processWhatsAppJob(array $jobData): bool {
+    public static function processWhatsAppJob(array $jobData, ?int $propertyId = null): bool {
         require_once __DIR__ . '/Database.php';
         $db = Database::getInstance()->getConnection();
-        
-        $phoneNumberE164 = $jobData['phoneNumber'];
-        $payload = $jobData['payload'];
-        $eventKey = $jobData['eventKey'];
-        $templateName = $jobData['templateName'];
-        $bookingId = $jobData['bookingId'];
-        $staffId = $jobData['staffId'];
 
-        $waRes = self::sendWhatsApp($phoneNumberE164, $payload, true);
-        
+        $phoneNumberE164 = (string)($jobData['phoneNumber'] ?? $jobData['phone'] ?? '');
+        $payload = $jobData['payload'] ?? $jobData['message'] ?? '';
+        $isTemplate = (bool)($jobData['is_hsm'] ?? $jobData['isTemplate'] ?? is_array($payload));
+        $eventKey = $jobData['eventKey'] ?? 'manual';
+        $templateName = $jobData['templateName'] ?? (is_array($payload) ? (string)($payload['name'] ?? 'session') : 'session');
+        $bookingId = $jobData['bookingId'] ?? null;
+        $staffId = (int)($jobData['staffId'] ?? 0);
+        $jobPropertyId = $propertyId ?? (isset($jobData['property_id']) ? (int)$jobData['property_id'] : null);
+
+        if ($phoneNumberE164 === '') {
+            throw new \Exception('WhatsApp job missing phone number');
+        }
+
+        $waRes = self::sendWhatsAppSync($phoneNumberE164, $payload, $isTemplate, $jobPropertyId);
+
         $status = $waRes['ok'] ? 'success' : 'failed';
         $errorCode = $waRes['ok'] ? null : ($waRes['error_code'] ?? null);
         $errorMessage = $waRes['ok'] ? null : ($waRes['error_message'] ?? null);
         $messageId = $waRes['ok'] ? ($waRes['messageId'] ?? null) : null;
-        
-        $insLog = $db->prepare("INSERT INTO wa_delivery_logs (event_key, template_name, phone_number, message_id, status, error_code, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)");
-        $insLog->execute([$eventKey, $templateName, $phoneNumberE164, $messageId, $status, $errorCode, $errorMessage]);
+
+        $pid = (int)($jobPropertyId ?? 0);
+        if ($pid <= 0) {
+            $pidStmt = $db->query("SELECT id FROM properties WHERE is_active = 1 ORDER BY id ASC LIMIT 1");
+            $pid = (int)($pidStmt->fetchColumn() ?: 0);
+        }
+        if ($pid <= 0) {
+            throw new \Exception('WhatsApp job missing property_id');
+        }
+
+        $insLog = $db->prepare("INSERT INTO wa_delivery_logs (property_id, event_key, template_name, phone_number, message_id, status, error_code, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $insLog->execute([$pid, $eventKey, $templateName, $phoneNumberE164, $messageId, $status, $errorCode, $errorMessage]);
         
         require_once __DIR__ . '/AuditLogger.php';
         \AuditLogger::log($staffId, 'WA_MESSAGE_' . strtoupper($status), 'BOOKING', $bookingId, [

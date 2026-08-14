@@ -9,7 +9,18 @@ require_once __DIR__ . '/../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../pms_core/SequenceGenerator.php';
 
-$webhookSecret = defined('RAZORPAY_WEBHOOK_SECRET') ? RAZORPAY_WEBHOOK_SECRET : 'your_webhook_secret';
+$db = Database::getInstance()->getConnection();
+
+$webhookSecret = (string)(getenv('RAZORPAY_WEBHOOK_SECRET') ?: ($_ENV['RAZORPAY_WEBHOOK_SECRET'] ?? ''));
+if ($webhookSecret === '' && defined('RAZORPAY_WEBHOOK_SECRET')) {
+    $webhookSecret = (string)RAZORPAY_WEBHOOK_SECRET;
+}
+$placeholderSecrets = ['', 'your_webhook_secret', 'rzp_secret_placeholder'];
+if (in_array($webhookSecret, $placeholderSecrets, true)) {
+    http_response_code(500);
+    echo "Webhook secret is not configured";
+    exit;
+}
 $webhookSignature = $_SERVER['HTTP_X_RAZORPAY_SIGNATURE'] ?? '';
 
 $payload = file_get_contents('php://input');
@@ -32,11 +43,12 @@ if (!is_array($data) || !isset($data['event'])) {
 
 try {
     if ($data['event'] === 'payment.captured' || $data['event'] === 'order.paid') {
-        $orderId = $data['payload']['payment']['entity']['order_id'] ?? null;
-        $paymentId = $data['payload']['payment']['entity']['id'] ?? null;
+        $paymentEntity = $data['payload']['payment']['entity'] ?? [];
+        $orderEntity = $data['payload']['order']['entity'] ?? [];
+        $orderId = $paymentEntity['order_id'] ?? $orderEntity['id'] ?? null;
+        $paymentId = $paymentEntity['id'] ?? null;
         
         if ($orderId) {
-            $db = Database::getInstance()->getConnection();
             $db->beginTransaction();
             
             $stmt = $db->prepare("SELECT b.*, g.name as guest_name, g.phone as guest_phone FROM bookings b LEFT JOIN guests g ON b.guest_id = g.id WHERE b.razorpay_order_id = :order_id FOR UPDATE");
@@ -45,6 +57,14 @@ try {
             
             // Replay Protection: check if payment transaction reference already exists
             if ($paymentId) {
+                try {
+                    $db->prepare("INSERT INTO processed_webhook_events (provider, event_id) VALUES ('razorpay', ?)")->execute([$paymentId]);
+                } catch (\PDOException $e) {
+                    $db->rollBack();
+                    http_response_code(200);
+                    echo "OK: Already processed";
+                    exit;
+                }
                 $checkRef = $db->prepare("SELECT COUNT(*) FROM folio_ledger WHERE transaction_ref = :ref");
                 $checkRef->execute(['ref' => $paymentId]);
                 if ((int)$checkRef->fetchColumn() > 0) {
@@ -56,7 +76,7 @@ try {
             }
             
             if ($booking) {
-                $amountPaid = (float)($data['payload']['payment']['entity']['amount'] ?? 0) / 100;
+                $amountPaid = (float)($paymentEntity['amount'] ?? $orderEntity['amount'] ?? 0) / 100;
 
                 if ($booking['payment_status'] === 'pending_hold') {
                     $updateStmt = $db->prepare("UPDATE bookings SET payment_status = 'completed_paid' WHERE id = :id");
@@ -116,7 +136,7 @@ try {
                         'total_amount' => number_format($booking['total_amount'], 2),
                         'paid_amount' => number_format($amountPaid, 2)
                     ];
-                    NotificationRelay::sendTelegram($tgMsg, 'booking_confirmed', $context);
+                    NotificationRelay::sendTelegram($tgMsg, 'booking_confirmed', $context, (int)$booking['property_id']);
                 } catch (\Throwable $sideEffectError) {
                     error_log("Razorpay Webhook Side Effect Error: " . $sideEffectError->getMessage());
                 }
@@ -127,8 +147,7 @@ try {
     } elseif ($data['event'] === 'payment.failed') {
         $orderId = $data['payload']['payment']['entity']['order_id'] ?? null;
         if ($orderId) {
-            $db = Database::getInstance()->getConnection();
-            $stmt = $db->prepare("SELECT id, payment_status FROM bookings WHERE razorpay_order_id = :order_id");
+            $stmt = $db->prepare("SELECT id, payment_status, property_id FROM bookings WHERE razorpay_order_id = :order_id");
             $stmt->execute(['order_id' => $orderId]);
             $booking = $stmt->fetch();
             

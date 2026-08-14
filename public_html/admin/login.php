@@ -18,10 +18,7 @@ if ($count == 0) {
     $error = "System initialized. Please check the server error log for the default admin password, then log in.";
 }
 
-$ipAddress = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-if (str_contains($ipAddress, ',')) {
-    $ipAddress = trim(explode(',', $ipAddress)[0]);
-}
+$ipAddress = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');

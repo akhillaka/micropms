@@ -98,4 +98,4 @@ ApiHandler::run(function(\PDO $db) {
         'url' => '/api/admin/view_document?file=' . $savedFilename
     ]);
 
-}, true, false, false);
+}, true, true, false);

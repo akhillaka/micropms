@@ -2,7 +2,7 @@
 // Auth guard — schema debug requires authenticated owner access
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
-if (!isset($_SESSION['user_id']) || !in_array(AuthHelper::getRole(), ['owner', 'superadmin', 'admin'])) {
+if (!isset($_SESSION['user_id']) || !AuthHelper::can('manage_settings')) {
     http_response_code(403);
     echo json_encode(['success' => false, 'message' => 'Forbidden']);
     exit;

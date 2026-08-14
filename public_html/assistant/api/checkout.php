@@ -390,4 +390,4 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::error('Invalid action');
     }
 
-}, true, false, false);
+}, true, true, false);

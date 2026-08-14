@@ -52,7 +52,7 @@ $baseUrl = $scheme . '://' . $host;
                 <div>
                     <label class="block text-xs font-bold text-brand-500 uppercase tracking-wider mb-1">Callback URL</label>
                     <div class="flex gap-2">
-                        <input type="text" readonly id="wa-url" value="<?= htmlspecialchars((string)($baseUrl), ENT_QUOTES, 'UTF-8') ?>/api/whatsapp_webhook.php" class="flex-1 bg-white border-2 border-brand-200 p-2.5 rounded-lg text-sm font-mono outline-none">
+                        <input type="text" readonly id="wa-url" value="<?= htmlspecialchars((string)($baseUrl), ENT_QUOTES, 'UTF-8') ?>/api/whatsapp/webhook" class="flex-1 bg-white border-2 border-brand-200 p-2.5 rounded-lg text-sm font-mono outline-none">
                         <button onclick="copyToClipboard('wa-url')" class="bg-brand-900 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-brand-700 transition-colors">Copy</button>
                     </div>
                 </div>
@@ -91,7 +91,7 @@ $baseUrl = $scheme . '://' . $host;
                 <div>
                     <label class="block text-xs font-bold text-brand-500 uppercase tracking-wider mb-1">Secret (Configured in Settings)</label>
                     <div class="flex gap-2">
-                        <input type="text" readonly id="rzp-secret" value="<?= htmlspecialchars((string)(defined('RAZORPAY_WEBHOOK_SECRET') ? RAZORPAY_WEBHOOK_SECRET : 'NOT SET')) ?>" class="flex-1 bg-white border-2 border-brand-200 p-2.5 rounded-lg text-sm font-mono outline-none">
+                        <input type="text" readonly id="rzp-secret" value="Configured in Settings (not shown)" class="flex-1 bg-white border-2 border-brand-200 p-2.5 rounded-lg text-sm font-mono outline-none">
                         <button onclick="copyToClipboard('rzp-secret')" class="bg-brand-900 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-brand-700 transition-colors">Copy</button>
                     </div>
                 </div>

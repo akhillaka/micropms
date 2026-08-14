@@ -38,7 +38,7 @@ $countQuery = "
     SELECT COUNT(*) FROM (
         SELECT fl.recorded_at FROM folio_ledger fl JOIN bookings b ON fl.booking_id = b.id WHERE b.property_id = :p1 AND fl.amount != 0 AND DATE(fl.recorded_at) >= :cs1 AND DATE(fl.recorded_at) <= :ce1
         UNION ALL
-        SELECT recorded_at FROM finance_transactions WHERE property_id = :p2 AND DATE(recorded_at) >= :cs2 AND DATE(recorded_at) <= :ce2
+        SELECT recorded_at FROM finance_transactions WHERE property_id = :p2 AND DATE(recorded_at) >= :cs2 AND DATE(recorded_at) <= :ce2 AND (booking_id IS NULL OR booking_id = 0)
     ) AS cq
 ";
 $countStmt = $db->prepare($countQuery);
@@ -81,6 +81,7 @@ $query = "
         display_id
     FROM finance_transactions
     WHERE property_id = :p2 AND DATE(recorded_at) >= :start2 AND DATE(recorded_at) <= :end2
+      AND (booking_id IS NULL OR booking_id = 0)
     
     ORDER BY date DESC
     LIMIT $perPage OFFSET $offset
@@ -128,6 +129,7 @@ $financeMetricsStmt = $db->prepare("
     WHERE property_id = :p 
     AND DATE(recorded_at) >= :s 
     AND DATE(recorded_at) <= :e
+    AND (booking_id IS NULL OR booking_id = 0)
 ");
 $financeMetricsStmt->execute(['p' => $propertyId, 's' => $start, 'e' => $end]);
 $finMetrics = $financeMetricsStmt->fetch(PDO::FETCH_ASSOC);
@@ -145,7 +147,7 @@ $payMethodQuery = "
     SELECT payment_method, SUM(amount) as total FROM (
         SELECT payment_method, ABS(amount) as amount FROM folio_ledger fl JOIN bookings b ON fl.booking_id = b.id WHERE b.property_id = :p1 AND fl.amount < 0 AND DATE(fl.recorded_at) >= :s1 AND DATE(fl.recorded_at) <= :e1
         UNION ALL
-        SELECT payment_method, amount FROM finance_transactions WHERE property_id = :p2 AND type = 'income' AND DATE(recorded_at) >= :s2 AND DATE(recorded_at) <= :e2
+        SELECT payment_method, amount FROM finance_transactions WHERE property_id = :p2 AND type = 'income' AND DATE(recorded_at) >= :s2 AND DATE(recorded_at) <= :e2 AND (booking_id IS NULL OR booking_id = 0)
     ) as combined
     WHERE payment_method IS NOT NULL AND payment_method != ''
     GROUP BY payment_method
@@ -158,7 +160,7 @@ $incCatQuery = "
     SELECT category, SUM(amount) as total FROM (
         SELECT COALESCE(fl.category, 'Room') as category, ABS(amount) as amount FROM folio_ledger fl JOIN bookings b ON fl.booking_id = b.id WHERE b.property_id = :p1 AND fl.amount < 0 AND DATE(fl.recorded_at) >= :s1 AND DATE(fl.recorded_at) <= :e1
         UNION ALL
-        SELECT COALESCE(category, 'Misc') as category, amount FROM finance_transactions WHERE property_id = :p2 AND type = 'income' AND DATE(recorded_at) >= :s2 AND DATE(recorded_at) <= :e2
+        SELECT COALESCE(category, 'Misc') as category, amount FROM finance_transactions WHERE property_id = :p2 AND type = 'income' AND DATE(recorded_at) >= :s2 AND DATE(recorded_at) <= :e2 AND (booking_id IS NULL OR booking_id = 0)
     ) as combined
     GROUP BY category
 ";
@@ -530,7 +532,7 @@ $totalCatExpenses = array_sum($catSummary);
             </div>
             
             <div class="card-minimal overflow-hidden">
-                <div class="hidden md:block overflow-x-auto rounded-2xl border border-slate-100">
+                <div class="hidden md:!block overflow-x-auto rounded-2xl border border-slate-100">
                     <table class="w-full text-left border-collapse bg-white whitespace-nowrap">
                         <thead class="bg-slate-50 border-b border-slate-100">
                             <tr>

@@ -275,7 +275,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
                             <div>
                                 <label class="block text-[10px] font-bold text-brand-500 uppercase">Callback URL</label>
                                 <div class="flex gap-2 items-center mt-1">
-                                    <input type="text" readonly id="webhook-url" value="<?= htmlspecialchars((string)((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'yourdomain.com') . '/api/whatsapp_webhook.php'), ENT_QUOTES, 'UTF-8') ?>" class="flex-1 bg-white border border-brand-200 p-2.5 rounded-xl text-xs font-mono outline-none text-brand-900">
+                                    <input type="text" readonly id="webhook-url" value="<?= htmlspecialchars((string)((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'yourdomain.com') . '/api/whatsapp/webhook'), ENT_QUOTES, 'UTF-8') ?>" class="flex-1 bg-white border border-brand-200 p-2.5 rounded-xl text-xs font-mono outline-none text-brand-900">
                                     <button onclick="copyField('webhook-url')" class="bg-white hover:bg-brand-100 border border-brand-200 p-2.5 rounded-xl text-xs font-bold transition-all">Copy</button>
                                 </div>
                             </div>

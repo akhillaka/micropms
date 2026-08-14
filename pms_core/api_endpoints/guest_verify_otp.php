@@ -34,7 +34,7 @@ if ($attempts >= 5) {
     exit;
 }
 
-if ($otp !== $sessionOtp) {
+if (!hash_equals((string)$sessionOtp, $otp)) {
     $_SESSION['guest_otp_attempts'] = $attempts + 1;
     echo json_encode(['success' => false, 'message' => 'Incorrect verification code. Please try again.']);
     exit;

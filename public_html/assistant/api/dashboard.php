@@ -172,7 +172,7 @@ ApiHandler::run(function(\PDO $db) {
         SELECT gsr.id, gsr.booking_id, gsr.service_type, gsr.created_at, r.room_number, g.name as guest_name
         FROM guest_service_requests gsr
         JOIN bookings b ON gsr.booking_id = b.id
-        JOIN guests g ON b.guest_id = g.id
+        LEFT JOIN guests g ON b.guest_id = g.id
         LEFT JOIN rooms r ON b.room_id = r.id
         WHERE gsr.property_id = ? AND gsr.status = 'pending'
     ");
@@ -347,4 +347,4 @@ ApiHandler::run(function(\PDO $db) {
         'payment_categories' => $categories
     ]);
 
-}, false, false, false);
+}, true, true, false);

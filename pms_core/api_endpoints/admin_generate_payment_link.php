@@ -16,8 +16,9 @@ ApiHandler::run(function(\PDO $db) {
         throw new Exception("Missing booking ID");
     }
 
-    $stmt = $db->prepare("SELECT b.*, g.name as guest_name, g.phone as guest_phone FROM bookings b LEFT JOIN guests g ON b.guest_id = g.id WHERE b.id = :id");
-    $stmt->execute(['id' => $data['booking_id']]);
+    $propertyId = AuthHelper::getPropertyId();
+    $stmt = $db->prepare("SELECT b.*, g.name as guest_name, g.phone as guest_phone FROM bookings b LEFT JOIN guests g ON b.guest_id = g.id WHERE b.id = :id AND b.property_id = :pid");
+    $stmt->execute(['id' => $data['booking_id'], 'pid' => $propertyId]);
     $booking = $stmt->fetch();
     
     if (!$booking) throw new Exception("Booking not found");

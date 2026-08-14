@@ -54,6 +54,9 @@ class BookingService {
         if (strtotime($checkOut) <= strtotime($checkIn)) {
             throw new \Exception('Check-out date must be after check-in');
         }
+        if ($adults < 1 || $adults > 20 || $children < 0 || $children > 20) {
+            throw new \Exception('Invalid occupancy counts');
+        }
         if ($priceOverride !== null && $priceOverride < 0) {
             throw new \Exception('Price override cannot be negative');
         }

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../pms_core/AuthHelper.php';
+require_once __DIR__ . '/../pms_core/CsrfToken.php';
 AuthHelper::requireLoginOrRedirect();
 if (!AuthHelper::can('create_booking')) {
     header('Location: /login');
@@ -65,6 +66,7 @@ function renderTimeOptions(string $selectedVal = ''): string {
         window.PREFILL_ROOM_ID = <?= json_encode($_GET['prefill_room'] ?? null) ?>;
     </script>
     <meta charset="UTF-8">
+    <?= CsrfToken::meta() ?>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MicroPMS Booking</title>
     <script src="https://cdn.tailwindcss.com"></script>

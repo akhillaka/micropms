@@ -419,11 +419,11 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Key Secret</label>
-                                <input type="text" name="RAZORPAY_KEY_SECRET" value="<?= htmlspecialchars((string)(defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <input type="password" name="RAZORPAY_KEY_SECRET" value="" autocomplete="new-password" placeholder="Leave blank to keep current secret" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Webhook Secret</label>
-                                <input type="text" name="RAZORPAY_WEBHOOK_SECRET" value="<?= htmlspecialchars((string)(defined('RAZORPAY_WEBHOOK_SECRET') ? RAZORPAY_WEBHOOK_SECRET : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <input type="password" name="RAZORPAY_WEBHOOK_SECRET" value="" autocomplete="new-password" placeholder="Leave blank to keep current secret" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
                             </div>
                         </div>
                     </div>
@@ -447,7 +447,7 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-brand-100 pt-4 mt-2">
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Permanent Token</label>
-                                <input type="password" name="WHATSAPP_TOKEN" value="<?= htmlspecialchars((string)($waToken)) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono" placeholder="EAAD... ">
+                                <input type="password" name="WHATSAPP_TOKEN" value="" autocomplete="new-password" placeholder="Leave blank to keep current token" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono" placeholder="EAAD... ">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Phone Number ID</label>
@@ -1340,7 +1340,7 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Access Token</label>
-                                <input type="password" name="WHATSAPP_TOKEN" value="<?= htmlspecialchars((string)(defined('WHATSAPP_TOKEN') ? WHATSAPP_TOKEN : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <input type="password" name="WHATSAPP_TOKEN" value="" autocomplete="new-password" placeholder="Leave blank to keep current token" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
                             </div>
                             <div class="grid grid-cols-2 gap-4">
                                 <div>

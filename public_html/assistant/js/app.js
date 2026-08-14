@@ -2315,14 +2315,10 @@ class BookingAssistant {
   }
 
   checkoutCollectPayment() {
-    const mode = this.selectedPaymentMode || 'cash';
     this.closeCheckoutSheet();
-    this.activePaymentMode = mode;
     this.activePaymentBookingId = this.activeCheckoutData.booking.id;
-    this.numpadValue = '';
-    this.openNumpadPopup('payment_settle', `Collect Payment (${mode.toUpperCase()}) ₹`, '', (val) => {
-      this.submitPaymentCollection(parseFloat(val) || 0, this.activePaymentMode);
-    });
+    const balance = parseFloat(this.activeCheckoutData.bill?.balance) || 0;
+    this.openPaymentModePickerThenNumpad(balance);
   }
 
   async checkoutGenerateBill() {
@@ -2520,6 +2516,15 @@ class BookingAssistant {
           <input type="datetime-local" id="quick-payment-date" class="form-control" value="${localDateTime}" style="padding:10px;font-size:0.9rem;border-radius:8px;border:1px solid var(--color-border);width:100%;box-sizing:border-box;">
         </div>
 
+        <div id="quick-payment-category-wrap" style="margin-bottom: 12px;">
+          <label for="quick-payment-category" style="display:block;font-size:0.75rem;font-weight:800;color:var(--color-text-secondary);margin-bottom:4px;text-transform:uppercase;">Payment Category</label>
+          <select id="quick-payment-category" class="form-control" style="padding:10px;font-size:0.95rem;font-weight:700;border-radius:8px;border:1px solid var(--color-border);width:100%;box-sizing:border-box;background:white;">
+            ${(this.paymentCategories && this.paymentCategories.length ? this.paymentCategories : ['Room Revenue', 'F&B', 'Other']).map(cat =>
+              `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`
+            ).join('')}
+          </select>
+        </div>
+
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
           <input type="checkbox" id="quick-payment-split-toggle" onchange="app.toggleAssistantSplit(this.checked)" style="width:16px;height:16px;">
           <label for="quick-payment-split-toggle" style="font-size:0.85rem;font-weight:800;color:var(--color-text-primary);cursor:pointer;">Split Payment Category-wise</label>
@@ -2555,6 +2560,8 @@ class BookingAssistant {
 
   toggleAssistantSplit(checked) {
     const container = document.getElementById('quick-payment-splits');
+    const catWrap = document.getElementById('quick-payment-category-wrap');
+    if (catWrap) catWrap.style.display = checked ? 'none' : 'block';
     if (checked) {
       container.style.display = 'block';
       const total = parseFloat(document.getElementById('quick-payment-amount').value) || 0;
@@ -2614,9 +2621,11 @@ class BookingAssistant {
     }
 
     const picker = document.getElementById('quick-payment-mode-picker');
+    const categoryEl = document.getElementById('quick-payment-category');
+    const category = (!isSplit && categoryEl) ? categoryEl.value : '';
     if (picker) picker.remove();
 
-    this.submitPaymentCollection(total, mode, splits);
+    this.submitPaymentCollection(total, mode, splits, category);
   }
 
   // --- COLLECT PAYMENT SCREEN VIEW ---
@@ -2690,7 +2699,7 @@ class BookingAssistant {
     }
   }
 
-  async submitPaymentCollection(amount, method = 'cash', splits = []) {
+  async submitPaymentCollection(amount, method = 'cash', splits = [], category = '') {
     if (amount <= 0) return;
     
     this.showLoading('Processing payment...');
@@ -2701,6 +2710,7 @@ class BookingAssistant {
         method: method,   // matches PMS: cash | upi | card | online
         ref: '',
         date: this.activePaymentDate,
+        category: category,
         splits: splits
       });
       this.hideLoading();
@@ -3676,11 +3686,12 @@ class BookingAssistant {
       }
     };
 
+    if (this.csrfToken) {
+      options.headers['X-CSRF-TOKEN'] = this.csrfToken;
+    }
+
     if (data) {
       options.headers['Content-Type'] = 'application/json';
-      if (this.csrfToken) {
-        options.headers['X-CSRF-TOKEN'] = this.csrfToken;
-      }
       options.body = JSON.stringify(data);
     }
 
@@ -4067,6 +4078,8 @@ class BookingAssistant {
 
   posReset() {
     this.posSelectedBooking = null;
+    this.posCart = [];
+    this.updatePosCart();
     document.getElementById('pos-step-rooms').style.display = 'block';
     document.getElementById('pos-step-menu').style.display = 'none';
   }
@@ -4121,49 +4134,102 @@ class BookingAssistant {
     const activeOutlet = this.posMenuData.find(o => o.id === this.activePosOutletId);
     if (activeOutlet && activeOutlet.items) {
       activeOutlet.items.forEach(item => {
+        const qty = this.posItemQty(item.id);
+        const inStock = item.in_stock !== false;
         const el = document.createElement('div');
-        el.className = 'selection-card';
-        el.style.cssText = 'padding: 10px; display: flex; flex-direction: column; gap: 5px; cursor: pointer; background: white; border: 1px solid var(--color-border); border-radius: var(--border-radius-md);';
-        
-        const imgHtml = item.image_url ? `<img src="../${item.image_url}" style="width:100%; height:80px; object-fit:cover; border-radius:4px; margin-bottom:5px;">` : `<div style="width:100%; height:80px; background:#f3f4f6; border-radius:4px; margin-bottom:5px; display:flex; align-items:center; justify-content:center; color:#9ca3af;"><i class="ph ph-image"></i></div>`;
-        
+        el.className = `pos-item-card${qty > 0 ? ' in-cart' : ''}${inStock ? '' : ' out-of-stock'}`;
+        el.dataset.itemId = String(item.id);
+
+        const imgHtml = item.image_url
+          ? `<img src="../${escapeHtml(item.image_url)}" alt="">`
+          : `<div class="pos-item-placeholder"><i class="ph ph-image"></i></div>`;
+
         el.innerHTML = `
           ${imgHtml}
-          <div style="font-weight: 700; font-size: 0.9rem; line-height: 1.2;">${item.name}</div>
-          <div style="font-weight: 800; color: var(--color-brand); margin-top: auto;">₹${item.price}</div>
+          <div class="pos-item-name">${escapeHtml(item.name)}</div>
+          <div class="pos-item-price">₹${Number(item.price).toFixed(2)}</div>
+          <div class="pos-stepper">
+            <button type="button" class="pos-stepper-btn minus${qty === 1 ? ' is-remove' : ''}" data-delta="-1" ${qty < 1 ? 'disabled' : ''} aria-label="Decrease">−</button>
+            <span class="pos-stepper-qty">${qty}</span>
+            <button type="button" class="pos-stepper-btn plus" data-delta="1" aria-label="Increase">+</button>
+          </div>
         `;
-        el.onclick = () => this.addToPosCart(item);
+
+        if (inStock) {
+          el.addEventListener('click', (e) => {
+            if (e.target.closest('.pos-stepper-btn')) return;
+            this.posSetQty(item.id, 1, item);
+          });
+          el.querySelectorAll('.pos-stepper-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const delta = parseInt(btn.getAttribute('data-delta'), 10);
+              this.posSetQty(item.id, delta, item);
+            });
+          });
+        }
         itemsGrid.appendChild(el);
       });
     }
   }
 
-  addToPosCart(item) {
+  posItemQty(itemId) {
+    if (!this.posCart) return 0;
+    const row = this.posCart.find(c => c.id === itemId);
+    return row ? row.quantity : 0;
+  }
+
+  posSetQty(itemId, delta, item = null) {
     if (!this.posCart) this.posCart = [];
-    const existing = this.posCart.find(c => c.id === item.id);
+    const existing = this.posCart.find(c => c.id === itemId);
+    const next = (existing ? existing.quantity : 0) + delta;
+    if (next <= 0) {
+      this.posRemoveItem(itemId);
+      return;
+    }
     if (existing) {
-      existing.quantity++;
+      existing.quantity = next;
+    } else if (item) {
+      this.posCart.push({ ...item, quantity: next, price_per_unit: item.price });
     } else {
-      this.posCart.push({ ...item, quantity: 1, price_per_unit: item.price });
+      return;
     }
     this.updatePosCart();
     if (navigator.vibrate) navigator.vibrate(20);
   }
 
-  updatePosCart() {
-    const totalEl = document.getElementById('pos-cart-total');
-    const badgeEl = document.getElementById('bottom-nav-badge'); // Reuse if possible or create pos badge
+  posRemoveItem(itemId) {
+    if (!this.posCart) return;
+    this.posCart = this.posCart.filter(c => c.id !== itemId);
+    this.updatePosCart();
+  }
+
+  addToPosCart(item) {
+    this.posSetQty(item.id, 1, item);
+  }
+
+  posCartTotals() {
     let total = 0;
     let qty = 0;
-    if (this.posCart) {
-      this.posCart.forEach(c => {
-        total += (c.price * c.quantity);
-        qty += c.quantity;
-      });
-    }
+    (this.posCart || []).forEach(c => {
+      total += (Number(c.price) * c.quantity);
+      qty += c.quantity;
+    });
+    return { total, qty };
+  }
+
+  updatePosCart() {
+    const { total, qty } = this.posCartTotals();
+    const totalEl = document.getElementById('pos-cart-total');
     if (totalEl) totalEl.textContent = `Total: ₹${total.toFixed(2)}`;
-    
-    // Maybe update badge in bottom nav
+
+    const chargeBtn = document.getElementById('pos-charge-btn');
+    if (chargeBtn) chargeBtn.disabled = qty < 1;
+
+    this.renderPosCartLines();
+    this.refreshPosMenuSteppers();
+    this.refreshPosReviewSheet();
+
     const posNavBadge = document.querySelector('#nav-btn-pos .nav-badge');
     if (posNavBadge) {
       if (qty > 0) {
@@ -4175,56 +4241,125 @@ class BookingAssistant {
     }
   }
 
+  renderPosCartLines() {
+    const list = document.getElementById('pos-cart-lines');
+    if (!list) return;
+    const cart = this.posCart || [];
+    if (cart.length === 0) {
+      list.innerHTML = '<div class="pos-cart-empty" style="font-size:0.8rem;font-weight:700;color:var(--color-text-muted);padding:4px 0;">Cart is empty</div>';
+      return;
+    }
+    list.innerHTML = cart.map(c => `
+      <div class="pos-cart-line" data-item-id="${c.id}">
+        <div class="pos-cart-line-info">
+          <div class="pos-cart-line-name">${escapeHtml(c.name)}</div>
+          <div class="pos-cart-line-sum">₹${(Number(c.price) * c.quantity).toFixed(2)}</div>
+        </div>
+        <div class="pos-stepper">
+          <button type="button" class="pos-stepper-btn minus${c.quantity === 1 ? ' is-remove' : ''}" onclick="app.posSetQty(${c.id}, -1)">−</button>
+          <span class="pos-stepper-qty">${c.quantity}</span>
+          <button type="button" class="pos-stepper-btn plus" onclick="app.posSetQty(${c.id}, 1)">+</button>
+        </div>
+        <button type="button" class="pos-cart-remove" onclick="app.posRemoveItem(${c.id})" aria-label="Remove">
+          <i class="ph ph-trash"></i>
+        </button>
+      </div>
+    `).join('');
+  }
+
+  refreshPosMenuSteppers() {
+    document.querySelectorAll('.pos-item-card[data-item-id]').forEach(card => {
+      const id = parseInt(card.dataset.itemId, 10);
+      const qty = this.posItemQty(id);
+      card.classList.toggle('in-cart', qty > 0);
+      const qtyEl = card.querySelector('.pos-stepper-qty');
+      const minus = card.querySelector('.pos-stepper-btn.minus');
+      if (qtyEl) qtyEl.textContent = String(qty);
+      if (minus) {
+        minus.disabled = qty < 1;
+        minus.classList.toggle('is-remove', qty === 1);
+      }
+    });
+  }
+
+  posReviewLineHtml() {
+    return (this.posCart || []).map(c => `
+      <div class="pos-review-line" data-item-id="${c.id}">
+        <div class="pos-cart-line-info">
+          <div class="pos-cart-line-name">${escapeHtml(c.name)}</div>
+          <div class="pos-cart-line-sum">₹${(Number(c.price) * c.quantity).toFixed(2)}</div>
+        </div>
+        <div class="pos-stepper">
+          <button type="button" class="pos-stepper-btn minus${c.quantity === 1 ? ' is-remove' : ''}" onclick="app.posSetQty(${c.id}, -1)">−</button>
+          <span class="pos-stepper-qty">${c.quantity}</span>
+          <button type="button" class="pos-stepper-btn plus" onclick="app.posSetQty(${c.id}, 1)">+</button>
+        </div>
+        <button type="button" class="pos-cart-remove" onclick="app.posRemoveItem(${c.id})" aria-label="Remove">
+          <i class="ph ph-trash"></i>
+        </button>
+      </div>
+    `).join('');
+  }
+
+  refreshPosReviewSheet() {
+    const overlay = document.getElementById('pos-review-overlay');
+    if (!overlay) return;
+    const { total, qty } = this.posCartTotals();
+    const lines = overlay.querySelector('#pos-review-lines');
+    const totalEl = overlay.querySelector('#pos-review-total');
+    const confirmBtn = overlay.querySelector('.confirm-btn');
+    if (lines) lines.innerHTML = this.posReviewLineHtml() || '<div style="font-size:0.85rem;font-weight:700;color:var(--color-text-muted);">Cart is empty</div>';
+    if (totalEl) totalEl.textContent = `₹${total.toFixed(2)}`;
+    if (confirmBtn) confirmBtn.disabled = qty < 1;
+  }
+
   // --- POS CART CHECKOUT ---
   async posCheckout() {
-    let total = 0;
-    this.posCart.forEach(c => { total += (c.price * c.quantity); });
-    
+    const { qty } = this.posCartTotals();
+    if (qty < 1) return;
+
     const isConfirmed = await new Promise((resolve) => {
+      const existing = document.getElementById('pos-review-overlay');
+      if (existing) existing.remove();
+
       const overlay = document.createElement('div');
+      overlay.id = 'pos-review-overlay';
       overlay.className = 'modal-overlay active';
       overlay.style.zIndex = '500';
-      
-      let itemsHtml = this.posCart.map(c => `
-        <div style="display: flex; justify-content: space-between; font-size: 0.95rem; font-weight: 700; margin-bottom: 8px;">
-          <span>${c.quantity}x ${c.name}</span>
-          <span>₹${(c.price * c.quantity).toFixed(2)}</span>
-        </div>
-      `).join('');
+      const { total } = this.posCartTotals();
 
       overlay.innerHTML = `
-        <div style="margin: auto; max-width: 350px; width: 90%;">
+        <div style="margin: auto; max-width: 380px; width: 90%;">
           <div class="modal-content-box" style="border-radius: var(--border-radius-lg); padding: 24px;">
             <div style="text-align: center; margin-bottom: 16px;">
-              <i class="lucide-shopping-cart" style="font-size: 2.5rem; color: var(--color-brand);"></i>
+              <i class="ph ph-shopping-cart" style="font-size: 2.5rem; color: var(--color-brand);"></i>
               <h3 style="font-weight: 800; font-size: 1.2rem; margin-top: 8px;">Review Order</h3>
-              <p style="color: var(--color-text-secondary); font-size: 0.85rem; font-weight: 700;">Post to Room ${this.posRoomLabel}</p>
+              <p style="color: var(--color-text-secondary); font-size: 0.85rem; font-weight: 700;">Add to room ${escapeHtml(String(this.posRoomLabel || ''))} charges</p>
             </div>
-            
-            <div style="background: var(--color-glass); padding: 16px; border-radius: var(--border-radius-md); margin-bottom: 16px; max-height: 200px; overflow-y: auto;">
-              ${itemsHtml}
-              <div style="border-top: 2px dashed var(--color-border); margin-top: 12px; padding-top: 12px; display: flex; justify-content: space-between; font-size: 1.1rem; font-weight: 900; color: var(--color-brand);">
-                <span>Total</span>
-                <span>₹${total.toFixed(2)}</span>
-              </div>
+            <div id="pos-review-lines" style="background: var(--color-glass); padding: 12px; border-radius: var(--border-radius-md); margin-bottom: 16px; max-height: 240px; overflow-y: auto;">
+              ${this.posReviewLineHtml()}
             </div>
-            
+            <div style="display: flex; justify-content: space-between; font-size: 1.1rem; font-weight: 900; color: var(--color-brand); margin-bottom: 16px;">
+              <span>Total</span>
+              <span id="pos-review-total">₹${total.toFixed(2)}</span>
+            </div>
             <div style="display: flex; gap: 12px;">
-              <button class="btn-large btn-outline cancel-btn" style="flex: 1; border-color: var(--color-text-muted); color: var(--color-text-muted);">Cancel</button>
-              <button class="btn-large btn-success confirm-btn" style="flex: 1;">Place Order</button>
+              <button type="button" class="btn-large btn-outline cancel-btn" style="flex: 1; border-color: var(--color-text-muted); color: var(--color-text-muted);">Cancel</button>
+              <button type="button" class="btn-large btn-success confirm-btn" style="flex: 1;">Add to room charges</button>
             </div>
           </div>
         </div>
       `;
-      
+
       document.body.appendChild(overlay);
-      
+
       overlay.querySelector('.cancel-btn').onclick = () => {
         overlay.remove();
         resolve(false);
       };
-      
+
       overlay.querySelector('.confirm-btn').onclick = () => {
+        if (this.posCartTotals().qty < 1) return;
         overlay.remove();
         resolve(true);
       };

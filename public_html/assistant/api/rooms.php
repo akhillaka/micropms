@@ -186,4 +186,4 @@ ApiHandler::run(function(\PDO $db) {
     
     ApiResponse::success(['rooms' => $processedRooms]);
 
-}, true, false, false);
+}, true, true, false);

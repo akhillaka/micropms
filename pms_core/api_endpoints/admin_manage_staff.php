@@ -237,6 +237,6 @@ ApiHandler::run(function(\PDO $db) {
         throw new Exception("Invalid action");
     }
 
-}, false, true, false);
+}, true, true, false);
 
 

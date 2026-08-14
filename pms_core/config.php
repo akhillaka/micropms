@@ -62,20 +62,19 @@ if (!function_exists('load_db_settings')) {
             try {
                 $propertyId = AuthHelper::getPropertyId();
             } catch (Exception $e) {
-                $propertyId = 1;
+                $propertyId = null;
             }
         }
-        if ($propertyId === null) {
-            $propertyId = 1;
-        }
-        try {
-            $stmt = $pdo->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ?");
-            $stmt->execute([$propertyId]);
-            while ($row = $stmt->fetch()) {
-                $dbConfig[$row['key_name']] = $row['key_value'];
+        if ($propertyId !== null && (int)$propertyId > 0) {
+            try {
+                $stmt = $pdo->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ?");
+                $stmt->execute([(int)$propertyId]);
+                while ($row = $stmt->fetch()) {
+                    $dbConfig[$row['key_name']] = $row['key_value'];
+                }
+            } catch (Exception $e) {
+                // Silently ignore if DB/table doesn't exist yet
             }
-        } catch (Exception $e) {
-            // Silently ignore if DB/table doesn't exist yet
         }
 
         // Razorpay API Keys
@@ -88,13 +87,19 @@ if (!function_exists('load_db_settings')) {
         define_setting('WHATSAPP_PHONE_NUMBER_ID', 'your_phone_number_id');
         define_setting('WHATSAPP_WABA_ID', 'your_waba_id_here');
 
-        // Telegram Bot API
-        define_setting('TELEGRAM_BOT_TOKEN', 'your_telegram_bot_token');
-        define_setting('TELEGRAM_CHAT_ID', 'owner_chat_id');
+        define_setting('WA_WEBHOOK_VERIFY_TOKEN', '');
+        define_setting('WA_APP_SECRET', '');
+        define_setting('TELEGRAM_WEBHOOK_SECRET', '');
+        define_setting('TELEGRAM_OPERATIONS_BOT_TOKEN', '');
+        define_setting('TELEGRAM_OPERATIONS_CHAT_IDS', '');
 
         // Google Sheets Sync Settings
-        define_setting('GOOGLE_SHEETS_WEBHOOK_URL', '');
-        define_setting('GOOGLE_SHEETS_ENABLED', 'false');
+        define_setting('SMTP_HOST', '');
+        define_setting('SMTP_PORT', '587');
+        define_setting('SMTP_USER', '');
+        define_setting('SMTP_PASS', '');
+        define_setting('SMTP_ENCRYPTION', 'tls');
+        define_setting('SMTP_FROM', '');
 
         // Telegram Message Templates
         define_setting('TG_TEMPLATE_BOOKING_CONFIRMED', "⚡ <b>Online Booking Confirmed</b>\n\n<b>Guest:</b> {guest_name}\n<b>Room:</b> {room_number}\n<b>Check-in:</b> {check_in_date}\n<b>Check-out:</b> {check_out_date}\n<b>Paid:</b> ₹{paid_amount}");

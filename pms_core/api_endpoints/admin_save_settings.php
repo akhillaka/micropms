@@ -18,8 +18,16 @@ ApiHandler::run(function(\PDO $db) {
     $propertyId = AuthHelper::getPropertyId();
     $stmt = $db->prepare("INSERT INTO system_settings (property_id, key_name, key_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE key_value = VALUES(key_value)");
     
+    $secretKeys = [
+        'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'WHATSAPP_TOKEN',
+        'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'TELEGRAM_OPERATIONS_BOT_TOKEN',
+        'SMTP_PASS', 'WA_APP_SECRET', 'INVOICE_SECRET'
+    ];
     foreach ($data as $key => $value) {
         if ($key === '_csrf_token') continue;
+        if (in_array($key, $secretKeys, true) && trim((string)$value) === '') {
+            continue;
+        }
         
         // Intercept Email Report config
         if (in_array($key, ['EMAIL_REPORTS_ACTIVE', 'DAILY_AUDIT_EMAILS', 'WEEKLY_REVENUE_EMAILS'])) {
@@ -49,4 +57,4 @@ ApiHandler::run(function(\PDO $db) {
     
     ApiResponse::success();
 
-}, false, true, false);
+}, true, true, false);

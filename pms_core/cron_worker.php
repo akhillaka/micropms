@@ -32,7 +32,7 @@ while (time() < $endTime) {
         $jobProcessed = true;
         echo "Processing WhatsApp Job #{$waJob['id']}...\n";
         try {
-            NotificationRelay::processWhatsAppJob($waJob['payload']);
+            NotificationRelay::processWhatsAppJob($waJob['payload'], $waJob['property_id'] ?? null);
             QueueService::complete($waJob['id']);
             echo "Completed WhatsApp Job #{$waJob['id']}\n";
         } catch (\Throwable $e) {
@@ -93,11 +93,12 @@ while (time() < $endTime) {
         try {
             $message = $tgJob['payload']['message'] ?? '';
             if (empty($message)) throw new \Exception('No message in telegram job payload');
-            $ok = NotificationRelay::sendTelegramSync($message, null, []);
+            $ok = NotificationRelay::sendTelegramSync($message, null, [], $tgJob['property_id'] ?? null);
             if (!$ok) throw new \Exception('sendTelegramSync() returned false');
             QueueService::complete($tgJob['id']);
             echo "Completed Telegram Job #{$tgJob['id']}\n";
             error_log("[CronWorker] Completed Telegram Job #{$tgJob['id']}");
+            usleep(35000);
         } catch (\Throwable $e) {
             QueueService::fail($tgJob['id'], $e);
             echo "Failed Telegram Job #{$tgJob['id']}: " . $e->getMessage() . "\n";
@@ -106,24 +107,30 @@ while (time() < $endTime) {
     }
 
     
-    // Process Default Queue
+    // Process Default Queue (allowlisted handlers only)
     $defaultJob = QueueService::pop('default');
     if ($defaultJob) {
         $jobProcessed = true;
         echo "Processing Default Job #{$defaultJob['id']}...\n";
         try {
-            // Assume payload contains 'class', 'method', 'args' for generic jobs
+            $allowed = [
+                'NotificationRelay::processWhatsAppJob',
+                'NotificationRelay::sendTelegramSync',
+                'GoogleSheetService::sendWebhook',
+            ];
             $class = $defaultJob['payload']['class'] ?? null;
             $method = $defaultJob['payload']['method'] ?? null;
-            $args = $defaultJob['payload']['args'] ?? [];
-            
-            if ($class && $method && is_callable([$class, $method])) {
-                call_user_func_array([$class, $method], $args);
-                QueueService::complete($defaultJob['id']);
-                echo "Completed Default Job #{$defaultJob['id']}\n";
-            } else {
-                throw new \Exception("Invalid generic job payload or not callable");
+            $key = is_string($class) && is_string($method) ? ($class . '::' . $method) : '';
+            if ($key === '' || !in_array($key, $allowed, true)) {
+                throw new \Exception('Rejected non-allowlisted generic job');
             }
+            $args = $defaultJob['payload']['args'] ?? [];
+            if (!is_array($args)) {
+                $args = [];
+            }
+            call_user_func_array([$class, $method], $args);
+            QueueService::complete($defaultJob['id']);
+            echo "Completed Default Job #{$defaultJob['id']}\n";
         } catch (\Throwable $e) {
             QueueService::fail($defaultJob['id'], $e);
             echo "Failed Default Job #{$defaultJob['id']}: " . $e->getMessage() . "\n";

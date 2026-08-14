@@ -48,5 +48,5 @@ if (!isset($data['id']) || !isset($data['amount']) || !isset($data['description'
     
     ApiResponse::success();
 
-}, false, true, false);
+}, true, true, false);
 

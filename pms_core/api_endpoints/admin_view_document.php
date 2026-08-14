@@ -25,19 +25,27 @@ if (empty($file) || strpos($file, '..') !== false || strpos($file, '/') !== fals
 require_once __DIR__ . '/../../pms_core/Database.php';
 $db = Database::getInstance()->getConnection();
 
-$stmt = $db->prepare("SELECT property_id FROM guests WHERE id_proof_front = :f OR id_proof_back = :f OR photo = :f LIMIT 1");
+$stmt = $db->prepare("SELECT id, property_id FROM guests WHERE id_proof_front = :f OR id_proof_back = :f OR photo = :f LIMIT 1");
 $stmt->execute(['f' => $file]);
-$filePropertyId = $stmt->fetchColumn();
+$fileRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
-if ($filePropertyId !== false) {
-    if (isset($_SESSION['user_id'])) {
-        $userPropId = AuthHelper::getPropertyId();
-        if ((int)$filePropertyId !== $userPropId) {
-            http_response_code(403);
-            echo "Unauthorized: Document belongs to a different property.";
-            exit;
-        }
+if (!$fileRow) {
+    http_response_code(404);
+    echo "File not found";
+    exit;
+}
+
+if (isset($_SESSION['user_id'])) {
+    $userPropId = AuthHelper::getPropertyId();
+    if ((int)$fileRow['property_id'] !== $userPropId) {
+        http_response_code(403);
+        echo "Unauthorized: Document belongs to a different property.";
+        exit;
     }
+} elseif (isset($_SESSION['guest_id']) && (int)$_SESSION['guest_id'] !== (int)$fileRow['id']) {
+    http_response_code(403);
+    echo "Unauthorized";
+    exit;
 }
 
 $uploadDir = realpath(__DIR__ . '/../../pms_core/uploads');
