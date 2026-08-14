@@ -1,0 +1,143 @@
+/* Shared light theme — readable contrast on white/slate */
+:root {
+    --bg-color: #F8FAFC;
+    --surface-card: #FFFFFF;
+    --surface-card-alt: #F1F5F9;
+    --text-primary: #0F172A;
+    --text-secondary: #475569;
+    --text-muted: #64748B;
+    --border-color: #E2E8F0;
+    --accent-blue: #2563EB;
+    --accent-blue-hover: #1D4ED8;
+    --accent-blue-light: #EFF6FF;
+    --accent-navy: #1E3A8A;
+    --radius-card: 12px;
+    --tap-min: 44px;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --shadow-glass: 0 1px 3px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.04);
+    --shadow-glass-hover: 0 8px 28px rgba(15, 23, 42, 0.10);
+    --shadow-btn: 0 8px 18px -4px rgba(37, 99, 235, 0.40);
+}
+
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+.app-toast {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: calc(88px + env(safe-area-inset-bottom));
+    z-index: 80;
+    background: #0F172A;
+    color: #FFFFFF;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    border-radius: 12px;
+    padding: 14px 18px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.25);
+    transform: translateY(120%);
+    opacity: 0;
+    transition: transform 0.25s var(--ease-out), opacity 0.25s var(--ease-out);
+    pointer-events: none;
+}
+.app-toast.show { transform: translateY(0); opacity: 1; }
+.app-toast.ok { background: #047857; color: #FFFFFF; }
+.app-toast.err { background: #B91C1C; color: #FFFFFF; }
+
+.app-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 70;
+    display: none;
+}
+.app-sheet-backdrop.show { display: block; }
+.app-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 71;
+    background: #FFFFFF;
+    color: var(--text-primary);
+    border-radius: 16px 16px 0 0;
+    padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 32px rgba(15, 23, 42, 0.12);
+    transform: translateY(110%);
+    transition: transform 0.25s var(--ease-out);
+}
+.app-sheet.show { transform: translateY(0); }
+
+.glass-panel, .neumorphic-card {
+    background: var(--surface-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-glass);
+    color: var(--text-primary);
+    transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
+}
+.glass-panel:hover, .neumorphic-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glass-hover);
+    border-color: #CBD5E1;
+}
+
+.btn-primary {
+    min-height: var(--tap-min);
+    background: var(--accent-blue);
+    color: #FFFFFF;
+    font-weight: 700;
+    font-size: 0.875rem;
+    border-radius: var(--radius-card);
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    box-shadow: var(--shadow-btn);
+    transition: background 0.2s ease, transform 0.2s var(--ease-out);
+}
+.btn-primary:hover {
+    background: var(--accent-blue-hover);
+    color: #FFFFFF;
+    transform: translateY(-1px);
+}
+.btn-primary i, .btn-primary .ph { color: #FFFFFF; }
+
+.btn-secondary {
+    background: #FFFFFF;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-weight: 700;
+    border-radius: var(--radius-card);
+    min-height: var(--tap-min);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+.btn-secondary:hover {
+    background: var(--accent-blue-light);
+    border-color: #BFDBFE;
+    color: var(--accent-navy);
+}
+
+.icon-well {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    flex-shrink: 0;
+}
+.icon-blue { background: #DBEAFE; color: #1D4ED8; }
+.icon-amber { background: #FEF3C7; color: #B45309; }
+.icon-emerald { background: #D1FAE5; color: #047857; }
+.icon-violet { background: #EDE9FE; color: #6D28D9; }
+.icon-rose { background: #FFE4E6; color: #E11D48; }
+.icon-sky { background: #E0F2FE; color: #0369A1; }

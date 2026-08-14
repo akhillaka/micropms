@@ -11,7 +11,7 @@ require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 
-AuthHelper::requireLogin();
+AuthHelper::requirePermission('view_pos_reports');
 
 $headers = getallheaders();
 $csrfToken = $headers['X-CSRF-Token'] ?? $headers['x-csrf-token'] ?? '';

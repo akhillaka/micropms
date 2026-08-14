@@ -36,6 +36,7 @@ try {
 <script src="https://cdn.tailwindcss.com"></script>
 <!-- Google Fonts: Plus Jakarta Sans -->
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="/css/app_theme.css" rel="stylesheet">
 
 <!-- Tailwind Config -->
 <script>
@@ -53,10 +54,10 @@ try {
                         200: '#BFDBFE',
                         300: '#93C5FD',
                         400: '#60A5FA',
-                        500: '#3B82F6',
-                        600: '#1E3A8A',
-                        700: '#1E40AF',
-                        800: '#1D4ED8',
+                        500: '#2563EB',
+                        600: '#2563EB',
+                        700: '#1D4ED8',
+                        800: '#1E40AF',
                         900: '#1E3A8A',
                         accent: '#CA8A04',
                         accentHover: '#A16207',
@@ -110,6 +111,7 @@ try {
         border: 1px solid #E2E8F0;
         border-radius: 1rem;
         box-shadow: 0 2px 8px -1px rgba(15,23,42,0.06), 0 1px 3px rgba(15,23,42,0.04);
+        color: #0F172A;
         transition: transform 0.2s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s cubic-bezier(0.16,1,0.3,1);
     }
     .card-minimal:hover {
@@ -120,12 +122,12 @@ try {
 
     /* ── Buttons ── */
     .btn-minimal {
-        background: linear-gradient(135deg, #1E3A8A, #2D4FA3);
+        background: #2563EB;
         color: #FFFFFF;
         font-weight: 700;
         border-radius: 0.75rem;
         border: none !important;
-        box-shadow: 0 8px 20px -4px rgba(30,58,138,0.28);
+        box-shadow: 0 8px 18px -4px rgba(37,99,235,0.35);
         transition: all 0.2s cubic-bezier(0.16,1,0.3,1);
         cursor: pointer;
         padding: 0.625rem 1.25rem;
@@ -135,9 +137,10 @@ try {
         letter-spacing: -0.01em;
     }
     .btn-minimal:hover {
-        background: linear-gradient(135deg, #162F73, #1E3A8A);
+        background: #1D4ED8;
+        color: #FFFFFF;
         transform: translateY(-1px);
-        box-shadow: 0 12px 28px -4px rgba(30,58,138,0.35);
+        box-shadow: 0 10px 22px -4px rgba(37,99,235,0.4);
     }
     .btn-minimal:active { transform: translateY(1px); box-shadow: 0 2px 6px rgba(30,58,138,0.15); }
 

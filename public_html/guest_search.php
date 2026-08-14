@@ -20,41 +20,40 @@ $propertyName = $stmt->fetchColumn() ?: 'MicroPMS';
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="/css/app_theme.css" rel="stylesheet">
     <style>
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+            background: #F8FAFC;
+            color: #0F172A;
         }
         .light-glass {
-            background: rgba(255, 255, 255, 0.85);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(226, 232, 240, 0.8);
-            box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.05);
+            background: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            border-radius: 12px;
+            box-shadow: 0 12px 40px -12px rgba(15, 23, 42, 0.12);
+            color: #0F172A;
         }
         .input-premium {
-            background-color: #ffffff;
-            border: 1px solid #e2e8f0;
-            color: #1e293b;
+            background-color: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            color: #0F172A;
             transition: all 200ms ease;
         }
         .input-premium:focus {
-            border-color: #4f46e5;
-            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+            border-color: #2563EB;
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
             outline: none;
         }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-4">
-    <!-- Abstract light glow circles in background -->
-    <div class="absolute top-1/4 left-1/4 w-[300px] h-[300px] bg-indigo-200/40 rounded-full blur-[100px] pointer-events-none"></div>
-    <div class="absolute bottom-1/4 right-1/4 w-[250px] h-[250px] bg-sky-200/30 rounded-full blur-[80px] pointer-events-none"></div>
+<body class="min-h-screen flex items-center justify-center p-4 bg-slate-50">
 
-    <div class="w-full max-w-md light-glass rounded-3xl p-8 space-y-6 relative overflow-hidden animate-fade-in">
+    <div class="w-full max-w-md light-glass p-8 space-y-6 relative overflow-hidden">
         <!-- Logo and Header -->
         <div class="text-center space-y-2 relative z-10">
-            <div class="w-16 h-16 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center mx-auto shadow-sm mb-4">
-                <i class="ph ph-bell-ringing text-3xl text-indigo-600"></i>
+            <div class="w-16 h-16 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-center mx-auto shadow-sm mb-4">
+                <i class="ph ph-magnifying-glass text-3xl text-blue-600"></i>
             </div>
             <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight"><?= htmlspecialchars((string)($propertyName)) ?></h1>
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Guest Digital Assistant</p>
@@ -74,7 +73,7 @@ $propertyName = $stmt->fetchColumn() ?: 'MicroPMS';
                 </div>
             </div>
 
-            <button onclick="searchGuest()" id="searchBtn" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 cursor-pointer mt-4">
+            <button onclick="searchGuest()" id="searchBtn" class="w-full min-h-[48px] py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition flex items-center justify-center gap-2 cursor-pointer mt-4">
                 <span>Find Bookings</span>
                 <i class="ph ph-caret-right"></i>
             </button>

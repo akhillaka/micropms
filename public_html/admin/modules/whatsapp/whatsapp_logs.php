@@ -2,6 +2,10 @@
 require_once __DIR__ . '/../../../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../../../pms_core/services/SaaSEntitlementsService.php';
 AuthHelper::requireLoginOrRedirect();
+if (!AuthHelper::can('send_whatsapp')) {
+    header('Location: /admin');
+    exit;
+}
 require_once __DIR__ . '/../../../../pms_core/Database.php';
 
 $propertyId = AuthHelper::getPropertyId();
@@ -135,6 +139,7 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                         <select name="status" class="w-full bg-brand-50 border border-brand-200 p-2.5 rounded-lg text-sm font-medium outline-none focus:bg-white focus:shadow-minimal transition-all">
                             <option value="">All Statuses</option>
                             <option value="success" <?= htmlspecialchars((string)($filterStatus === 'success' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Success</option>
+                            <option value="skipped" <?= htmlspecialchars((string)($filterStatus === 'skipped' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Skipped (inactive)</option>
                             <option value="failed" <?= htmlspecialchars((string)($filterStatus === 'failed' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Failed</option>
                         </select>
                     </div>
@@ -190,6 +195,10 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                                             <?php if ($log['status'] === 'success'): ?>
                                                 <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-brutal-green/20 text-green-800 border border-brutal-green">
                                                     <i class="ph-fill ph-check-circle"></i> Sent to API
+                                                </span>
+                                            <?php elseif ($log['status'] === 'skipped'): ?>
+                                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                                    <i class="ph-fill ph-minus-circle"></i> Skipped
                                                 </span>
                                             <?php else: ?>
                                                 <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-brutal-red/20 text-red-800 border border-brutal-red">

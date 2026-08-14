@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 if (php_sapi_name() !== 'cli') {
-    AuthHelper::requireLogin();
+    AuthHelper::requirePermission('send_whatsapp');
 }
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';

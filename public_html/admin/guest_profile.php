@@ -3,6 +3,10 @@ require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../pms_core/ErrorPage.php';
 AuthHelper::requireLoginOrRedirect();
+if (!AuthHelper::can('manage_guests')) {
+    header('Location: /admin');
+    exit;
+}
 CsrfToken::checkTimeout();
 
 require_once __DIR__ . '/../../pms_core/Database.php';

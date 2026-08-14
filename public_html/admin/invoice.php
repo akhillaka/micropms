@@ -5,6 +5,10 @@ require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../pms_core/ErrorPage.php';
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 AuthHelper::requireLoginOrRedirect();
+if (!AuthHelper::can('view_folio')) {
+    header('Location: /admin');
+    exit;
+}
 CsrfToken::checkTimeout();
 
 require_once __DIR__ . '/../../pms_core/Database.php';

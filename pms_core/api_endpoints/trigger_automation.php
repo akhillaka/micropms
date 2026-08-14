@@ -48,5 +48,8 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::success(['message' => 'Automation triggered successfully']);
     }
 
-    throw new Exception("Failed to trigger automation. Check: (1) automation is Active, (2) template is approved, (3) variable mapping is correct, (4) WhatsApp token is valid.");
+    ApiResponse::success([
+        'skipped' => true,
+        'message' => 'WhatsApp was not sent. This is recorded in Delivery Logs (inactive, missing template, or missing guest phone).',
+    ]);
 }, true, true, false);

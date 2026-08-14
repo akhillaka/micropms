@@ -164,15 +164,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php include __DIR__ . '/components/ui_head.php'; ?>
     <style>
         body {
-            background: linear-gradient(135deg, #EFF6FF 0%, #F8FAFC 50%, #DBEAFE 100%);
+            background: #F8FAFC;
             min-height: 100vh;
+            color: #0F172A;
         }
         .login-card {
-            background: rgba(255,255,255,0.94);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(226,232,240,0.8);
-            box-shadow: 0 24px 48px -8px rgba(30,58,138,0.14), 0 8px 20px -4px rgba(15,23,42,0.06);
+            background: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            box-shadow: 0 12px 40px -12px rgba(15, 23, 42, 0.12);
+            border-radius: 12px;
+            color: #0F172A;
         }
         .login-blob-1 {
             position: absolute; top: -80px; right: -80px;
@@ -195,21 +196,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         .input-icon-wrap input:focus ~ .input-icon { color: #1E3A8A; }
         .login-btn {
-            background: linear-gradient(135deg, #1E3A8A, #2563EB);
-            color: #fff; font-weight: 800; font-size: 0.9rem;
-            padding: 0.875rem; border-radius: 0.875rem; border: none;
-            width: 100%; cursor: pointer;
-            transition: all 0.25s cubic-bezier(0.16,1,0.3,1);
-            box-shadow: 0 8px 20px -4px rgba(30,58,138,0.35);
+            background: #2563EB;
+            color: #FFFFFF; font-weight: 800; font-size: 0.9rem;
+            padding: 0.875rem; border-radius: 12px; border: none;
+            width: 100%; min-height: 48px; cursor: pointer;
+            transition: background 0.2s ease;
+            box-shadow: none;
             display: flex; align-items: center; justify-content: center; gap: 8px;
-            letter-spacing: -0.01em;
         }
         .login-btn:hover {
-            background: linear-gradient(135deg, #162F73, #1E3A8A);
-            transform: translateY(-2px);
-            box-shadow: 0 14px 28px -6px rgba(30,58,138,0.40);
+            background: #1D4ED8;
+            color: #FFFFFF;
+            transform: none;
+            filter: none;
+            box-shadow: none;
         }
-        .login-btn:active { transform: translateY(1px); }
         .brand-icon {
             width: 60px; height: 60px;
             background: linear-gradient(135deg, #EFF6FF, #DBEAFE);
@@ -224,7 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="fixed bottom-10 right-10 w-56 h-56 bg-indigo-300/20 rounded-full blur-3xl pointer-events-none"></div>
     <div class="fixed top-1/2 right-1/4 w-40 h-40 bg-sky-200/25 rounded-full blur-2xl pointer-events-none"></div>
 
-    <div class="login-card p-8 rounded-3xl w-full max-w-[420px] z-10 animate-fade-up relative overflow-hidden">
+    <div class="login-card p-8 rounded-xl w-full max-w-[420px] z-10 animate-fade-up relative overflow-hidden">
         <div class="login-blob-1"></div>
         <div class="login-blob-2"></div>
 
@@ -270,8 +271,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </button>
         </form>
 
-        <div class="mt-8 border-t border-slate-800/80 pt-5 text-center">
-            <a href="/saas-admin/login" class="text-xs text-slate-400 hover:text-indigo-400 transition-colors font-bold flex items-center justify-center gap-1.5">
+        <div class="mt-8 border-t border-slate-200 pt-5 text-center">
+            <a href="/saas-admin/login" class="text-xs text-slate-400 hover:text-blue-600 transition-colors font-bold flex items-center justify-center gap-1.5">
                 <i class="ph ph-arrow-left"></i> SaaS Control Panel Login
             </a>
         </div>

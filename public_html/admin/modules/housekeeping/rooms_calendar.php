@@ -5,6 +5,10 @@ require_once __DIR__ . '/../../../../pms_core/services/SaaSEntitlementsService.p
 require_once __DIR__ . '/../../../../pms_core/Database.php';
 
 AuthHelper::requireLoginOrRedirect();
+if (!AuthHelper::can('housekeeping')) {
+    header('Location: /admin');
+    exit;
+}
 CsrfToken::checkTimeout();
 
 $db = Database::getInstance()->getConnection();

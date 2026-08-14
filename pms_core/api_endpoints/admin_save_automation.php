@@ -3,7 +3,7 @@ require_once __DIR__ . '/../AuthHelper.php';
 require_once __DIR__ . '/../Database.php';
 
 header('Content-Type: application/json');
-AuthHelper::requireLogin();
+AuthHelper::requirePermission('manage_automations');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['success' => false, 'error' => 'Invalid request method']);

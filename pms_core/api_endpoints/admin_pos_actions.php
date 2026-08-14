@@ -8,7 +8,7 @@ require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 
 ApiHandler::run(function(\PDO $db) {
-    AuthHelper::requireLogin();
+    AuthHelper::requirePermission('manage_pos');
     
     // Add Entitlement Check
     require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';

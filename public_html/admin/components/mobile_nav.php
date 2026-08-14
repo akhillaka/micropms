@@ -18,7 +18,7 @@ $navItems = [
 
 ?>
 <!-- Premium Glassmorphism Mobile Nav -->
-<nav class="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/85 backdrop-blur-xl border-t border-brand-900/10 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_24px_rgba(0,0,0,0.02)]">
+<nav class="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/75 backdrop-blur-xl border-t border-white/70 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_32px_rgba(37,99,235,0.08)]">
     <div class="flex justify-start items-end p-2 max-w-full mx-auto h-[72px] overflow-x-auto hide-scrollbar">
         <?php foreach($navItems as $url => $item): ?>
             <?php 
@@ -26,7 +26,7 @@ $navItems = [
                 continue;
             }
             $isActive = ($currentPage === basename($url)); 
-            $activeContainer = $isActive ? 'text-brand-900' : 'text-slate-400 hover:text-brand-900 scale-95 hover:scale-100';
+            $activeContainer = $isActive ? 'text-blue-600' : 'text-slate-400 hover:text-blue-600 scale-95 hover:scale-100';
             $iconWeight = $isActive ? 'ph-fill' : 'ph';
             ?>
             <?php $finalUrl = (strpos($url, '../') === 0) ? str_replace('/admin/', '/', $adminBaseUrl) . substr($url, 3) : $adminBaseUrl . $url; ?>
@@ -34,11 +34,11 @@ $navItems = [
                 
                 <!-- Active Indicator Dot / Pill -->
                 <?php if($isActive): ?>
-                    <span class="absolute top-0 w-8 h-1 bg-brand-900 rounded-b-full"></span>
+                    <span class="absolute top-0 w-8 h-1 bg-blue-600 rounded-b-full"></span>
                 <?php endif; ?>
                 
                 <!-- Icon container with bouncy animation on active -->
-                <div class="flex items-center justify-center w-10 h-10 rounded-full <?= htmlspecialchars((string)($isActive ? 'bg-brand-50 text-brand-900 -translate-y-1 shadow-sm' : 'bg-transparent'), ENT_QUOTES, 'UTF-8') ?> transition-all duration-300">
+                <div class="flex items-center justify-center w-10 h-10 rounded-xl <?= htmlspecialchars((string)($isActive ? 'bg-blue-50 text-blue-600 -translate-y-1' : 'bg-transparent'), ENT_QUOTES, 'UTF-8') ?> transition-all duration-300">
                     <i class="<?= htmlspecialchars((string)($iconWeight), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)($item['icon']), ENT_QUOTES, 'UTF-8') ?> text-2xl"></i>
                 </div>
                 

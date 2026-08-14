@@ -5,6 +5,10 @@ require_once __DIR__ . '/../../../../pms_core/services/SaaSEntitlementsService.p
 require_once __DIR__ . '/../../../../pms_core/Database.php';
 
 AuthHelper::requireLoginOrRedirect();
+if (!AuthHelper::can('housekeeping')) {
+    header('Location: /admin');
+    exit;
+}
 CsrfToken::checkTimeout();
 
 $db = Database::getInstance()->getConnection();
@@ -153,7 +157,10 @@ if (!$hkEnabled) {
 
         async function loadRequests() {
             try {
-                const res = await fetch(`${apiBase}?action=list`, { credentials: 'same-origin' });
+                const res = await fetch(`${apiBase}?action=list`, {
+                    credentials: 'same-origin',
+                    headers: { 'X-CSRF-Token': csrfToken }
+                });
                 const data = await res.json();
                 const requests = data.requests || data.data?.requests || [];
 

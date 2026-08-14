@@ -175,6 +175,12 @@ if (!function_exists('load_db_settings')) {
         define_setting('GUEST_PORTAL_HOUSEKEEPING_ENABLED', 'false');
         define_setting('GUEST_PORTAL_SELF_CHECKOUT_ENABLED', 'false');
         define_setting('GUEST_PORTAL_EARLY_LATE_FEE', '0.00');
+        define_setting('GUEST_PORTAL_WIFI_ENABLED', 'true');
+        define_setting('GUEST_PORTAL_SIGHTSEEING_ENABLED', 'true');
+        define_setting('GUEST_PORTAL_WAKEUP_ENABLED', 'true');
+        define_setting('GUEST_PORTAL_EXTEND_STAY_ENABLED', 'true');
+        define_setting('GUEST_PORTAL_UPGRADE_ENABLED', 'true');
+        define_setting('GUEST_PORTAL_CONTACT_ENABLED', 'true');
     }
 }
 

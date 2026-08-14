@@ -25,31 +25,33 @@ if ($hotelId > 0) {
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="/css/app_theme.css" rel="stylesheet">
     <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #F8FAFC; color: #0F172A; }
         .input-premium {
-            background-color: #f8fafc;
-            border: 1px solid #e2e8f0;
-            color: #334155;
+            background-color: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            color: #0F172A;
             transition: all 0.2s ease;
         }
         .input-premium:focus {
             background-color: #ffffff;
-            border-color: #3b82f6;
+            border-color: #2563EB;
             outline: none;
-            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
         }
         .glass-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.5);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);
+            background: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            border-radius: 12px;
+            box-shadow: 0 12px 40px -12px rgba(15, 23, 42, 0.12);
+            color: #0F172A;
         }
     </style>
 </head>
 <body class="min-h-screen flex items-center justify-center p-4">
 
-    <div class="w-full max-w-md glass-card rounded-3xl p-8 space-y-8 relative overflow-hidden">
+    <div class="w-full max-w-md glass-card p-8 space-y-8 relative overflow-hidden">
         <!-- Decorative element -->
         <div class="absolute top-0 right-0 w-32 h-32 bg-blue-500 rounded-bl-full opacity-10 blur-xl"></div>
         <div class="absolute bottom-0 left-0 w-32 h-32 bg-amber-500 rounded-tr-full opacity-10 blur-xl"></div>
@@ -83,7 +85,7 @@ if ($hotelId > 0) {
                 </div>
             </div>
 
-            <button type="submit" id="submitBtn" class="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-sm uppercase tracking-wider rounded-xl transition shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 cursor-pointer mt-4">
+            <button type="submit" id="submitBtn" class="w-full min-h-[48px] py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-sm uppercase tracking-wider rounded-xl transition flex items-center justify-center gap-2 cursor-pointer mt-4">
                 <span>Access Portal</span>
                 <i class="ph ph-arrow-right"></i>
             </button>

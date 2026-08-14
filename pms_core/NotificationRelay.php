@@ -513,9 +513,6 @@ class NotificationRelay {
         }
 
         $auto = self::loadAutomationRule($db, $eventKey, (int)$propertyId);
-        if (!$auto) {
-            return false;
-        }
         
         // Build Global Context
         $context = [
@@ -576,8 +573,29 @@ class NotificationRelay {
         $staffId = $_SESSION['user_id'] ?? null;
         $anyTriggered = false;
 
+        $waReady = $auto && !empty($auto['is_wa_active']) && !empty($auto['wa_template_id']);
+        if (!$waReady) {
+            $reason = !$auto
+                ? 'No automation rule configured for this event'
+                : (empty($auto['is_wa_active']) ? 'WhatsApp automation is not active' : 'No WhatsApp template selected');
+            self::logDelivery(
+                (int)$propertyId,
+                $eventKey,
+                (string)($auto['wa_template_name'] ?? '(none)'),
+                (string)($phoneNumberE164 ?? $phoneNumber ?? ''),
+                'skipped',
+                'inactive',
+                $reason
+            );
+            if (!$auto) {
+                return false;
+            }
+        } elseif (empty($phoneNumberE164)) {
+            self::logDelivery((int)$propertyId, $eventKey, (string)($auto['wa_template_name'] ?? '(none)'), '', 'skipped', 'no_phone', 'Guest phone number is missing');
+        }
+
         // 1. WhatsApp Automation — send now so it does not depend on cron_worker
-        if (!empty($auto['is_wa_active']) && !empty($phoneNumberE164) && !empty($auto['wa_template_id'])) {
+        if ($waReady && !empty($phoneNumberE164)) {
             $mapping = json_decode((string)$auto['wa_mapping_json'], true) ?? [];
             $params = [];
             foreach ($mapping as $mappedVarName) {
@@ -648,6 +666,37 @@ class NotificationRelay {
         return $anyTriggered;
     }
 
+    private static function logDelivery(
+        int $propertyId,
+        string $eventKey,
+        string $templateName,
+        string $phoneNumber,
+        string $status,
+        ?string $errorCode,
+        ?string $errorMessage,
+        ?string $messageId = null
+    ): void {
+        if ($propertyId <= 0) {
+            return;
+        }
+        try {
+            $db = Database::getInstance()->getConnection();
+            $stmt = $db->prepare("INSERT INTO wa_delivery_logs (property_id, event_key, template_name, phone_number, message_id, status, error_code, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $propertyId,
+                $eventKey,
+                $templateName !== '' ? $templateName : '(none)',
+                $phoneNumber !== '' ? $phoneNumber : '-',
+                $messageId,
+                $status,
+                $errorCode,
+                $errorMessage,
+            ]);
+        } catch (\Throwable $e) {
+            error_log('Failed to write wa_delivery_logs: ' . $e->getMessage());
+        }
+    }
+
     /**
      * Process a WhatsApp job from the queue.
      */
@@ -684,8 +733,7 @@ class NotificationRelay {
             throw new \Exception('WhatsApp job missing property_id');
         }
 
-        $insLog = $db->prepare("INSERT INTO wa_delivery_logs (property_id, event_key, template_name, phone_number, message_id, status, error_code, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        $insLog->execute([$pid, $eventKey, $templateName, $phoneNumberE164, $messageId, $status, $errorCode, $errorMessage]);
+        self::logDelivery($pid, $eventKey, $templateName, $phoneNumberE164, $status, $errorCode, $errorMessage, $messageId);
         
         require_once __DIR__ . '/AuditLogger.php';
         \AuditLogger::log($staffId, 'WA_MESSAGE_' . strtoupper($status), 'BOOKING', $bookingId, [

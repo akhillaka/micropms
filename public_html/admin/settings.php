@@ -2,7 +2,9 @@
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
-if (!AuthHelper::can('manage_settings')) {
+$canManageSettings = AuthHelper::can('manage_settings');
+$canRunNightAudit = AuthHelper::can('run_night_audit');
+if (!$canManageSettings && !$canRunNightAudit) {
     header('Location: /admin');
     exit;
 }
@@ -152,6 +154,12 @@ $portalWifiSsid        = (string)get_db_setting($db, 'GUEST_PORTAL_WIFI_SSID', $
 $portalWifiPassword    = (string)get_db_setting($db, 'GUEST_PORTAL_WIFI_PASSWORD', $propertyId, (defined('PROPERTY_WIFI_PASS') ? PROPERTY_WIFI_PASS : ''));
 $portalHelpDeskNo      = (string)get_db_setting($db, 'GUEST_PORTAL_HELP_DESK_NO', $propertyId, '');
 $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACTIONS', $propertyId, '');
+$wifiCardEnabled = get_db_setting($db, 'GUEST_PORTAL_WIFI_ENABLED', $propertyId, 'true') === 'true';
+$sightseeingEnabled = get_db_setting($db, 'GUEST_PORTAL_SIGHTSEEING_ENABLED', $propertyId, 'true') === 'true';
+$wakeupEnabled = get_db_setting($db, 'GUEST_PORTAL_WAKEUP_ENABLED', $propertyId, 'true') === 'true';
+$extendStayEnabled = get_db_setting($db, 'GUEST_PORTAL_EXTEND_STAY_ENABLED', $propertyId, 'true') === 'true';
+$upgradeEnabled = get_db_setting($db, 'GUEST_PORTAL_UPGRADE_ENABLED', $propertyId, 'true') === 'true';
+$contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyId, 'true') === 'true';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -170,7 +178,7 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 </head>
-<body class="flex flex-col min-h-screen">
+<body class="flex flex-col min-h-screen<?= !$canManageSettings ? ' na-only' : '' ?>">
     <!-- Main App Container -->
     <div class="w-full min-h-screen relative flex flex-col max-w-7xl mx-auto">
         
@@ -213,6 +221,12 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
             .settings-tab-btn.tab-inactive:hover {
                 background-color: #F1F5F9;
                 color: #0F172A !important;
+            }
+            body.na-only .settings-tab-btn:not(#tab-night-audit) {
+                display: none;
+            }
+            body.na-only [id^="content-"]:not(#content-night-audit) {
+                display: none !important;
             }
         </style>
 
@@ -865,6 +879,32 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                                     <div class="w-11 h-6 bg-brand-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-brand-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
                             </div>
+
+                            <p class="text-xs font-extrabold text-slate-500 uppercase tracking-wider pt-2">Guest app features</p>
+                            <p class="text-[11px] text-slate-500 -mt-3">Turn individual guest portal screens and request types on or off. Maintenance requests are not offered to guests.</p>
+
+                            <?php
+                            $portalToggles = [
+                                ['portal_wifi_enabled', $wifiCardEnabled, 'WiFi card', 'Show network name and password on the home screen.'],
+                                ['portal_sightseeing_enabled', $sightseeingEnabled, 'Sightseeing', 'Show local attractions and Maps links.'],
+                                ['portal_wakeup_enabled', $wakeupEnabled, 'Wake-up calls', 'Let guests request a wake-up call.'],
+                                ['portal_extend_stay_enabled', $extendStayEnabled, 'Extend stay', 'Let guests request extra nights.'],
+                                ['portal_upgrade_enabled', $upgradeEnabled, 'Room upgrade', 'Let guests request a room upgrade.'],
+                                ['portal_contact_enabled', $contactEnabled, 'Call / WhatsApp desk', 'Show front-desk contact buttons.'],
+                            ];
+                            foreach ($portalToggles as $tg):
+                            ?>
+                            <div class="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-200">
+                                <div>
+                                    <span class="text-sm font-bold text-slate-800 block"><?= htmlspecialchars($tg[2]) ?></span>
+                                    <p class="text-[11px] text-slate-500"><?= htmlspecialchars($tg[3]) ?></p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="<?= htmlspecialchars($tg[0]) ?>" <?= $tg[1] ? 'checked' : '' ?> class="sr-only peer">
+                                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                            <?php endforeach; ?>
 
                             <!-- === PROPERTY INFO FOR GUEST PORTAL === -->
                             <div class="pt-4 mt-2 border-t-2 border-dashed border-brand-200">
@@ -2353,6 +2393,12 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
         const wifiPassword = document.getElementById('portal_wifi_password').value.trim();
         const helpDeskNo = document.getElementById('portal_help_desk_no').value.trim();
         const localAttractions = document.getElementById('portal_local_attractions').value.trim();
+        const wifiEnabled = document.getElementById('portal_wifi_enabled').checked;
+        const sightseeingEnabled = document.getElementById('portal_sightseeing_enabled').checked;
+        const wakeupEnabled = document.getElementById('portal_wakeup_enabled').checked;
+        const extendStayEnabled = document.getElementById('portal_extend_stay_enabled').checked;
+        const upgradeEnabled = document.getElementById('portal_upgrade_enabled').checked;
+        const contactEnabled = document.getElementById('portal_contact_enabled').checked;
         
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
@@ -2381,7 +2427,13 @@ $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACT
                     wifi_ssid: wifiSsid,
                     wifi_password: wifiPassword,
                     help_desk_no: helpDeskNo,
-                    local_attractions: localAttractions
+                    local_attractions: localAttractions,
+                    wifi_enabled: wifiEnabled,
+                    sightseeing_enabled: sightseeingEnabled,
+                    wakeup_enabled: wakeupEnabled,
+                    extend_stay_enabled: extendStayEnabled,
+                    upgrade_enabled: upgradeEnabled,
+                    contact_enabled: contactEnabled
                 })
             });
             const data = await res.json();

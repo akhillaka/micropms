@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
-AuthHelper::requireLogin();
+AuthHelper::requirePermission('send_whatsapp');
 require_once __DIR__ . '/../../pms_core/Database.php';
 
 header('Content-Type: application/json');

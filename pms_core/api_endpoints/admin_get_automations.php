@@ -4,6 +4,11 @@ require_once __DIR__ . '/../Database.php';
 
 header('Content-Type: application/json');
 AuthHelper::requireLogin();
+if (!AuthHelper::can('send_whatsapp') && !AuthHelper::can('manage_automations') && !AuthHelper::can('manage_settings')) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Forbidden']);
+    exit;
+}
 
 $propertyId = AuthHelper::getPropertyId();
 

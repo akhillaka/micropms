@@ -6,7 +6,8 @@ require_once __DIR__ . '/../../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../../pms_core/services/FolioService.php';
 
 ApiHandler::run(function(\PDO $db) {
-    AuthHelper::requireLoginOrRedirect();
+    AuthHelper::requireLogin();
+    AuthHelper::requirePermission('housekeeping');
     $propertyId = AuthHelper::getPropertyId();
 
     $action = $_POST['action'] ?? $_GET['action'] ?? '';
@@ -80,4 +81,4 @@ ApiHandler::run(function(\PDO $db) {
     else {
         ApiResponse::error('Invalid action', 400);
     }
-}, true, true, false); // requires admin auth, handles csrf, etc.
+}, true, ($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET', false);

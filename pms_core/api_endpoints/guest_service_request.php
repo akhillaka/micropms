@@ -38,7 +38,7 @@ ApiHandler::run(function(\PDO $db) {
     if ($action === 'create') {
         $allowedTypes = [
             'Housekeeping', 'Extra Towels', 'Toiletries', 'Extra Bed', 'Blanket',
-            'Extend Stay', 'Room Upgrade', 'Maintenance', 'Room Service',
+            'Extend Stay', 'Room Upgrade', 'Room Service',
             'Late Checkout', 'Wake-up Call'
         ];
         $aliases = [
@@ -51,7 +51,6 @@ ApiHandler::run(function(\PDO $db) {
             'blanket' => 'Blanket',
             'extend_stay' => 'Extend Stay',
             'room_upgrade' => 'Room Upgrade',
-            'maintenance' => 'Maintenance',
             'room_service' => 'Room Service',
             'wakeup_call' => 'Wake-up Call',
             'wake-up call' => 'Wake-up Call',
@@ -61,6 +60,30 @@ ApiHandler::run(function(\PDO $db) {
         $serviceType = $aliases[$aliasKey] ?? $rawType;
         if ($serviceType === '' || !in_array($serviceType, $allowedTypes, true)) {
             ApiResponse::error('Invalid service type.', 400);
+        }
+
+        $flagForType = [
+            'Housekeeping' => 'GUEST_PORTAL_HOUSEKEEPING_ENABLED',
+            'Extra Towels' => 'GUEST_PORTAL_HOUSEKEEPING_ENABLED',
+            'Toiletries' => 'GUEST_PORTAL_HOUSEKEEPING_ENABLED',
+            'Extra Bed' => 'GUEST_PORTAL_HOUSEKEEPING_ENABLED',
+            'Blanket' => 'GUEST_PORTAL_HOUSEKEEPING_ENABLED',
+            'Wake-up Call' => 'GUEST_PORTAL_WAKEUP_ENABLED',
+            'Extend Stay' => 'GUEST_PORTAL_EXTEND_STAY_ENABLED',
+            'Room Upgrade' => 'GUEST_PORTAL_UPGRADE_ENABLED',
+            'Late Checkout' => 'GUEST_PORTAL_UPSELL_ENABLED',
+            'Room Service' => 'GUEST_PORTAL_POS_ENABLED',
+        ];
+        $flagKey = $flagForType[$serviceType] ?? '';
+        if ($flagKey !== '') {
+            $flagStmt = $db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = ?");
+            $flagStmt->execute([$propertyId, $flagKey]);
+            $flagVal = $flagStmt->fetchColumn();
+            $defaultOn = in_array($flagKey, ['GUEST_PORTAL_WAKEUP_ENABLED', 'GUEST_PORTAL_EXTEND_STAY_ENABLED', 'GUEST_PORTAL_UPGRADE_ENABLED'], true);
+            $enabled = $flagVal === false ? $defaultOn : ($flagVal === 'true');
+            if (!$enabled) {
+                ApiResponse::error('This request type is turned off for this property.', 403);
+            }
         }
 
         $housekeepingTypes = ['Housekeeping', 'Extra Towels', 'Toiletries', 'Extra Bed', 'Blanket'];

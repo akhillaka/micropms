@@ -13,6 +13,10 @@ require_once __DIR__ . '/../../../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../../../pms_core/CsrfToken.php';
 
 AuthHelper::requireLoginOrRedirect();
+if (!AuthHelper::can('manage_pos')) {
+    header('Location: /admin');
+    exit;
+}
 
 $db = Database::getInstance()->getConnection();
 

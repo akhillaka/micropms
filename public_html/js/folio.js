@@ -697,11 +697,13 @@ async function triggerWhatsAppAutomation(eventKey, btn) {
             body: JSON.stringify({ event: eventKey, booking_id: bookingId })
         });
         const data = await res.json();
-        if (data.success) {
+        if (data.success && data.skipped) {
+            showToast(data.message || 'Not sent — check Delivery Logs (automation may be inactive).', 'error');
+        } else if (data.success) {
             showToast("WhatsApp message triggered successfully!", "success");
             UI.hideModal('whatsapp-triggers-modal');
         } else {
-            showToast(data.error || "Failed to trigger message.");
+            showToast(data.error || data.message || "Failed to trigger message.");
         }
     } catch (e) {
         showToast("Network error. Please try again.");

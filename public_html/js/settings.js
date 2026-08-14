@@ -1388,6 +1388,8 @@ async function runNightAuditNow() {
             const r = data.result;
             if (r.status === 'skipped') {
                 statusDiv.innerHTML = `<div class="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-sm font-semibold"><i class="ph ph-info"></i> ${r.message}</div>`;
+            } else if (r.status === 'failed') {
+                statusDiv.innerHTML = `<div class="bg-red-50 border border-red-200 text-red-800 p-3 rounded-xl text-sm font-semibold"><i class="ph ph-x-circle"></i> ${r.error_message || r.message || 'Audit failed'}</div>`;
             } else {
                 statusDiv.innerHTML = `
                     <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-sm space-y-1">
@@ -1429,8 +1431,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
     const validTabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'staff', 'roles', 'property', 'folio-items', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
-    
-    if (tabParam && validTabs.includes(tabParam)) {
+
+    if (document.body.classList.contains('na-only')) {
+        switchTab('night-audit');
+    } else if (tabParam && validTabs.includes(tabParam)) {
         switchTab(tabParam);
     } else {
         switchTab('categories');

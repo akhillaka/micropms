@@ -3,6 +3,10 @@ require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../pms_core/ErrorPage.php';
 AuthHelper::requireLoginOrRedirect();
+if (!AuthHelper::can('view_folio')) {
+    header('Location: /admin');
+    exit;
+}
 CsrfToken::checkTimeout();
 
 require_once __DIR__ . '/../../pms_core/Database.php';
@@ -13,6 +17,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data = json_decode(file_get_contents('php://input'), true);
     if (($data['action'] ?? '') === 'update_folio_id') {
         header('Content-Type: application/json');
+        if (!AuthHelper::can('edit_folio')) {
+            echo json_encode(['success' => false, 'message' => 'Forbidden']);
+            exit;
+        }
         try {
             $newFolioId = trim($data['offline_folio_id'] ?? '');
             $bookingId = (int)($data['booking_id'] ?? 0);
@@ -171,28 +179,32 @@ $statusColor = $statusMap[$bookingStatus]['color'];
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 8px 16px;
-            border-radius: 9999px;
+            padding: 10px 14px;
+            border-radius: 12px;
             border: 1px solid #E2E8F0;
             background: #FFF;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 700;
             color: #475569;
-            transition: all 0.15s ease;
+            min-height: 40px;
+            transition: transform 0.2s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s ease, background 0.2s ease;
         }
         .pill-btn:hover {
-            background: #F8FAFC;
-            border-color: #CBD5E1;
+            background: #FFF;
+            border-color: #BFDBFE;
             color: #1E293B;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 22px rgba(37,99,235,0.12);
         }
         .pill-btn-primary {
-            background: #EEF2FF;
-            border-color: #E0E7FF;
-            color: #4F46E5;
+            background: linear-gradient(135deg, #2563EB, #1E3A8A);
+            border-color: transparent;
+            color: #FFFFFF;
+            box-shadow: 0 8px 18px rgba(37,99,235,0.35);
         }
         .pill-btn-primary:hover {
-            background: #E0E7FF;
-            color: #4338CA;
+            filter: brightness(1.05);
+            color: #FFFFFF;
         }
         
         .tab-item {
@@ -389,7 +401,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                 <button onclick="navigator.clipboard.writeText('<?= htmlspecialchars((string)($guestPortalUrl), ENT_QUOTES, 'UTF-8') ?>'); alert('Copied Guest Portal Link!');" class="pill-btn text-indigo-700 border-indigo-100 hover:bg-indigo-50/50">
                     <i class="ph ph-share-network text-sm"></i> Share Guest Link
                 </button>
-                <a href="invoice.php?id=<?= htmlspecialchars((string)($id), ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="pill-btn bg-brand-900 text-white border-slate-900 hover:bg-slate-800">
+                <a href="invoice.php?id=<?= htmlspecialchars((string)($id), ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="pill-btn pill-btn-primary">
                     <i class="ph ph-printer text-sm"></i> Print Invoice
                 </a>
             </div>

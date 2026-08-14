@@ -2,6 +2,10 @@
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
+if (!AuthHelper::can('view_dashboard')) {
+    header('Location: /admin/login.php');
+    exit;
+}
 CsrfToken::checkTimeout();
 
 require_once __DIR__ . '/../../pms_core/Database.php';
@@ -189,7 +193,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                 </div>
 
                 <?php if(AuthHelper::can('create_booking')): ?>
-                <a href="../booking_wizard.php" target="_blank" class="hidden sm:inline-flex btn-minimal text-xs py-2 px-3.5 gap-1.5 rounded-xl">
+                <a href="../booking_wizard.php" target="_blank" class="inline-flex btn-minimal text-xs py-2 px-3.5 gap-1.5 rounded-xl">
                     <i class="ph ph-plus-circle text-base"></i> New Reservation
                 </a>
                 <?php endif; ?>
@@ -197,7 +201,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             </div>
         </header>
         
-        <main class="px-6 space-y-6">
+        <main class="px-6 space-y-4">
             <!-- Greeting & Search Banner -->
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
@@ -212,7 +216,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
             </div>
 
             <!-- KPI Strip: Occupancy & Revenue -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div class="kpi-tile flex items-center gap-3">
                     <div class="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0">
                         <i class="ph ph-bed text-lg text-indigo-600"></i>
@@ -752,8 +756,9 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
     </script>
 
     <!-- Floating New Booking Button -->
-    <a href="../assistant/index.html" class="fixed bottom-24 right-4 z-50 bg-indigo-600 text-white w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:shadow-xl active:scale-95 transition-all" title="New Walk-in Booking (Assistant)">
-        <i class="ph ph-plus text-2xl"></i>
+    <a href="../assistant/index.html" class="fixed bottom-24 right-4 z-50 bg-gradient-to-br from-blue-600 to-indigo-900 text-white h-12 pl-4 pr-5 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-blue-400/40 hover:-translate-y-1 hover:shadow-xl active:scale-95 transition-all text-sm font-extrabold" title="Walk-in booking assistant">
+        <i class="ph ph-plus-circle text-xl"></i>
+        <span>Walk-in</span>
     </a>
 </body>
 </html>

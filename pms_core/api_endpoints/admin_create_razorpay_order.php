@@ -7,7 +7,7 @@ require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 $db = Database::getInstance()->getConnection();
 
-AuthHelper::requireLogin();
+AuthHelper::requirePermission('generate_payment_link');
 
 CsrfToken::requireValid();
 

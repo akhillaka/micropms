@@ -43,7 +43,7 @@ $adminBaseUrl = '/admin/';
             <a href="<?php echo $adminBaseUrl; ?>index.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph-fill ph-house text-lg text-brand-500"></i> Dashboard</a>
         <?php endif; ?>
         <?php if(AuthHelper::can('create_booking')): ?>
-            <a href="<?php echo str_replace('/admin/', '/', $adminBaseUrl); ?>booking_wizard.php" target="_blank" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph-fill ph-calendar text-lg text-indigo-500"></i> New Reservation Wizard <i class="ph ph-arrow-up-right text-xs ml-auto text-slate-400"></i></a>
+            <a href="<?php echo str_replace('/admin/', '/', $adminBaseUrl); ?>booking_wizard.php" target="_blank" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph-fill ph-calendar text-lg text-blue-600"></i> New Reservation Wizard <i class="ph ph-arrow-up-right text-xs ml-auto text-slate-400"></i></a>
         <?php endif; ?>
         
         <?php if(AuthHelper::can('housekeeping')): ?>
@@ -66,7 +66,13 @@ $adminBaseUrl = '/admin/';
         
         <?php if(AuthHelper::can('view_finance')): ?>
             <a href="<?php echo $adminBaseUrl; ?>finance.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-wallet text-lg text-slate-400"></i> Finance</a>
-            <a href="<?php echo $adminBaseUrl; ?>modules/pos/pos.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-shopping-bag text-lg text-indigo-500"></i> POS & Inventory</a>
+        <?php endif; ?>
+        <?php if(AuthHelper::can('manage_pos')): ?>
+            <a href="<?php echo $adminBaseUrl; ?>modules/pos/pos.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-shopping-bag text-lg text-blue-600"></i> POS & Inventory</a>
+        <?php endif; ?>
+        
+        <?php if(AuthHelper::can('run_night_audit') && !AuthHelper::can('manage_settings')): ?>
+            <a href="<?php echo $adminBaseUrl; ?>settings.php?tab=night-audit" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-moon-stars text-lg text-indigo-500"></i> Night Audit</a>
         <?php endif; ?>
         
         <?php if(AuthHelper::can('view_reports')): ?>
