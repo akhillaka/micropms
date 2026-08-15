@@ -555,26 +555,8 @@
 
         <div class="glass-panel" style="padding: 16px; border-radius: var(--border-radius-md);">
           <label style="display: block; font-weight: 700; margin-bottom: 12px; color: var(--color-brand);">💳 Payment Mode</label>
-          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;" id="wizard-payment-modes">
-            <button class="payment-mode-card active" data-mode="Cash" onclick="app.selectWizardPaymentMode(this, 'Cash')" style="display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: var(--border-radius-md); border: 2px solid var(--color-brand); background: var(--color-brand-light); cursor: pointer; transition: all 150ms ease;">
-              <span style="font-size: 1.8rem;">💵</span>
-              <span style="font-weight: 700; font-size: 0.95rem;">Cash</span>
-            </button>
-            <button class="payment-mode-card" data-mode="UPI" onclick="app.selectWizardPaymentMode(this, 'UPI')" style="display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: var(--border-radius-md); border: 2px solid var(--color-border); background: var(--color-glass); cursor: pointer; transition: all 150ms ease;">
-              <span style="font-size: 1.8rem;">📱</span>
-              <span style="font-weight: 700; font-size: 0.95rem;">UPI / QR</span>
-            </button>
-            <button class="payment-mode-card" data-mode="Card" onclick="app.selectWizardPaymentMode(this, 'Card')" style="display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: var(--border-radius-md); border: 2px solid var(--color-border); background: var(--color-glass); cursor: pointer; transition: all 150ms ease;">
-              <span style="font-size: 1.8rem;">💳</span>
-              <span style="font-weight: 700; font-size: 0.95rem;">Card</span>
-            </button>
-            <button class="payment-mode-card" data-mode="BankTransfer" onclick="app.selectWizardPaymentMode(this, 'BankTransfer')" style="display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: var(--border-radius-md); border: 2px solid var(--color-border); background: var(--color-glass); cursor: pointer; transition: all 150ms ease;">
-              <span style="font-size: 1.8rem;">🏦</span>
-              <span style="font-weight: 700; font-size: 0.95rem;">Bank</span>
-            </button>
-          </div>
-          <!-- Hidden input to store selected value -->
-          <input type="hidden" id="wizard-payment-mode" value="Cash">
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;" id="wizard-payment-modes"></div>
+          <input type="hidden" id="wizard-payment-mode" value="">
         </div>
 
         <div class="grid-cards" style="margin-top: auto; grid-template-columns: 1fr 1fr;">

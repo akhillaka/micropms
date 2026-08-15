@@ -32,25 +32,34 @@ if (!$booking) {
     exit;
 }
 GuestAccessToken::denyIfInaccessible($booking);
+if (($booking['booking_status'] ?? '') !== 'checked_in') {
+    echo json_encode(['success' => false, 'message' => 'Add-ons are available after check-in']);
+    exit;
+}
 
 $propertyId = (int)$booking['property_id'];
 load_db_settings($db, $propertyId);
-$upsellEnabled = defined('GUEST_PORTAL_UPSELL_ENABLED') && GUEST_PORTAL_UPSELL_ENABLED === 'true';
+$upsellEnabled = get_db_setting($db, 'GUEST_PORTAL_UPSELL_ENABLED', $propertyId, 'false') === 'true';
 if (!$upsellEnabled) {
     echo json_encode(['success' => false, 'message' => 'Guest upsell is disabled']);
     exit;
 }
 
-$amount = round($amount, 2);
-if ($amount > 25000) {
-    echo json_encode(['success' => false, 'message' => 'Charge exceeds allowed guest upsell limit']);
+$description = trim(strip_tags($description));
+$breakfastPrice = round(floatval(get_db_setting($db, 'GUEST_PORTAL_UPSELL_BREAKFAST_PRICE', $propertyId, '350.00')), 2);
+$transferPrice = round(floatval(get_db_setting($db, 'GUEST_PORTAL_UPSELL_TRANSFER_PRICE', $propertyId, '1200.00')), 2);
+$catalog = [];
+if ($breakfastPrice > 0) {
+    $catalog['Breakfast Buffet'] = $breakfastPrice;
+}
+if ($transferPrice > 0) {
+    $catalog['Airport Cab Transfer'] = $transferPrice;
+}
+if (!isset($catalog[$description])) {
+    echo json_encode(['success' => false, 'message' => 'This add-on is not available']);
     exit;
 }
-
-$description = trim(strip_tags($description));
-if (strlen($description) > 200) {
-    $description = substr($description, 0, 200);
-}
+$amount = $catalog[$description];
 
 $ins = $db->prepare("
     INSERT INTO folio_ledger (booking_id, property_id, transaction_type, amount, description, payment_method, recorded_at) 

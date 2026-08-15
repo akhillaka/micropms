@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../../pms_core/ApiResponse.php';
+require_once __DIR__ . '/../../../pms_core/config.php';
 
 ApiHandler::run(function(\PDO $db) {
     $today = date('Y-m-d');
@@ -319,17 +320,10 @@ ApiHandler::run(function(\PDO $db) {
         return ($severityOrder[$a['severity']] ?? 3) - ($severityOrder[$b['severity']] ?? 3);
     });
 
-    // Payment methods
-    $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = ?");
-    $stmt->execute([$propertyId]);
-    $methodsJson = $stmt->fetchColumn();
-    $methods = $methodsJson ? json_decode($methodsJson, true) : ['Cash', 'UPI', 'Card', 'BankTransfer', 'Online'];
+    $methods = get_payment_methods($db, (int)$propertyId);
 
     // Payment categories
-    $stmt2 = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_categories' AND property_id = ?");
-    $stmt2->execute([$propertyId]);
-    $catJson = $stmt2->fetchColumn();
-    $categories = $catJson ? json_decode($catJson, true) : ['Room Revenue', 'F&B', 'Other'];
+    $categories = get_payment_categories($db, (int)$propertyId);
 
     ApiResponse::success([
         'summary' => [

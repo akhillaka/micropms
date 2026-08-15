@@ -12,6 +12,7 @@ CsrfToken::checkTimeout();
 
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
+require_once __DIR__ . '/../../pms_core/GoogleSheetService.php';
 $db = Database::getInstance()->getConnection();
 load_db_settings($db);
 
@@ -29,13 +30,7 @@ $rates = $db->prepare("SELECT s.*, c.name as category_name FROM sliding_rates s 
 $rates->execute([$propId]);
 $rates = $rates->fetchAll();
 
-$pmStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = ?");
-$pmStmt->execute([$propId]);
-$pmJson = $pmStmt->fetchColumn();
-$paymentMethods = $pmJson ? json_decode($pmJson, true) : [];
-if (empty($paymentMethods)) {
-    $paymentMethods = ["Cash", "UPI"];
-}
+$paymentMethods = get_payment_methods($db, $propId);
 
 $pcStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_categories' AND property_id = ?");
 $pcStmt->execute([$propId]);
@@ -132,6 +127,11 @@ $housekeepingEnabled = (defined('GUEST_PORTAL_HOUSEKEEPING_ENABLED') && GUEST_PO
 $earlyLateFee = floatval(get_db_setting($db, 'GUEST_PORTAL_EARLY_LATE_FEE', $propId, '0.00'));
 // Advanced guest portal settings queries
 $propertyId = AuthHelper::getPropertyId();
+$gsFieldCatalog = GoogleSheetService::fieldCatalog();
+$gsFieldsSaved = json_decode(get_db_setting($db, 'GOOGLE_SHEETS_FIELDS', $propertyId, ''), true);
+if (!is_array($gsFieldsSaved) || $gsFieldsSaved === []) {
+    $gsFieldsSaved = $gsFieldCatalog;
+}
 $loyaltyEnabled = (get_db_setting($db, 'GUEST_PORTAL_LOYALTY_ENABLED', $propertyId, 'true')) === 'true';
 $loyaltyGold = intval(get_db_setting($db, 'GUEST_PORTAL_LOYALTY_GOLD', $propertyId, '5'));
 $loyaltyPlatinum = intval(get_db_setting($db, 'GUEST_PORTAL_LOYALTY_PLATINUM', $propertyId, '10'));
@@ -272,6 +272,9 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                     </button>
                     <button onclick="switchTab('folio-items')" id="tab-folio-items" class="settings-tab-btn tab-inactive">
                         <i class="ph ph-receipt text-lg opacity-80"></i> Folio Items
+                    </button>
+                    <button onclick="switchTab('import')" id="tab-import" class="settings-tab-btn tab-inactive">
+                        <i class="ph ph-upload-simple text-lg opacity-80"></i> Booking Import
                     </button>
                     <button onclick="switchTab('sequences')" id="tab-sequences" class="settings-tab-btn tab-inactive">
                         <i class="ph ph-hash text-lg opacity-80"></i> Custom Sequences
@@ -509,6 +512,31 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Google Apps Script Webhook URL</label>
                                 <input type="text" id="gs_webhook_url" name="GOOGLE_SHEETS_WEBHOOK_URL" value="<?= htmlspecialchars((string)(defined('GOOGLE_SHEETS_WEBHOOK_URL') ? GOOGLE_SHEETS_WEBHOOK_URL : '')) ?>" placeholder="https://script.google.com/macros/s/.../exec" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <p class="text-[10px] text-slate-500 mt-2">Download the Apps Script, paste it into your Google Sheet (Extensions → Apps Script), deploy as a web app, then paste the /exec URL here.</p>
+                                <a href="/api/admin/download_google_sheets_script" class="inline-flex items-center gap-1 mt-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-lg">
+                                    <i class="ph ph-download-simple"></i> Download Apps Script
+                                </a>
+                            </div>
+                            <input type="hidden" name="GOOGLE_SHEETS_FIELDS" id="GOOGLE_SHEETS_FIELDS" value="<?= htmlspecialchars(json_encode($gsFieldsSaved), ENT_QUOTES, 'UTF-8') ?>">
+                            <div class="pt-2 border-t border-brand-100 space-y-3">
+                                <p class="text-xs font-bold text-brand-900/70 uppercase tracking-widest">Columns to sync</p>
+                                <?php foreach ($gsFieldCatalog as $sheetType => $fields): ?>
+                                <div>
+                                    <p class="text-[11px] font-bold text-slate-600 mb-1"><?= htmlspecialchars(ucfirst($sheetType)) ?></p>
+                                    <div class="flex flex-wrap gap-2">
+                                        <?php
+                                        $enabled = isset($gsFieldsSaved[$sheetType]) && is_array($gsFieldsSaved[$sheetType]) ? $gsFieldsSaved[$sheetType] : $fields;
+                                        foreach ($fields as $fieldName):
+                                            $checked = in_array($fieldName, $enabled, true);
+                                        ?>
+                                        <label class="inline-flex items-center gap-1 text-[11px] bg-white border border-slate-200 rounded-lg px-2 py-1">
+                                            <input type="checkbox" class="gs-field-cb" data-sheet="<?= htmlspecialchars($sheetType) ?>" value="<?= htmlspecialchars($fieldName) ?>" <?= $checked ? 'checked' : '' ?> onchange="syncGoogleSheetFields()">
+                                            <?= htmlspecialchars($fieldName) ?>
+                                        </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
                             </div>
                             <div class="pt-2 border-t border-brand-100">
                                 <p class="text-xs font-bold text-brand-900/70 uppercase tracking-widest mb-2">Manual Bulk Resync:</p>
@@ -538,13 +566,18 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                             </div>
                             <div class="flex-1">
                                 <h2 class="font-bold text-brand-900">Telegram Bot</h2>
-                                <p class="text-xs text-brand-900/70">System Alerts & Notifications</p>
+                                <p class="text-xs text-brand-900/70">Two bots: outbound alerts, and a two-way operations menu. There is no Telegram Mini App — Hotel Assistant is the phone web app.</p>
                             </div>
                             <button type="button" onclick="testTelegram()" id="tg-test-btn" class="text-xs font-bold text-sky-600 bg-sky-50 hover:bg-sky-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
                                 <i class="ph ph-paper-plane-tilt"></i> Test
                             </button>
                         </div>
                         <div class="space-y-4">
+                            <div class="bg-sky-50 border border-sky-100 rounded-xl p-3 text-[11px] text-sky-900 leading-relaxed">
+                                <p class="font-bold mb-1">How Telegram works</p>
+                                <p><b>Notifier bot</b> only sends alerts (check-in, payment, folio, daily summary). It cannot change bookings. Requires a cron worker for the telegram job queue.</p>
+                                <p class="mt-1"><b>Operations bot</b> is a chat menu for authorized staff: room status, add payment, checkout (zero balance), extend stay dates, mark room clean, arrivals/departures, today’s revenue. Set webhook to <code class="font-mono">/api/telegram_webhook</code> with the webhook secret. Phone UI is Hotel Assistant, not a Mini App.</p>
+                            </div>
                             <div>
                                 <h3 class="text-xs font-bold text-brand-900 bg-brand-100 px-3 py-1.5 rounded inline-block mb-1 mt-2">Notifier Bot (Outbound)</h3>
                             </div>
@@ -1451,19 +1484,8 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                         </div>
                         
                         <?php
-                        $qcJson = get_db_setting($db, 'folio_quick_charges', (int)$propId, '[]');
-                        $qcArray = json_decode($qcJson, true);
-                        if (!is_array($qcArray) || empty($qcArray)) {
-                            $qcArray = [
-                                ['name' => 'Breakfast', 'icon' => 'ph-coffee', 'amount' => 150, 'desc' => 'Morning Buffet'],
-                                ['name' => 'Laundry', 'icon' => 'ph-washing-machine', 'amount' => 100, 'desc' => 'Per Bag'],
-                                ['name' => 'Room Service', 'icon' => 'ph-fork-knife', 'amount' => 200, 'desc' => 'In-Room Dining'],
-                                ['name' => 'Mini Bar', 'icon' => 'ph-wine', 'amount' => 300, 'desc' => 'Beverages & Snacks'],
-                                ['name' => 'Parking', 'icon' => 'ph-car', 'amount' => 100, 'desc' => 'Valet Parking'],
-                                ['name' => 'Extra Person', 'icon' => 'ph-user-plus', 'amount' => 500, 'desc' => 'Extra Bed']
-                            ];
-                            $qcJson = json_encode($qcArray);
-                        }
+                        $qcArray = get_folio_quick_charges($db, (int)$propId);
+                        $qcJson = json_encode($qcArray);
                         ?>
                         <input type="hidden" id="folio_quick_charges_json" name="folio_quick_charges" value="<?= htmlspecialchars((string)($qcJson)) ?>">
                         
@@ -1479,6 +1501,37 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                         <i class="ph ph-check-circle text-xl"></i> Save Folio Items
                     </button>
                 </form>
+            </div>
+
+            <div id="content-import" class="pb-24 max-w-2xl mx-auto" style="display:none">
+                <div class="card-minimal p-6 space-y-5">
+                    <div class="flex items-center gap-3 mb-2 border-b border-brand-100 pb-4">
+                        <div class="w-12 h-12 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                            <i class="ph ph-upload-simple text-2xl"></i>
+                        </div>
+                        <div>
+                            <h2 class="font-bold text-brand-900">Import bookings</h2>
+                            <p class="text-xs text-brand-900/70">Download the CSV template, fill stays and optional folio lines, then preview and import.</p>
+                        </div>
+                    </div>
+                    <ol class="text-xs text-slate-600 list-decimal pl-4 space-y-1">
+                        <li>Use <code class="font-mono">row_type=booking</code> for each stay. Match rooms by <code class="font-mono">room_number</code> and guests by phone.</li>
+                        <li>Add <code class="font-mono">row_type=folio</code> rows with the same <code class="font-mono">import_ref</code> for extra charges or payments.</li>
+                        <li>If folio rows exist for a stay, room rent is not auto-posted — put charges in the file.</li>
+                    </ol>
+                    <div class="flex flex-wrap gap-2">
+                        <a href="/api/admin/import_bookings?action=template" class="inline-flex items-center gap-1 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg">
+                            <i class="ph ph-download-simple"></i> Download template
+                        </a>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider mb-1">Upload CSV</label>
+                        <input type="file" id="bookingImportFile" accept=".csv,text/csv" class="w-full text-sm">
+                    </div>
+                    <button type="button" onclick="previewBookingImport()" class="w-full bg-brand-900 text-white font-bold py-3 rounded-xl">Preview import</button>
+                    <div id="bookingImportPreview" class="text-sm"></div>
+                    <button type="button" id="bookingImportCommitBtn" onclick="commitBookingImport()" class="hidden w-full bg-teal-700 text-white font-bold py-3 rounded-xl">Import valid stays</button>
+                </div>
             </div>
 
             <!-- 9. Sequences Tab -->

@@ -79,6 +79,7 @@ ApiHandler::run(function(\PDO $db) {
     // Transaction is managed by ApiHandler (useTransaction=true on line 112) —
     // do NOT call beginTransaction/commit/rollBack here.
     $bookingIds = [];
+    $displayIds = [];
     $totalAmount = 0;
     $roomCount = count($roomIds);
     $priceOverride = isset($data['price_override']) && $data['price_override'] !== '' ? (float)$data['price_override'] : null;
@@ -115,6 +116,7 @@ ApiHandler::run(function(\PDO $db) {
 
         $result = BookingService::createBooking($db, $bookingParams);
         $bookingIds[] = $result['booking_id'];
+        $displayIds[] = (string)($result['display_id'] ?? $result['booking_id']);
         $totalAmount += $result['total_amount'];
     }
 
@@ -122,6 +124,8 @@ ApiHandler::run(function(\PDO $db) {
         'success' => true,
         'booking_ids' => $bookingIds,
         'booking_id' => $bookingIds[0], // Backward compatibility
+        'display_ids' => $displayIds,
+        'display_id' => $displayIds[0] ?? null,
         'amount' => $totalAmount,
         'rooms_booked' => count($bookingIds),
     ];

@@ -54,6 +54,154 @@ if (!function_exists('get_db_setting')) {
     }
 }
 
+if (!function_exists('get_payment_methods')) {
+    /**
+     * Payment method names from Settings → Payment Config for this property.
+     * @return list<string>
+     */
+    function get_payment_methods(\PDO $db, int $propertyId): array {
+        $raw = get_db_setting($db, 'payment_methods', $propertyId, '');
+        $methods = [];
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $item) {
+                    $name = trim((string)$item);
+                    if ($name !== '') {
+                        $methods[] = $name;
+                    }
+                }
+            }
+        }
+        $methods = array_values(array_unique($methods));
+        return $methods !== [] ? $methods : ['Cash', 'UPI'];
+    }
+}
+
+if (!function_exists('get_payment_categories')) {
+    /**
+     * Revenue / folio categories from Settings → Payment Config.
+     * @return list<string>
+     */
+    function get_payment_categories(\PDO $db, int $propertyId): array {
+        $raw = get_db_setting($db, 'payment_categories', $propertyId, '');
+        $cats = [];
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $item) {
+                    $name = trim((string)$item);
+                    if ($name !== '') {
+                        $cats[] = $name;
+                    }
+                }
+            }
+        }
+        $cats = array_values(array_unique($cats));
+        return $cats !== [] ? $cats : ['Room Revenue', 'F&B', 'Other'];
+    }
+}
+
+if (!function_exists('default_folio_quick_charges')) {
+    /**
+     * @return list<array{name:string,icon:string,amount:float,desc:string}>
+     */
+    function default_folio_quick_charges(): array {
+        return [
+            ['name' => 'Breakfast', 'icon' => 'ph-coffee', 'amount' => 150, 'desc' => 'Morning Buffet'],
+            ['name' => 'Laundry', 'icon' => 'ph-washing-machine', 'amount' => 100, 'desc' => 'Per Bag'],
+            ['name' => 'Room Service', 'icon' => 'ph-fork-knife', 'amount' => 200, 'desc' => 'In-Room Dining'],
+            ['name' => 'Mini Bar', 'icon' => 'ph-wine', 'amount' => 300, 'desc' => 'Beverages & Snacks'],
+            ['name' => 'Parking', 'icon' => 'ph-car', 'amount' => 100, 'desc' => 'Valet Parking'],
+            ['name' => 'Extra Person', 'icon' => 'ph-user-plus', 'amount' => 500, 'desc' => 'Extra Bed'],
+        ];
+    }
+}
+
+if (!function_exists('get_folio_quick_charges')) {
+    /**
+     * Quick-charge presets from Settings → Folio Items.
+     * @return list<array<string,mixed>>
+     */
+    function get_folio_quick_charges(\PDO $db, int $propertyId): array {
+        $raw = get_db_setting($db, 'folio_quick_charges', $propertyId, '');
+        $presets = [];
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $item) {
+                    if (!is_array($item)) {
+                        continue;
+                    }
+                    $name = trim((string)($item['name'] ?? ''));
+                    if ($name === '') {
+                        continue;
+                    }
+                    $presets[] = [
+                        'name' => $name,
+                        'icon' => trim((string)($item['icon'] ?? 'ph-receipt')) ?: 'ph-receipt',
+                        'amount' => round((float)($item['amount'] ?? 0), 2),
+                        'desc' => trim((string)($item['desc'] ?? '')),
+                    ];
+                }
+            }
+        }
+        return $presets !== [] ? $presets : default_folio_quick_charges();
+    }
+}
+
+if (!function_exists('booking_public_id')) {
+    /**
+     * Guest-facing booking code (display_id), falling back to numeric id.
+     */
+    function booking_public_id(array $booking): string {
+        $d = trim((string)($booking['display_id'] ?? ''));
+        return $d !== '' ? $d : (string)($booking['id'] ?? '');
+    }
+}
+
+if (!function_exists('folio_href')) {
+    function folio_href(array $booking, string $prefix = ''): string {
+        return $prefix . 'folio.php?id=' . rawurlencode(booking_public_id($booking));
+    }
+}
+
+if (!function_exists('find_property_booking')) {
+    /**
+     * Resolve a booking by display_id (e.g. 2608-1) or numeric primary key.
+     */
+    function find_property_booking(\PDO $db, int $propertyId, string $rawId): ?array {
+        $rawId = trim($rawId);
+        if ($rawId === '') {
+            return null;
+        }
+        $sql = "SELECT b.*, r.room_number, c.name as category_name, c.id as category_id,
+                       g.name as guest_name, g.phone as guest_phone, g.age, g.city, g.state,
+                       g.country, g.pincode, g.id_proof_front, g.id_proof_back, g.photo as guest_photo
+                FROM bookings b
+                JOIN rooms r ON b.room_id = r.id
+                JOIN room_categories c ON r.category_id = c.id
+                LEFT JOIN guests g ON b.guest_id = g.id
+                WHERE b.property_id = :prop_id AND %s
+                LIMIT 1";
+        $stmt = $db->prepare(sprintf($sql, 'b.display_id = :id'));
+        $stmt->execute(['id' => $rawId, 'prop_id' => $propertyId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            return $row;
+        }
+        if (preg_match('/^\d+$/', $rawId)) {
+            $stmt = $db->prepare(sprintf($sql, 'b.id = :id'));
+            $stmt->execute(['id' => (int)$rawId, 'prop_id' => $propertyId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                return $row;
+            }
+        }
+        return null;
+    }
+}
+
 if (!function_exists('load_db_settings')) {
     function load_db_settings($pdo, $propertyId = null) {
         global $dbConfig;
@@ -90,10 +238,17 @@ if (!function_exists('load_db_settings')) {
         define_setting('WA_WEBHOOK_VERIFY_TOKEN', '');
         define_setting('WA_APP_SECRET', '');
         define_setting('TELEGRAM_WEBHOOK_SECRET', '');
+        define_setting('TELEGRAM_BOT_TOKEN', '');
+        define_setting('TELEGRAM_CHAT_ID', '');
+        define_setting('TELEGRAM_ROLES', '');
         define_setting('TELEGRAM_OPERATIONS_BOT_TOKEN', '');
         define_setting('TELEGRAM_OPERATIONS_CHAT_IDS', '');
 
-        // Google Sheets Sync Settings
+        define_setting('GOOGLE_SHEETS_ENABLED', 'false');
+        define_setting('GOOGLE_SHEETS_WEBHOOK_URL', '');
+        define_setting('GOOGLE_SHEETS_FIELDS', '');
+
+        // Email / SMTP
         define_setting('SMTP_HOST', '');
         define_setting('SMTP_PORT', '587');
         define_setting('SMTP_USER', '');

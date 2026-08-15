@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../pms_core/ApiResponse.php';
+require_once __DIR__ . '/../../pms_core/config.php';
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('view_dashboard');
 
@@ -13,7 +14,7 @@ ApiHandler::run(function(\PDO $db) {
 
     // 1. Overdue Checkouts - checkout time passed, not checked out
     $stmt = $db->prepare("
-        SELECT b.id, b.check_out, b.booking_status, b.payment_status, b.total_amount,
+        SELECT b.id, b.display_id, b.check_out, b.booking_status, b.payment_status, b.total_amount,
                r.room_number, g.name as guest_name, g.phone as guest_phone,
                c.name as category_name
         FROM bookings b
@@ -38,7 +39,7 @@ ApiHandler::run(function(\PDO $db) {
             'guest_phone' => $row['guest_phone'],
             'room_number' => $row['room_number'],
             'category_name' => $row['category_name'],
-            'action_url' => "folio.php?id={$row['id']}",
+            'action_url' => folio_href($row),
             'action_label' => 'View Folio',
             'time_diff_hours' => $hours
         ];
@@ -46,7 +47,7 @@ ApiHandler::run(function(\PDO $db) {
 
     // 2. Overdue Check-ins - booking is 'booked' but check-in time has passed
     $stmt = $db->prepare("
-        SELECT b.id, b.check_in, b.booking_status, b.payment_status,
+        SELECT b.id, b.display_id, b.check_in, b.booking_status, b.payment_status,
                r.room_number, g.name as guest_name, g.phone as guest_phone,
                c.name as category_name
         FROM bookings b
@@ -72,14 +73,14 @@ ApiHandler::run(function(\PDO $db) {
             'guest_phone' => $row['guest_phone'],
             'room_number' => $row['room_number'],
             'category_name' => $row['category_name'],
-            'action_url' => "folio.php?id={$row['id']}",
+            'action_url' => folio_href($row),
             'action_label' => 'View Folio'
         ];
     }
 
     // 3. Pending Dues - folio balance > 0 (sum ALL ledger entries, like folio.php does)
     $stmt = $db->prepare("
-        SELECT b.id, b.total_amount, b.payment_status, b.booking_status,
+        SELECT b.id, b.display_id, b.total_amount, b.payment_status, b.booking_status,
                r.room_number, g.name as guest_name, g.phone as guest_phone,
                COALESCE(SUM(fl.amount), 0) as balance
         FROM bookings b
@@ -89,7 +90,7 @@ ApiHandler::run(function(\PDO $db) {
         WHERE b.booking_status IN ('booked', 'checked_in')
           AND b.payment_status != 'cancelled'
           AND b.property_id = :pid
-        GROUP BY b.id, b.total_amount, b.payment_status, b.booking_status, r.room_number, g.name, g.phone
+        GROUP BY b.id, b.display_id, b.total_amount, b.payment_status, b.booking_status, r.room_number, g.name, g.phone
         HAVING balance > 0
     ");
     $stmt->execute(['pid' => $propertyId]);
@@ -106,14 +107,14 @@ ApiHandler::run(function(\PDO $db) {
             'guest_phone' => $row['guest_phone'],
             'room_number' => $row['room_number'],
             'amount_due' => $due,
-            'action_url' => "folio.php?id={$row['id']}",
+            'action_url' => folio_href($row),
             'action_label' => 'Collect Payment'
         ];
     }
 
     // 4. Today's Arrivals - new bookings checking in today
     $stmt = $db->prepare("
-        SELECT b.id, b.check_in, b.payment_status, b.total_amount,
+        SELECT b.id, b.display_id, b.check_in, b.payment_status, b.total_amount,
                r.room_number, g.name as guest_name, g.phone as guest_phone,
                c.name as category_name
         FROM bookings b
@@ -140,14 +141,14 @@ ApiHandler::run(function(\PDO $db) {
             'guest_phone' => $row['guest_phone'],
             'room_number' => $row['room_number'],
             'category_name' => $row['category_name'],
-            'action_url' => "folio.php?id={$row['id']}",
+            'action_url' => folio_href($row),
             'action_label' => 'View Folio'
         ];
     }
 
     // 5. Bookings on Hold - pending payment confirmation
     $stmt = $db->prepare("
-        SELECT b.id, b.created_at, b.total_amount,
+        SELECT b.id, b.display_id, b.created_at, b.total_amount,
                r.room_number, g.name as guest_name, g.phone as guest_phone,
                c.name as category_name
         FROM bookings b
@@ -174,7 +175,7 @@ ApiHandler::run(function(\PDO $db) {
             'room_number' => $row['room_number'],
             'category_name' => $row['category_name'],
             'minutes_waiting' => $minutes,
-            'action_url' => "folio.php?id={$row['id']}",
+            'action_url' => folio_href($row),
             'action_label' => 'View Folio'
         ];
     }
@@ -265,7 +266,7 @@ ApiHandler::run(function(\PDO $db) {
     // 9. Upcoming Checkouts (within 2 hours)
     $twoHoursLater = date('Y-m-d H:i:s', strtotime('+2 hours'));
     $stmt = $db->prepare("
-        SELECT b.id, b.check_out, b.booking_status,
+        SELECT b.id, b.display_id, b.check_out, b.booking_status,
                r.room_number, g.name as guest_name, g.phone as guest_phone
         FROM bookings b
         JOIN rooms r ON b.room_id = r.id
@@ -289,7 +290,7 @@ ApiHandler::run(function(\PDO $db) {
             'guest_phone' => $row['guest_phone'],
             'room_number' => $row['room_number'],
             'minutes_left' => $minutes,
-            'action_url' => "folio.php?id={$row['id']}",
+            'action_url' => folio_href($row),
             'action_label' => 'View Folio'
         ];
     }

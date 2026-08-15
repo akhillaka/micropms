@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../Database.php';
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/FolioService.php';
 
 class TelegramOperationsHandler {
     private $botToken;
@@ -133,12 +135,15 @@ class TelegramOperationsHandler {
             $bookingId = $context['booking_id'];
             $propertyId = $context['property_id'];
 
-            // Add payment to folio_ledger
             try {
-                $stmt = $this->db->prepare("INSERT INTO folio_ledger (property_id, booking_id, description, amount, ledger_type, recorded_by) VALUES (?, ?, ?, ?, 'payment', 'Telegram Bot')");
-                // Payment is negative amount in the folio logic
-                $stmt->execute([$propertyId, $bookingId, "Payment via Telegram ($method)", -$amount]);
-                
+                load_db_settings($this->db, (int)$propertyId);
+                $allowed = get_payment_methods($this->db, (int)$propertyId);
+                if (!in_array($method, $allowed, true)) {
+                    $this->sendMessage($chatId, "Payment method is not configured. Type /start.");
+                    return;
+                }
+                $ref = 'TG-' . bin2hex(random_bytes(6));
+                FolioService::recordPayment($this->db, (int)$bookingId, $amount, $method, $ref, 'telegram');
                 $this->clearSession($chatId);
                 
                 $keyboard = [
@@ -312,19 +317,26 @@ class TelegramOperationsHandler {
             'property_id' => $propertyId
         ]);
 
-        $keyboard = [
-            'inline_keyboard' => [
-                [
-                    ['text' => '💵 Cash', 'callback_data' => 'pay_method_Cash'],
-                    ['text' => '📱 UPI', 'callback_data' => 'pay_method_UPI']
-                ],
-                [
-                    ['text' => '💳 Card', 'callback_data' => 'pay_method_Card'],
-                    ['text' => '🏦 Bank Transfer', 'callback_data' => 'pay_method_Bank Transfer']
-                ],
-                [['text' => '🔙 Cancel', 'callback_data' => 'main_menu']]
-            ]
-        ];
+        $keyboard = ['inline_keyboard' => []];
+        $methods = [];
+        if (function_exists('get_payment_methods')) {
+            $methods = get_payment_methods($this->db, $propertyId);
+        } else {
+            require_once __DIR__ . '/../config.php';
+            $methods = get_payment_methods($this->db, $propertyId);
+        }
+        $row = [];
+        foreach ($methods as $m) {
+            $row[] = ['text' => $m, 'callback_data' => 'pay_method_' . $m];
+            if (count($row) === 2) {
+                $keyboard['inline_keyboard'][] = $row;
+                $row = [];
+            }
+        }
+        if ($row !== []) {
+            $keyboard['inline_keyboard'][] = $row;
+        }
+        $keyboard['inline_keyboard'][] = [['text' => '🔙 Cancel', 'callback_data' => 'main_menu']];
 
         $this->sendMessage($chatId, "Select payment method for Room {$booking['room_number']}:", $keyboard);
     }

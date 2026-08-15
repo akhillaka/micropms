@@ -52,7 +52,38 @@ $extendStayEnabled = get_db_setting($db, 'GUEST_PORTAL_EXTEND_STAY_ENABLED', $pr
 $upgradeEnabled = get_db_setting($db, 'GUEST_PORTAL_UPGRADE_ENABLED', $propId, 'true') === 'true';
 $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propId, 'true') === 'true';
 $servicesEnabled = $housekeepingEnabled || $wakeupEnabled || $extendStayEnabled || $upgradeEnabled || $upsellEnabled;
-$earlyLateFee = floatval(get_db_setting($db, 'GUEST_PORTAL_EARLY_LATE_FEE', $propId) ?: '0.00');
+$earlyLateFee = floatval(get_db_setting($db, 'GUEST_PORTAL_EARLY_LATE_FEE', $propId, '0.00'));
+$preArrivalEnabled = get_db_setting($db, 'GUEST_PORTAL_PRE_ARRIVAL_ENABLED', $propId, 'true') === 'true';
+$preArrivalSignature = get_db_setting($db, 'GUEST_PORTAL_PRE_ARRIVAL_SIGNATURE', $propId, 'true') === 'true';
+$preArrivalDoc = get_db_setting($db, 'GUEST_PORTAL_PRE_ARRIVAL_DOC', $propId, 'true') === 'true';
+$loyaltyEnabled = get_db_setting($db, 'GUEST_PORTAL_LOYALTY_ENABLED', $propId, 'true') === 'true';
+$loyaltyGold = max(1, intval(get_db_setting($db, 'GUEST_PORTAL_LOYALTY_GOLD', $propId, '5')));
+$loyaltyPlatinum = max($loyaltyGold, intval(get_db_setting($db, 'GUEST_PORTAL_LOYALTY_PLATINUM', $propId, '10')));
+$breakfastPrice = round(floatval(get_db_setting($db, 'GUEST_PORTAL_UPSELL_BREAKFAST_PRICE', $propId, '350.00')), 2);
+$transferPrice = round(floatval(get_db_setting($db, 'GUEST_PORTAL_UPSELL_TRANSFER_PRICE', $propId, '1200.00')), 2);
+$canBuyAddons = $upsellEnabled && ($booking['booking_status'] === 'checked_in');
+$showBreakfast = $canBuyAddons && $breakfastPrice > 0;
+$showTransfer = $canBuyAddons && $transferPrice > 0;
+
+$loyaltyTier = '';
+$loyaltyStayCount = 0;
+$guestId = (int)($booking['guest_id'] ?? 0);
+if ($loyaltyEnabled && $guestId > 0) {
+    $stayCountStmt = $db->prepare("
+        SELECT COUNT(*) FROM bookings
+        WHERE guest_id = ? AND property_id = ?
+          AND booking_status IN ('checked_in', 'checked_out')
+    ");
+    $stayCountStmt->execute([$guestId, $propId]);
+    $loyaltyStayCount = (int)$stayCountStmt->fetchColumn();
+    if ($loyaltyStayCount >= $loyaltyPlatinum) {
+        $loyaltyTier = 'Platinum';
+    } elseif ($loyaltyStayCount >= $loyaltyGold) {
+        $loyaltyTier = 'Gold';
+    } elseif ($loyaltyStayCount > 0) {
+        $loyaltyTier = 'Silver';
+    }
+}
 
 // Calculate Ledger financial summaries
 $ledgerStmt = $db->prepare("SELECT * FROM folio_ledger WHERE booking_id = ? ORDER BY recorded_at ASC");
@@ -403,6 +434,9 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                 <div class="flex items-center gap-2">
                     <h1 class="text-lg font-extrabold text-slate-900 truncate"><?= htmlspecialchars($booking['property_name']) ?></h1>
                     <span class="status-chip <?= $statusKey === 'checked_in' ? 'ok' : ($statusKey === 'booked' ? 'warn' : '') ?>"><?= htmlspecialchars($statusLabel) ?></span>
+                    <?php if ($loyaltyTier !== ''): ?>
+                    <span class="loyalty-chip <?= strtolower($loyaltyTier) ?>"><?= htmlspecialchars($loyaltyTier) ?></span>
+                    <?php endif; ?>
                 </div>
                 <p class="text-xs text-slate-500 font-medium truncate">
                     <?= htmlspecialchars($booking['guest_name'] ?: 'Guest') ?>
@@ -456,9 +490,25 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
             <!-- Self Check-in View -->
             <div id="view-checkin" class="view-section">
                 <?php $renderStayCard(false); ?>
+                <?php if (!$preArrivalEnabled): ?>
+                <div class="glass-panel p-5 mb-6 text-center">
+                    <h2 class="text-lg font-bold text-gray-800 mb-2">Check-in at the desk</h2>
+                    <p class="text-sm text-slate-500 mb-4">Online pre-arrival check-in is turned off. Please visit reception with your ID to complete arrival.</p>
+                    <?php if ($contactEnabled && ($telHref || $waHref)): ?>
+                    <div class="grid grid-cols-2 gap-3">
+                        <?php if ($telHref): ?>
+                        <a href="<?= htmlspecialchars($telHref) ?>" class="btn-secondary no-underline">Call desk</a>
+                        <?php endif; ?>
+                        <?php if ($waHref): ?>
+                        <a href="<?= htmlspecialchars($waHref) ?>" target="_blank" rel="noopener" class="btn-primary no-underline">WhatsApp</a>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php else: ?>
                 <div class="glass-panel p-5 mb-6">
                     <h2 class="text-lg font-bold text-gray-800 mb-2">Self Check-in</h2>
-                    <p class="text-xs text-slate-500 mb-4">Verify your details and upload ID to complete check-in.</p>
+                    <p class="text-xs text-slate-500 mb-4">Verify your details<?= $preArrivalDoc ? ' and upload ID' : '' ?> to complete check-in.</p>
                     <p id="checkinError" class="banner-err hidden"></p>
                     <form id="selfCheckinForm" onsubmit="submitSelfCheckin(event)">
                         <div class="mb-3">
@@ -483,6 +533,7 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                                 <input type="text" name="state" required>
                             </div>
                         </div>
+                        <?php if ($preArrivalDoc): ?>
                         <div class="mb-3">
                             <label class="block text-xs font-semibold text-slate-600 mb-1">ID Proof (Front)</label>
                             <input type="file" name="id_front" accept="image/*,application/pdf" class="w-full text-xs" required>
@@ -491,6 +542,8 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                             <label class="block text-xs font-semibold text-slate-600 mb-1">ID Proof (Back)</label>
                             <input type="file" name="id_back" accept="image/*,application/pdf" class="w-full text-xs" required>
                         </div>
+                        <?php endif; ?>
+                        <?php if ($preArrivalSignature): ?>
                         <div class="mb-4">
                             <label class="block text-xs font-semibold text-slate-600 mb-1">Digital Signature</label>
                             <div class="border border-slate-200 rounded-xl bg-white relative">
@@ -499,16 +552,18 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                             </div>
                             <input type="hidden" name="signature_data" id="signatureData">
                         </div>
+                        <?php endif; ?>
                         <button type="submit" id="btnCheckin" class="btn-primary">Complete Check-in</button>
                     </form>
                 </div>
-            </div>
-            
+                <?php if ($preArrivalSignature): ?>
             <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.5/dist/signature_pad.umd.min.js"></script>
+                <?php endif; ?>
             <script>
+                const requireCheckinSignature = <?= $preArrivalSignature ? 'true' : 'false' ?>;
                 document.addEventListener('DOMContentLoaded', () => {
                     const canvas = document.getElementById('signatureCanvas');
-                    if(canvas) {
+                    if(canvas && window.SignaturePad) {
                         const ratio =  Math.max(window.devicePixelRatio || 1, 1);
                         canvas.width = canvas.offsetWidth * ratio;
                         canvas.height = canvas.offsetHeight * ratio;
@@ -529,12 +584,14 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                         errEl.classList.remove('hidden');
                     };
                     errEl.classList.add('hidden');
-                    if (!window.signaturePad || window.signaturePad.isEmpty()) {
-                        showErr('Please provide your digital signature.');
-                        return;
+                    if (requireCheckinSignature) {
+                        if (!window.signaturePad || window.signaturePad.isEmpty()) {
+                            showErr('Please provide your digital signature.');
+                            return;
+                        }
+                        document.getElementById('signatureData').value = window.signaturePad.toDataURL("image/jpeg");
                     }
                     
-                    document.getElementById('signatureData').value = window.signaturePad.toDataURL("image/jpeg");
                     const form = e.target;
                     const btn = document.getElementById('btnCheckin');
                     btn.disabled = true;
@@ -564,6 +621,8 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                     }
                 }
             </script>
+                <?php endif; ?>
+            </div>
         <?php else: ?>
         <div id="view-home" class="view-section">
             <?php $renderStayCard(true); ?>
@@ -577,12 +636,38 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                 <button type="button" class="quick-chip" onclick="askService('Wake-up Call','Reception')"><i class="ph ph-alarm"></i> Wake-up</button>
                 <?php endif; ?>
                 <?php if ($upsellEnabled): ?>
-                <button type="button" class="quick-chip" onclick="askService('Late Checkout','Reception')"><i class="ph ph-clock-afternoon"></i> Late out</button>
+                <button type="button" class="quick-chip" onclick="askService('Late Checkout','Reception')"><i class="ph ph-clock-afternoon"></i> Late out<?php if ($earlyLateFee > 0): ?> · ₹<?= number_format($earlyLateFee, 0) ?><?php endif; ?></button>
                 <?php endif; ?>
                 <?php if ($extendStayEnabled): ?>
                 <button type="button" class="quick-chip" onclick="askService('Extend Stay','Reception')"><i class="ph ph-calendar-plus"></i> Extend</button>
                 <?php endif; ?>
             </div>
+
+            <?php if ($showBreakfast || $showTransfer): ?>
+            <div class="glass-panel p-4 mb-4">
+                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Add-ons</p>
+                <div class="space-y-3">
+                    <?php if ($showBreakfast): ?>
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <p class="text-sm font-semibold text-slate-800">Breakfast buffet</p>
+                            <p class="text-xs text-slate-500">₹<?= number_format($breakfastPrice, 2) ?> · posted to your bill</p>
+                        </div>
+                        <button type="button" class="btn-secondary text-xs px-3" onclick="buyAddon('Breakfast Buffet', <?= json_encode($breakfastPrice) ?>)">Add</button>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($showTransfer): ?>
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <p class="text-sm font-semibold text-slate-800">Airport cab transfer</p>
+                            <p class="text-xs text-slate-500">₹<?= number_format($transferPrice, 2) ?> · posted to your bill</p>
+                        </div>
+                        <button type="button" class="btn-secondary text-xs px-3" onclick="buyAddon('Airport Cab Transfer', <?= json_encode($transferPrice) ?>)">Add</button>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <?php if ($wifiCardEnabled): ?>
             <div class="glass-panel p-4 mb-4">
@@ -741,7 +826,7 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
             </div>
             <?php endif; ?>
 
-            <?php if ($wakeupEnabled || $extendStayEnabled || $upgradeEnabled): ?>
+            <?php if ($wakeupEnabled || $extendStayEnabled || $upgradeEnabled || $upsellEnabled): ?>
             <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Concierge</h3>
             <div class="grid grid-cols-2 gap-3 mb-6">
                 <?php if ($wakeupEnabled): ?>
@@ -761,6 +846,36 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                     <div class="icon-well icon-blue"><i class="ph ph-arrow-up"></i></div>
                     <span class="text-sm font-semibold">Upgrade room</span>
                 </button>
+                <?php endif; ?>
+                <?php if ($upsellEnabled): ?>
+                <button type="button" onclick="askService('Late Checkout', 'Reception')" class="neumorphic-card shortcut-tile">
+                    <div class="icon-well icon-sky"><i class="ph ph-clock-afternoon"></i></div>
+                    <span class="text-sm font-semibold">Late checkout<?php if ($earlyLateFee > 0): ?><br><span class="text-[11px] font-medium text-slate-500">₹<?= number_format($earlyLateFee, 2) ?> fee</span><?php endif; ?></span>
+                </button>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($showBreakfast || $showTransfer): ?>
+            <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Paid add-ons</h3>
+            <div class="space-y-3 mb-6">
+                <?php if ($showBreakfast): ?>
+                <div class="glass-panel p-4 flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-sm font-semibold">Breakfast buffet</p>
+                        <p class="text-xs text-slate-500">₹<?= number_format($breakfastPrice, 2) ?></p>
+                    </div>
+                    <button type="button" class="btn-secondary text-xs px-3" onclick="buyAddon('Breakfast Buffet', <?= json_encode($breakfastPrice) ?>)">Add to bill</button>
+                </div>
+                <?php endif; ?>
+                <?php if ($showTransfer): ?>
+                <div class="glass-panel p-4 flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-sm font-semibold">Airport cab transfer</p>
+                        <p class="text-xs text-slate-500">₹<?= number_format($transferPrice, 2) ?></p>
+                    </div>
+                    <button type="button" class="btn-secondary text-xs px-3" onclick="buyAddon('Airport Cab Transfer', <?= json_encode($transferPrice) ?>)">Add to bill</button>
+                </div>
                 <?php endif; ?>
             </div>
             <?php endif; ?>
@@ -828,6 +943,9 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
             <?php if ($upsellEnabled && $booking['booking_status'] === 'checked_in'): ?>
             <div class="glass-panel p-5 mb-6 bg-white bg-opacity-70 text-center">
                 <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Need more time?</p>
+                <?php if ($earlyLateFee > 0): ?>
+                <p class="text-xs text-slate-500 mb-3">Late checkout may include a ₹<?= number_format($earlyLateFee, 2) ?> fee after reception confirms.</p>
+                <?php endif; ?>
                 <form method="POST">
                     <input type="hidden" name="action" value="upsell_late_checkout">
                     <button type="submit" class="btn-primary">Request late checkout</button>
@@ -871,6 +989,12 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                     <p class="text-xs text-gray-500 uppercase tracking-wider">Name</p>
                     <p class="font-semibold text-gray-800"><?= htmlspecialchars($booking['guest_name'] ?? 'N/A') ?></p>
                 </div>
+                <?php if ($loyaltyTier !== ''): ?>
+                <div class="mb-4">
+                    <p class="text-xs text-gray-500 uppercase tracking-wider">Loyalty</p>
+                    <p class="font-semibold text-gray-800"><?= htmlspecialchars($loyaltyTier) ?> · <?= (int)$loyaltyStayCount ?> stay<?= $loyaltyStayCount === 1 ? '' : 's' ?></p>
+                </div>
+                <?php endif; ?>
                 <div class="mb-4">
                     <p class="text-xs text-gray-500 uppercase tracking-wider">Email</p>
                     <p class="font-semibold text-gray-800"><?= htmlspecialchars($booking['guest_email'] ?? 'N/A') ?></p>
@@ -1113,6 +1237,31 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
         function askService(serviceType, category) {
             haptic();
             openSheet('Request service', `Send a request for ${serviceType}?`, () => submitService(serviceType, category));
+        }
+
+        function buyAddon(description, amount) {
+            haptic();
+            const price = Number(amount).toFixed(2);
+            openSheet('Add to bill', `Charge ₹${price} for ${description}?`, () => submitAddon(description, amount));
+        }
+
+        async function submitAddon(description, amount) {
+            try {
+                const res = await fetch('/api/guest/add_folio_charge', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ booking_id: bookingId, token: token, description: description, amount: amount })
+                });
+                const data = await res.json();
+                if (data.success === true) {
+                    guestToast('Added to your bill.', 'ok');
+                    window.location.reload();
+                } else {
+                    guestToast(data.message || 'Could not add charge.', 'err');
+                }
+            } catch (e) {
+                guestToast('Could not add charge.', 'err');
+            }
         }
 
         async function submitService(serviceType, category) {

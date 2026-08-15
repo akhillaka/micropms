@@ -362,7 +362,7 @@ if ($view === 'weekly') {
         var rn=rm?rm.room_number:'';
         var gn=b.guest_name||'Guest';
         var bJson = encodeURIComponent(JSON.stringify(b));
-        return '<a href="../../folio.php?id='+b.id+'" class="bk ' + stClass + '" style="left:'+leftPct+'%;width:'+widthPct+'%;min-width:18px;" '
+        return '<a href="../../folio.php?id='+encodeURIComponent(b.display_id || b.id)+'" class="bk ' + stClass + '" style="left:'+leftPct+'%;width:'+widthPct+'%;min-width:18px;" '
             +'onmouseenter="showTooltip(event, \''+bJson+'\')" onmousemove="moveTooltip(event)" onmouseleave="hideTooltip()">'+esc(gn)+'</a>';
     }
 

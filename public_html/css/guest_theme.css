@@ -164,6 +164,19 @@ input:focus, select:focus, textarea:focus {
 }
 .status-chip.ok { background: #D1FAE5; color: #047857; }
 .status-chip.warn { background: #FEF3C7; color: #B45309; }
+.loyalty-chip {
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 999px;
+}
+.loyalty-chip.silver { background: #E2E8F0; color: #475569; }
+.loyalty-chip.gold { background: #FEF3C7; color: #B45309; }
+.loyalty-chip.platinum { background: #EDE9FE; color: #6D28D9; }
 
 .view-section.gp-enter {
     animation: gp-enter 0.32s var(--ease-out);

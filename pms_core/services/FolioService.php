@@ -125,11 +125,12 @@ class FolioService {
             $propertyId = (int)$pStmt->fetchColumn() ?: 1;
 
             $bucket = ($category === 'pos_order' || $category === 'incidentals' || strtolower($category) === 'f&b') ? 'incidentals' : 'main';
+            $ref = 'CHG-' . bin2hex(random_bytes(5));
             $stmt = $db->prepare("
                 INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, payment_method, transaction_ref, description, folio_bucket, category, is_refund, recorded_at) 
                 VALUES (:pid, :bid, :ttype, :amount, :pmethod, :ref, :desc, :bucket, :category, :is_ref, :rec_at)
             ");
-            $stmt->execute(['pid' => $propertyId, 'bid' => $bookingId, 'ttype' => 'INCIDENTAL', 'amount' => $amount, 'pmethod' => null, 'ref' => 'MANUAL', 'desc' => $cleanDesc, 'bucket' => $bucket, 'category' => $category, 'is_ref' => 0, 'rec_at' => date('Y-m-d H:i:s')]);
+            $stmt->execute(['pid' => $propertyId, 'bid' => $bookingId, 'ttype' => 'INCIDENTAL', 'amount' => $amount, 'pmethod' => null, 'ref' => $ref, 'desc' => $cleanDesc, 'bucket' => $bucket, 'category' => $category, 'is_ref' => 0, 'rec_at' => date('Y-m-d H:i:s')]);
             $entryId = (int)$db->lastInsertId();
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', $entryId, 'SEQ_RECEIPT_FORMAT');
 
@@ -245,6 +246,16 @@ class FolioService {
             if ($shouldCommit) {
                 $db->commit();
             }
+
+            if (!$isRefund && $ledgerAmount < 0) {
+                try {
+                    require_once __DIR__ . '/../GoogleSheetService.php';
+                    GoogleSheetService::syncPayment($db, $entryId);
+                } catch (\Throwable $t) {
+                    error_log('Google Sheets payment sync failed: ' . $t->getMessage());
+                }
+            }
+
             return $entryId;
         } catch (\Throwable $e) {
             if ($shouldCommit && $db->inTransaction()) {
@@ -382,23 +393,9 @@ class FolioService {
      * Get configurable quick charge presets from system_settings.
      */
     public static function getQuickChargePresets(\PDO $db, int $propertyId = 1): array {
-        $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'folio_quick_charges' AND property_id = ?");
-        $stmt->execute([$propertyId]);
-        $json = $stmt->fetchColumn();
-        
-        if ($json) {
-            $presets = json_decode($json, true);
-            if (is_array($presets)) return $presets;
+        if (!function_exists('get_folio_quick_charges')) {
+            require_once __DIR__ . '/../config.php';
         }
-
-        // Default presets
-        return [
-            ['name' => 'Breakfast', 'amount' => 150, 'icon' => 'ph-coffee'],
-            ['name' => 'Lunch', 'amount' => 250, 'icon' => 'ph-fork-knife'],
-            ['name' => 'Dinner', 'amount' => 300, 'icon' => 'ph-fork-knife'],
-            ['name' => 'Laundry', 'amount' => 100, 'icon' => 'ph-t-shirt'],
-            ['name' => 'Room Service', 'amount' => 200, 'icon' => 'ph-bell'],
-            ['name' => 'Minibar', 'amount' => 150, 'icon' => 'ph-wine'],
-        ];
+        return get_folio_quick_charges($db, $propertyId);
     }
 }

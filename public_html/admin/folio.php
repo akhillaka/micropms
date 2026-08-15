@@ -41,31 +41,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$id = $_GET['id'] ?? null;
-if (!$id) render_error_page('Missing Booking ID', 'A booking ID is required to view the folio.', 400);
+$id = trim((string)($_GET['id'] ?? ''));
+if ($id === '') render_error_page('Missing Booking ID', 'A booking ID is required to view the folio.', 400);
 
+require_once __DIR__ . '/../../pms_core/config.php';
 $activePropId = AuthHelper::getPropertyId();
-$stmt = $db->prepare("SELECT b.*, r.room_number, c.name as category_name, c.id as category_id, g.name as guest_name, g.phone as guest_phone, g.age, g.city, g.state, g.country, g.pincode, g.id_proof_front, g.id_proof_back, g.photo as guest_photo FROM bookings b JOIN rooms r ON b.room_id = r.id JOIN room_categories c ON r.category_id = c.id LEFT JOIN guests g ON b.guest_id = g.id WHERE b.id = :id AND b.property_id = :prop_id");
-$stmt->execute(['id' => $id, 'prop_id' => $activePropId]);
-$booking = $stmt->fetch();
+$booking = find_property_booking($db, (int)$activePropId, $id);
 
 if (!$booking) render_error_page('Booking Not Found', 'The requested booking does not exist or has been deleted.', 404);
 
-$propertyId = (int)$booking['property_id'];
-$pmJson = get_db_setting($db, 'payment_methods', (int)$activePropId, '');
-$paymentMethods = $pmJson ? json_decode($pmJson, true) : [];
-if (empty($paymentMethods)) {
-    $paymentMethods = ["Cash", "UPI", "Online / Gateway"];
+$publicId = booking_public_id($booking);
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && $publicId !== '' && $publicId !== $id) {
+    header('Location: /admin/folio.php?id=' . rawurlencode($publicId), true, 302);
+    exit;
 }
 
-$pcJson = get_db_setting($db, 'payment_categories', (int)$activePropId, '');
-$paymentCategories = $pcJson ? json_decode($pcJson, true) : [];
-if (empty($paymentCategories)) {
-    $paymentCategories = ["Room Revenue", "F&B", "Other"];
-}
+$bookingPk = (int)$booking['id'];
+$id = $bookingPk;
+
+$propertyId = (int)$booking['property_id'];
+$paymentMethods = get_payment_methods($db, (int)$activePropId);
+
+$paymentCategories = get_payment_categories($db, (int)$activePropId);
 
 $ledgerStmt = $db->prepare("SELECT * FROM folio_ledger WHERE booking_id = :id ORDER BY recorded_at ASC");
-$ledgerStmt->execute(['id' => $id]);
+$ledgerStmt->execute(['id' => $bookingPk]);
 $ledger = $ledgerStmt->fetchAll();
 
 $taxEnabled = defined('TAX_ENABLED') && TAX_ENABLED === 'true';
@@ -422,18 +422,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <p class="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-2">Quick Charges</p>
                     <div class="flex flex-wrap gap-2 mb-3">
                         <?php
-                        $qcJson = get_db_setting($db, 'folio_quick_charges', (int)$activePropId, '[]');
-                        $quickCharges = json_decode($qcJson, true);
-                        if (!is_array($quickCharges) || empty($quickCharges)) {
-                            $quickCharges = [
-                                ['name' => 'Breakfast', 'icon' => 'ph-coffee', 'amount' => 150, 'desc' => 'Morning Buffet'],
-                                ['name' => 'Laundry', 'icon' => 'ph-washing-machine', 'amount' => 100, 'desc' => 'Per Bag'],
-                                ['name' => 'Room Service', 'icon' => 'ph-fork-knife', 'amount' => 200, 'desc' => 'In-Room Dining'],
-                                ['name' => 'Mini Bar', 'icon' => 'ph-wine', 'amount' => 300, 'desc' => 'Beverages & Snacks'],
-                                ['name' => 'Parking', 'icon' => 'ph-car', 'amount' => 100, 'desc' => 'Valet Parking'],
-                                ['name' => 'Extra Person', 'icon' => 'ph-user-plus', 'amount' => 500, 'desc' => 'Extra Bed']
-                            ];
-                        }
+                        $quickCharges = get_folio_quick_charges($db, (int)$activePropId);
                         foreach($quickCharges as $qc):
                         ?>
                         <button class="charge-pill" title="<?= htmlspecialchars((string)($qc['desc'] ?? '')) ?>" onclick="prefillCharge('<?= htmlspecialchars((string)($qc['name'])) ?>', <?= htmlspecialchars((string)($qc['amount']), ENT_QUOTES, 'UTF-8') ?>)">
@@ -448,10 +437,9 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         </div>
                         <div class="w-full sm:w-48">
                             <select id="incidental_category" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none focus:ring-0 focus:shadow-minimal transition-all">
-                                <option value="Misc">Miscellaneous (Other)</option>
-                                <option value="booking">Room Rent / Booking</option>
-                                <option value="F&B">Food & Beverage</option>
-                                <option value="Laundry">Laundry</option>
+                                <?php foreach ($paymentCategories as $pc): ?>
+                                <option value="<?= htmlspecialchars((string)$pc) ?>"><?= htmlspecialchars((string)$pc) ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="w-full sm:w-40">
@@ -843,7 +831,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <select id="edit_l_method" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                             <option value="">N/A (Charge)</option>
                             <?php foreach($paymentMethods as $pm): ?>
-                                <option value="<?= htmlspecialchars((string)(strtolower($pm))) ?>"><?= htmlspecialchars((string)($pm)) ?></option>
+                                <option value="<?= htmlspecialchars((string)$pm) ?>"><?= htmlspecialchars((string)$pm) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -1032,7 +1020,8 @@ $statusColor = $statusMap[$bookingStatus]['color'];
 
     <script>
         const FOLIO_DATA = {
-            bookingId: <?= htmlspecialchars((string)($id), ENT_QUOTES, 'UTF-8') ?>,
+            bookingId: <?= (int)$bookingPk ?>,
+            publicId: <?= json_encode($publicId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
             balance: <?= htmlspecialchars((string)($balance), ENT_QUOTES, 'UTF-8') ?>,
             catRatePlans: <?= json_encode($catRatePlans) ?>,
             ratePlanName: <?= json_encode($ratePlanName) ?>,
@@ -1067,7 +1056,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
             if (newVal === null) return;
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
             try {
-                const res = await fetch('folio.php?id=' + bookingId, {
+                const res = await fetch('folio.php?id=' + encodeURIComponent(FOLIO_DATA.publicId || bookingId), {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',

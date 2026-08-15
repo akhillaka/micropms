@@ -474,7 +474,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                     const guestName = (b.guest_name || '').toLowerCase();
                     const guestPhone = (b.guest_phone || '').toLowerCase();
                     const roomNum = (b.room_number || '').toLowerCase();
-                    const bookCode = String(b.id);
+                    const bookCode = String(b.display_id || b.id);
                     return guestName.includes(searchQuery) || guestPhone.includes(searchQuery) || roomNum.includes(searchQuery) || bookCode.includes(searchQuery);
                 }
 
@@ -534,7 +534,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                             <div>
                                 <div class="flex items-center gap-2 flex-wrap">
                                     <h4 class="font-extrabold text-slate-800 text-sm font-display">${b.guest_name || 'Guest'}</h4>
-                                    <span class="text-[9px] font-bold text-slate-500 border border-slate-200/50 px-1.5 py-0.5 rounded-md">#${b.id}</span>
+                                    <span class="text-[9px] font-bold text-slate-500 border border-slate-200/50 px-1.5 py-0.5 rounded-md">#${b.display_id || b.id}</span>
                                     ${balanceHtml}
                                 </div>
                                 <p class="text-xs text-slate-400 mt-1 font-semibold flex items-center gap-1"><i class="ph ph-phone text-xs"></i> ${b.guest_phone || 'N/A'}</p>
@@ -551,7 +551,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                         </div>
                         <div class="flex items-center gap-2 w-full md:w-auto pl-14 md:pl-0 border-t border-slate-50 md:border-0 pt-3 md:pt-0 justify-end">
                             ${b.booking_status === 'booked' ? `<button onclick="quickCheckin(${b.id})" class="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl transition-all border border-emerald-100"><i class="ph ph-sign-in"></i> Check In</button>` : ''}
-                            <a href="folio.php?id=${b.id}" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors">Folio</a>
+                            <a href="folio.php?id=${encodeURIComponent(b.display_id || b.id)}" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors">Folio</a>
                             ${b.booking_status === 'checked_in' ? `<button onclick="quickCheckout(${b.id})" class="px-4 py-2 border border-rose-200 text-rose-600 hover:bg-rose-50 font-bold text-xs rounded-xl transition-all">Check Out</button>` : ''}
                         </div>
                     </div>

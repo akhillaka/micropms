@@ -48,6 +48,12 @@ try {
         throw new Exception("Check-in not allowed for this reservation status.");
     }
 
+    load_db_settings($db, (int)$booking['property_id']);
+    $preArrivalEnabled = get_db_setting($db, 'GUEST_PORTAL_PRE_ARRIVAL_ENABLED', (int)$booking['property_id'], 'true') === 'true';
+    if (!$preArrivalEnabled) {
+        throw new Exception("Online check-in is not available. Please check in at the front desk.");
+    }
+
     // Handle File Uploads (stored in the same directory as Admin for consistency)
     $uploadDir = __DIR__ . '/../uploads/';
     
@@ -106,16 +112,12 @@ try {
         $idBackPath = handleUpload($_FILES['id_back'], 'back_' . $bookingId, $uploadDir);
     }
 
-    $st = $db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_DOC'");
-    $st->execute([$booking['property_id']]);
-    $preArrivalDoc = ($st->fetchColumn() ?: 'true') === 'true';
+    $preArrivalDoc = get_db_setting($db, 'GUEST_PORTAL_PRE_ARRIVAL_DOC', (int)$booking['property_id'], 'true') === 'true';
     if ($preArrivalDoc && (!$idFrontPath || !$idBackPath)) {
         throw new Exception("Both front and back ID proofs are required.");
     }
 
-    $st = $db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'GUEST_PORTAL_PRE_ARRIVAL_SIGNATURE'");
-    $st->execute([$booking['property_id']]);
-    $preArrivalSig = ($st->fetchColumn() ?: 'true') === 'true';
+    $preArrivalSig = get_db_setting($db, 'GUEST_PORTAL_PRE_ARRIVAL_SIGNATURE', (int)$booking['property_id'], 'true') === 'true';
     $signaturePath = null;
     
     if ($preArrivalSig) {

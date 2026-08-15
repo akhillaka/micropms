@@ -6,7 +6,7 @@ if (!CSS.escape) {
 }
 
 let currentTab = 'categories';
-const tabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'finance', 'staff', 'roles', 'property', 'folio-items', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
+const tabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'finance', 'staff', 'roles', 'property', 'folio-items', 'import', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
 
 function getHeaders() {
     return {
@@ -36,7 +36,7 @@ function switchTab(tabId) {
 
     const fabBtn = document.getElementById('fabBtn');
     if (fabBtn) {
-        if (tabId === 'integrations' || tabId === 'staff' || tabId === 'property' || tabId === 'night-audit') {
+        if (tabId === 'integrations' || tabId === 'staff' || tabId === 'property' || tabId === 'night-audit' || tabId === 'import') {
             fabBtn.style.display = 'none';
         } else {
             fabBtn.style.display = '';
@@ -414,6 +414,9 @@ async function submitForm(e, form, modalId) {
 
 async function submitIntegrations(e) {
     e.preventDefault();
+    if (typeof syncGoogleSheetFields === 'function') {
+        syncGoogleSheetFields();
+    }
     const btn = document.getElementById('saveIntegrationBtn');
     const originalText = btn.innerHTML;
     btn.innerHTML = 'Saving...';
@@ -450,6 +453,81 @@ async function submitIntegrations(e) {
         btn.innerHTML = originalText;
         btn.classList.remove('opacity-75');
         btn.disabled = false;
+    }
+}
+
+function syncGoogleSheetFields() {
+    const hidden = document.getElementById('GOOGLE_SHEETS_FIELDS');
+    if (!hidden) return;
+    const map = {};
+    document.querySelectorAll('.gs-field-cb').forEach((cb) => {
+        const sheet = cb.getAttribute('data-sheet');
+        if (!sheet) return;
+        if (!map[sheet]) map[sheet] = [];
+        if (cb.checked) map[sheet].push(cb.value);
+    });
+    hidden.value = JSON.stringify(map);
+}
+
+async function previewBookingImport() {
+    const fileEl = document.getElementById('bookingImportFile');
+    const out = document.getElementById('bookingImportPreview');
+    const commitBtn = document.getElementById('bookingImportCommitBtn');
+    if (!fileEl || !fileEl.files.length) {
+        out.innerHTML = '<p class="text-red-600">Choose a CSV file first.</p>';
+        return;
+    }
+    const fd = new FormData();
+    fd.append('action', 'preview');
+    fd.append('file', fileEl.files[0]);
+    fd.append('_csrf_token', document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '');
+    out.innerHTML = '<p class="text-slate-500">Checking file…</p>';
+    commitBtn.classList.add('hidden');
+    try {
+        const res = await fetch('/api/admin/import_bookings', { method: 'POST', credentials: 'same-origin', body: fd });
+        const data = await res.json();
+        if (!data.success) {
+            out.innerHTML = `<p class="text-red-600">${data.message || 'Preview failed'}</p>`;
+            return;
+        }
+        const rows = data.stays || [];
+        let html = `<p class="font-semibold mb-2">${data.valid_count || 0} ready, ${data.error_count || 0} with errors (max 500 stays).</p>`;
+        html += '<div class="overflow-x-auto max-h-80 border border-slate-200 rounded-xl"><table class="w-full text-[11px]"><thead><tr class="bg-slate-50 text-left"><th class="p-2">Ref</th><th class="p-2">Guest</th><th class="p-2">Room</th><th class="p-2">Dates</th><th class="p-2">Folio</th><th class="p-2">Status</th></tr></thead><tbody>';
+        rows.forEach((s) => {
+            const ok = !s.error;
+            html += `<tr class="${ok ? '' : 'bg-red-50'}"><td class="p-2 font-mono">${s.import_ref || ''}</td><td class="p-2">${s.guest_name || ''}<br>${s.guest_phone || ''}</td><td class="p-2">${s.room_number || ''}</td><td class="p-2">${s.check_in || ''} → ${s.check_out || ''}</td><td class="p-2">${s.folio_count || 0}</td><td class="p-2">${ok ? 'OK' : (s.error || '')}</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+        out.innerHTML = html;
+        if ((data.valid_count || 0) > 0) commitBtn.classList.remove('hidden');
+    } catch (e) {
+        out.innerHTML = '<p class="text-red-600">Connection error</p>';
+    }
+}
+
+async function commitBookingImport() {
+    const fileEl = document.getElementById('bookingImportFile');
+    const out = document.getElementById('bookingImportPreview');
+    if (!fileEl || !fileEl.files.length) return;
+    const fd = new FormData();
+    fd.append('action', 'commit');
+    fd.append('file', fileEl.files[0]);
+    fd.append('_csrf_token', document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '');
+    const commitBtn = document.getElementById('bookingImportCommitBtn');
+    commitBtn.disabled = true;
+    try {
+        const res = await fetch('/api/admin/import_bookings', { method: 'POST', credentials: 'same-origin', body: fd });
+        const data = await res.json();
+        if (data.success) {
+            out.innerHTML = `<p class="text-emerald-700 font-semibold">${data.message || 'Import complete.'}</p>` + (out.innerHTML || '');
+            commitBtn.classList.add('hidden');
+        } else {
+            out.innerHTML = `<p class="text-red-600">${data.message || 'Import failed'}</p>` + (out.innerHTML || '');
+        }
+    } catch (e) {
+        out.innerHTML = '<p class="text-red-600">Connection error</p>';
+    } finally {
+        commitBtn.disabled = false;
     }
 }
 
@@ -1430,7 +1508,7 @@ switchTab = function(tabId) {
 document.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    const validTabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'staff', 'roles', 'property', 'folio-items', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
+    const validTabs = ['categories', 'rooms', 'rates', 'integrations', 'payments', 'staff', 'roles', 'property', 'folio-items', 'import', 'sequences', 'night-audit', 'subscription', 'guest-portal', 'housekeeping'];
 
     if (document.body.classList.contains('na-only')) {
         switchTab('night-audit');

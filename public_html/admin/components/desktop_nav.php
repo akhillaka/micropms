@@ -85,6 +85,7 @@ $adminBaseUrl = '/admin/';
             <p class="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Settings</p>
             
             <a href="<?php echo $adminBaseUrl; ?>settings.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-gear text-lg text-indigo-500"></i> Property Configuration</a>
+            <a href="<?php echo $adminBaseUrl; ?>settings.php?tab=import" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-upload-simple text-lg text-teal-600"></i> Import Bookings</a>
             <a href="<?php echo $adminBaseUrl; ?>guest_portal_settings.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-device-mobile text-lg text-amber-500"></i> Guest Portal Banners</a>
             <a href="<?php echo $adminBaseUrl; ?>settings.php?tab=roles" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-shield-check text-lg text-indigo-500"></i> Staff & Roles</a>
             <a href="<?php echo $adminBaseUrl; ?>automations.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-paper-plane-tilt text-lg text-blue-500"></i> Notification Automations</a>

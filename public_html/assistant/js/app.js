@@ -43,7 +43,7 @@ class BookingAssistant {
       children: 0,
       extra_bed: 0,
       payment_collected: 0,
-      payment_method: 'Cash',
+      payment_method: '',
       payment_ref: '',
       offline_folio_id: null
     };
@@ -56,7 +56,7 @@ class BookingAssistant {
     // History filter
     this.historyFilter = 'today';
     this.historySearch = '';
-    this.paymentMethods = ['Cash', 'UPI'];
+    this.paymentMethods = [];
     this.paymentCategories = ['Room Revenue', 'F&B', 'Other'];
 
     this.init();
@@ -910,7 +910,7 @@ class BookingAssistant {
       children: 0,
       extra_bed: 0,
       payment_collected: 0,
-      payment_method: 'Cash',
+      payment_method: '',
       payment_ref: '',
       offline_folio_id: null
     };
@@ -2290,11 +2290,13 @@ class BookingAssistant {
         }
         
         document.querySelectorAll('.payment-mode-pill').forEach(p => p.classList.remove('active'));
-        const defaultMethod = (this.paymentMethods && this.paymentMethods.length > 0) 
-                              ? this.paymentMethods[0].toLowerCase().replace(/[^a-z0-9]/g, '') 
-                              : 'cash';
+        const defaultMethod = (this.paymentMethods && this.paymentMethods.length > 0)
+                              ? this.paymentMethods[0]
+                              : '';
         this.selectedPaymentMode = defaultMethod;
-        const defaultPill = document.getElementById(`pill-${defaultMethod}`);
+        const defaultPill = defaultMethod
+          ? document.getElementById(`pill-${defaultMethod.toLowerCase().replace(/[^a-z0-9]/g, '')}`)
+          : null;
         if (defaultPill) defaultPill.classList.add('active');
       }
     } catch (e) {
@@ -2483,11 +2485,13 @@ class BookingAssistant {
 
   // --- PAYMENT MODE PICKER ---
   openPaymentModePickerThenNumpad(balance = 0) {
-    const icons = { 'Cash': 'lucide-banknote', 'UPI': 'lucide-smartphone', 'Card': 'lucide-credit-card', 'BankTransfer': 'lucide-building-2', 'Online': 'lucide-globe' };
-    const modes = (this.paymentMethods || ['Cash', 'UPI']).map(m => {
-      const key = m.toLowerCase().replace(/[^a-z0-9]/g, '');
-      return { key: key, label: m, icon: icons[m] || 'lucide-banknote' };
-    });
+    const methods = (this.paymentMethods && this.paymentMethods.length)
+      ? this.paymentMethods
+      : [];
+    const modes = methods.map(m => ({
+      label: m,
+      icon: this.paymentMethodLucide(m)
+    }));
 
     const existingPicker = document.getElementById('quick-payment-mode-picker');
     if (existingPicker) existingPicker.remove();
@@ -2546,11 +2550,11 @@ class BookingAssistant {
         <div style="font-size:0.75rem;font-weight:800;color:var(--color-text-secondary);margin-bottom:8px;text-transform:uppercase;">Select Payment Mode</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
           ${modes.map(m => `
-            <button onclick="app.processAssistantPayment('${m.key}')" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border:2px solid var(--color-border);border-radius:10px;background:white;font-weight:800;font-size:0.85rem;color:var(--color-text-primary);cursor:pointer;">
+            <button type="button" data-method="${encodeURIComponent(m.label)}" onclick="app.processAssistantPayment(decodeURIComponent(this.dataset.method))" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border:2px solid var(--color-border);border-radius:10px;background:white;font-weight:800;font-size:0.85rem;color:var(--color-text-primary);cursor:pointer;">
               <i class="${m.icon}" style="font-size:1.4rem; color:var(--color-brand);"></i>
-              ${m.label}
+              ${m.label.replace(/</g, '&lt;')}
             </button>
-          `).join('')}
+          `).join('') || '<p style="grid-column:1/-1;font-size:0.8rem;color:var(--color-text-muted);">No payment methods configured in Settings.</p>'}
         </div>
       </div>
     `;
@@ -3864,69 +3868,87 @@ class BookingAssistant {
     el.style.background = 'var(--color-brand-light)';
     
     // Voice feedback
-    const modeNames = { 'Cash': 'Cash', 'UPI': 'UPI', 'Card': 'Card', 'BankTransfer': 'Bank Transfer' };
-    Voice.speak(`Payment mode: ${modeNames[mode] || mode}`);
+    Voice.speak(`Payment mode: ${mode}`);
     
     // Haptic feedback
     if (navigator.vibrate) navigator.vibrate(30);
   }
 
+  paymentMethodEmoji(method) {
+    const l = String(method || '').toLowerCase();
+    if (l.includes('upi') || l.includes('qr')) return '📱';
+    if (l.includes('card')) return '💳';
+    if (l.includes('bank')) return '🏦';
+    if (l.includes('online') || l.includes('gateway') || l.includes('razor') || l.includes('phonepe')) return '🌐';
+    if (l.includes('cash')) return '💵';
+    return '💰';
+  }
+
+  paymentMethodLucide(method) {
+    const l = String(method || '').toLowerCase();
+    if (l.includes('upi') || l.includes('qr')) return 'lucide-smartphone';
+    if (l.includes('card')) return 'lucide-credit-card';
+    if (l.includes('bank')) return 'lucide-building-2';
+    if (l.includes('online') || l.includes('gateway') || l.includes('razor') || l.includes('phonepe')) return 'lucide-globe';
+    if (l.includes('cash')) return 'lucide-banknote';
+    return 'lucide-wallet';
+  }
+
   applyPaymentMethodsToUI() {
-    // 1. Update Step 10 payment mode icon buttons
+    const methods = Array.isArray(this.paymentMethods) ? this.paymentMethods.filter(m => String(m).trim() !== '') : [];
+    this.paymentMethods = methods;
+
     const container = document.getElementById('wizard-payment-modes');
-    if (container && this.paymentMethods) {
-      const icons = { 'Cash': '💵', 'UPI': '📱', 'Card': '💳', 'BankTransfer': '🏦', 'Online': '🌐' };
-      const labels = { 'Cash': 'Cash', 'UPI': 'UPI / QR', 'Card': 'Card', 'BankTransfer': 'Bank', 'Online': 'Online' };
-      
+    if (container) {
       container.innerHTML = '';
-      this.paymentMethods.forEach((method, i) => {
-        const icon = icons[method] || '💰';
-        const label = labels[method] || method;
+      methods.forEach((method, i) => {
         const isActive = i === 0;
-        
         const btn = document.createElement('button');
+        btn.type = 'button';
         btn.className = 'payment-mode-card' + (isActive ? ' active' : '');
         btn.setAttribute('data-mode', method);
         btn.onclick = () => this.selectWizardPaymentMode(btn, method);
         btn.style.cssText = `display:flex;align-items:center;gap:10px;padding:14px;border-radius:var(--border-radius-md);border:2px solid ${isActive ? 'var(--color-brand)' : 'var(--color-border)'};background:${isActive ? 'var(--color-brand-light)' : 'var(--color-glass)'};cursor:pointer;transition:all 150ms ease;`;
-        btn.innerHTML = `<span style="font-size:1.8rem;">${icon}</span><span style="font-weight:700;font-size:0.95rem;">${label}</span>`;
+        btn.innerHTML = `<span style="font-size:1.8rem;">${this.paymentMethodEmoji(method)}</span><span style="font-weight:700;font-size:0.95rem;"></span>`;
+        btn.querySelector('span:last-child').textContent = method;
         container.appendChild(btn);
       });
-      
-      // Set default value
-      if (this.paymentMethods.length > 0) {
-        document.getElementById('wizard-payment-mode').value = this.paymentMethods[0];
-        this.wizardData.payment_method = this.paymentMethods[0];
+
+      const hidden = document.getElementById('wizard-payment-mode');
+      if (methods.length > 0) {
+        if (hidden) hidden.value = methods[0];
+        this.wizardData.payment_method = methods[0];
+      } else if (hidden) {
+        hidden.value = '';
       }
     }
 
-    // 2. Dynamically generate payment pills in checkout details
     const pillContainer = document.querySelector('#payment-mode-selector > div');
-    if (pillContainer && this.paymentMethods) {
-      const icons = { 'Cash': '💵', 'UPI': '📱', 'Card': '💳', 'BankTransfer': '🏦', 'Online': '🌐' };
+    if (pillContainer) {
       pillContainer.innerHTML = '';
-      this.paymentMethods.forEach((method, i) => {
-        const icon = icons[method] || '💰';
+      methods.forEach((method) => {
         const methodKey = method.toLowerCase().replace(/[^a-z0-9]/g, '');
-        
         const btn = document.createElement('button');
+        btn.type = 'button';
         btn.className = 'payment-mode-pill';
         btn.id = `pill-${methodKey}`;
-        btn.setAttribute('data-method', methodKey);
-        btn.onclick = () => this.selectPaymentModePill(btn, methodKey);
-        btn.innerHTML = `${icon} ${method}`;
+        btn.setAttribute('data-method', method);
+        btn.onclick = () => this.selectPaymentModePill(btn, method);
+        btn.textContent = `${this.paymentMethodEmoji(method)} ${method}`;
         pillContainer.appendChild(btn);
       });
     }
 
-    const methodsLower = this.paymentMethods.map(m => m.toLowerCase().replace(/[^a-z0-9]/g, ''));
-
-    // Reset default active pill
     document.querySelectorAll('.payment-mode-pill').forEach(p => p.classList.remove('active'));
-    const defaultPillName = methodsLower[0] || 'cash';
-    const defaultPill = document.getElementById(`pill-${defaultPillName}`);
-    if (defaultPill) {
-      this.selectPaymentModePill(defaultPill, defaultPillName);
+    if (methods.length > 0) {
+      const defaultMethod = methods[0];
+      const defaultPillName = defaultMethod.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const defaultPill = document.getElementById(`pill-${defaultPillName}`);
+      if (defaultPill) {
+        this.selectPaymentModePill(defaultPill, defaultMethod);
+      } else {
+        this.selectedPaymentMode = defaultMethod;
+      }
     }
   }
 

@@ -17,30 +17,21 @@ require_once __DIR__ . '/../../pms_core/config.php';
 $db = Database::getInstance()->getConnection();
 load_db_settings($db);
 
-$id = $_GET['id'] ?? null;
-if (!$id) render_error_page('Missing Booking ID', 'A booking ID is required to view the receipt.', 400);
+$id = trim((string)($_GET['id'] ?? ''));
+if ($id === '') render_error_page('Missing Booking ID', 'A booking ID is required to view the receipt.', 400);
 
 $propId = AuthHelper::getPropertyId();
-$stmt = $db->prepare("
-    SELECT b.*, 
-           r.room_number, 
-           c.name as category_name, 
-           g.name as guest_name, 
-           g.phone as guest_phone, 
-           g.city, 
-           g.state, 
-           g.country, 
-           g.pincode 
-    FROM bookings b 
-    JOIN rooms r ON b.room_id = r.id 
-    JOIN room_categories c ON r.category_id = c.id 
-    LEFT JOIN guests g ON b.guest_id = g.id 
-    WHERE b.id = :id AND b.property_id = :pid
-");
-$stmt->execute(['id' => $id, 'pid' => $propId]);
-$booking = $stmt->fetch();
+$booking = find_property_booking($db, (int)$propId, $id);
 
 if (!$booking) render_error_page('Booking Not Found', 'The requested booking does not exist or you do not have access to it.', 404);
+
+$publicId = booking_public_id($booking);
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && $publicId !== '' && $publicId !== $id) {
+    header('Location: /admin/invoice.php?id=' . rawurlencode($publicId), true, 302);
+    exit;
+}
+
+$id = (int)$booking['id'];
 
 // Fetch all ledger transactions
 $ledgerStmt = $db->prepare("SELECT * FROM folio_ledger WHERE booking_id = :id ORDER BY recorded_at ASC");
@@ -112,7 +103,7 @@ $invoiceNo = "REC-" . date('Y', strtotime($booking['created_at'])) . "-" . str_p
     
     <!-- Control Bar (No Print) -->
     <div class="max-w-3xl mx-auto mb-8 flex justify-between items-center print:hidden bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
-        <a href="folio.php?id=<?= htmlspecialchars((string)($booking['id']), ENT_QUOTES, 'UTF-8') ?>" class="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
+        <a href="<?= htmlspecialchars(folio_href($booking)) ?>" class="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
             <i class="ph ph-arrow-left text-lg"></i> Back to Folio
         </a>
         <button onclick="window.print()" class="bg-slate-900 hover:bg-slate-800 text-white font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2">

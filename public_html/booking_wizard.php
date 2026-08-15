@@ -13,13 +13,7 @@ $db = Database::getInstance()->getConnection();
 load_db_settings($db);
 
 $propertyId = AuthHelper::getPropertyId();
-$pmStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = ?");
-$pmStmt->execute([(int)$propertyId]);
-$pmJson = $pmStmt->fetchColumn();
-$paymentMethods = $pmJson ? json_decode($pmJson, true) : [];
-if (empty($paymentMethods)) {
-    $paymentMethods = ["Cash", "UPI", "Online / Gateway"];
-}
+$paymentMethods = get_payment_methods($db, (int)$propertyId);
 $isOwner = (AuthHelper::getRole() === 'owner') ? 'true' : 'false';
 
 // Default auto-fetched check-in & check-out dates and times

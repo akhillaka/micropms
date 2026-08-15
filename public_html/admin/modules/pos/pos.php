@@ -11,6 +11,7 @@ require_once __DIR__ . '/../../../../pms_core/services/FolioService.php';
 require_once __DIR__ . '/../../../../pms_core/services/SaaSEntitlementsService.php';
 require_once __DIR__ . '/../../../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../../../pms_core/CsrfToken.php';
+require_once __DIR__ . '/../../../../pms_core/config.php';
 
 AuthHelper::requireLoginOrRedirect();
 if (!AuthHelper::can('manage_pos')) {
@@ -89,6 +90,13 @@ $bookingsStmt = $db->prepare("
 ");
 $bookingsStmt->execute([$propertyId]);
 $activeBookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
+$posPaymentMethods = get_payment_methods($db, (int)$propertyId);
+$renderPosPaymentOptions = static function (array $methods): void {
+    foreach ($methods as $pm) {
+        echo '<option value="' . htmlspecialchars((string)$pm, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars((string)$pm) . '</option>';
+    }
+    echo '<option value="room_charge">Charge to Guest Folio (Room)</option>';
+};
 
 // Fetch current outlets
 $outletStmt = $db->prepare("SELECT * FROM pos_outlets WHERE property_id = ? ORDER BY name ASC");
@@ -108,7 +116,7 @@ $inventoryItems = $invStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch active guest orders (pending delivery)
 $ordersStmt = $db->prepare("
-    SELECT o.*, b.room_id, r.room_number, g.name as guest_name, ot.name as outlet_name
+    SELECT o.*, b.room_id, b.display_id, r.room_number, g.name as guest_name, ot.name as outlet_name
     FROM pos_orders o
     JOIN bookings b ON o.booking_id = b.id
     JOIN rooms r ON b.room_id = r.id
@@ -131,7 +139,7 @@ $totalHistory = $historyCountStmt->fetchColumn();
 $totalPages = max(1, ceil($totalHistory / $limit));
 
 $historyStmt = $db->prepare("
-    SELECT o.*, r.room_number, g.name as guest_name, ot.name as outlet_name
+    SELECT o.*, b.display_id, r.room_number, g.name as guest_name, ot.name as outlet_name
     FROM pos_orders o
     LEFT JOIN bookings b ON o.booking_id = b.id
     LEFT JOIN rooms r ON b.room_id = r.id
@@ -359,7 +367,7 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                                             <td class="p-3 font-bold text-indigo-600"><?= htmlspecialchars((string)($o['outlet_name'] ?: 'General')) ?></td>
                                             <td class="p-3">
                                                 <?php if ($o['payment_method'] === 'room_charge'): ?>
-                                                    <a href="../../folio.php?id=<?= htmlspecialchars((string)($o['booking_id']), ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="px-2 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 transition cursor-pointer" title="View Folio">Room <?= htmlspecialchars((string)($o['room_number'] ?: '')) ?> <i class="ph ph-arrow-square-out ml-0.5"></i></a>
+                                                    <a href="<?= htmlspecialchars(folio_href(['id' => $o['booking_id'], 'display_id' => $o['display_id'] ?? ''], '../../'), ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="px-2 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 transition cursor-pointer" title="View Folio">Room <?= htmlspecialchars((string)($o['room_number'] ?: '')) ?> <i class="ph ph-arrow-square-out ml-0.5"></i></a>
                                                 <?php else: ?>
                                                     <span class="uppercase text-slate-600 text-xs font-bold"><?= htmlspecialchars((string)($o['payment_method'])) ?></span>
                                                 <?php endif; ?>
@@ -739,10 +747,7 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                     <div class="space-y-2">
                         <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Payment Method</label>
                         <select id="checkout_method" onchange="toggleCheckoutMethod(this.value)" class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-bold cursor-pointer">
-                            <option value="cash">Cash Payment</option>
-                            <option value="upi">UPI / QR Scan</option>
-                            <option value="card">Card Terminal</option>
-                            <option value="room_charge">Charge to Guest Folio (Room)</option>
+                            <?php $renderPosPaymentOptions($posPaymentMethods); ?>
                         </select>
                     </div>
 
@@ -850,10 +855,7 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                     <div>
                         <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Payment Method</label>
                         <select id="edit_order_method" class="w-full bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs font-bold text-slate-700 outline-none focus:border-indigo-600 cursor-pointer">
-                            <option value="cash">Cash Payment</option>
-                            <option value="upi">UPI / QR Scan</option>
-                            <option value="card">Card Terminal</option>
-                            <option value="room_charge">Charge to Guest Folio (Room)</option>
+                            <?php $renderPosPaymentOptions($posPaymentMethods); ?>
                         </select>
                     </div>
                     <div>

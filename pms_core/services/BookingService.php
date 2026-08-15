@@ -175,14 +175,19 @@ class BookingService {
             $dispStmt->execute([$bookingId, $propertyId]);
             $bookingDisplayId = $dispStmt->fetchColumn() ?: 'BKG-' . $bookingId;
 
-            // Post room charges to folio
-            self::postRoomCharges($db, $bookingId, $categoryId, $room['category_name'], $checkIn, $checkOut, $ratePlanName, $priceOverride);
+            $skipRoomCharges = !empty($params['skip_room_charges']);
+            $skipGoogleSheets = !empty($params['skip_google_sheets']);
 
-            // Post extra bed charges with proper tax calculation
-            if ($extraBedCost > 0 && $priceOverride === null) {
-                $days = self::calculateDays($checkIn, $checkOut);
-                $extraDesc = "Extra Bed Charge ({$days} night" . ($days > 1 ? 's' : '') . ")";
-                self::postRoomCharges($db, $bookingId, $categoryId, $room['category_name'], $checkIn, $checkOut, null, $extraBedCost, $extraDesc);
+            // Post room charges to folio
+            if (!$skipRoomCharges) {
+                self::postRoomCharges($db, $bookingId, $categoryId, $room['category_name'], $checkIn, $checkOut, $ratePlanName, $priceOverride);
+
+                // Post extra bed charges with proper tax calculation
+                if ($extraBedCost > 0 && $priceOverride === null) {
+                    $days = self::calculateDays($checkIn, $checkOut);
+                    $extraDesc = "Extra Bed Charge ({$days} night" . ($days > 1 ? 's' : '') . ")";
+                    self::postRoomCharges($db, $bookingId, $categoryId, $room['category_name'], $checkIn, $checkOut, null, $extraBedCost, $extraDesc);
+                }
             }
 
             // Record advance payment if collected
@@ -270,12 +275,12 @@ class BookingService {
                 $db->commit();
             }
 
-            // Sync booking to Google Sheets
-            try {
-                GoogleSheetService::syncBooking($db, $bookingId);
-            } catch (\Throwable $t) {
-                // Non-blocking sync failure logger
-                error_log("Google Sheets sync failed for booking $bookingId: " . $t->getMessage());
+            if (empty($params['skip_google_sheets'])) {
+                try {
+                    GoogleSheetService::syncBooking($db, $bookingId);
+                } catch (\Throwable $t) {
+                    error_log("Google Sheets sync failed for booking $bookingId: " . $t->getMessage());
+                }
             }
 
             return $result;

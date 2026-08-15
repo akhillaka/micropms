@@ -652,8 +652,8 @@
                     showNotification(`${count} Booking${count > 1 ? 's' : ''} confirmed!`, 'success');
                     setTimeout(() => {
                         // Redirect to first booking's folio
-                        const firstId = data.booking_ids ? data.booking_ids[0] : data.booking_id;
-                        window.location.href = `admin/folio.php?id=${firstId}`;
+                        const firstId = (data.display_ids && data.display_ids[0]) || data.display_id || (data.booking_ids ? data.booking_ids[0] : data.booking_id);
+                        window.location.href = `admin/folio.php?id=${encodeURIComponent(firstId)}`;
                     }, 1000);
                 } else {
                     showNotification(data.message, 'error');

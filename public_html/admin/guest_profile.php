@@ -10,6 +10,7 @@ if (!AuthHelper::can('manage_guests')) {
 CsrfToken::checkTimeout();
 
 require_once __DIR__ . '/../../pms_core/Database.php';
+require_once __DIR__ . '/../../pms_core/config.php';
 $db = Database::getInstance()->getConnection();
 
 $guestId = $_GET['id'] ?? null;
@@ -260,7 +261,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                                         <div class="text-sm font-black text-brand-900">₹<?= htmlspecialchars((string)(number_format($b['total_amount'], 2)), ENT_QUOTES, 'UTF-8') ?></div>
                                     </td>
                                     <td class="px-6 py-4 text-right">
-                                        <a href="folio.php?id=<?= htmlspecialchars((string)($b['id']), ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-1.5 text-brand-900 bg-white border border-brand-200 hover:border-brand-900 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm opacity-0 group-hover:opacity-100 focus:opacity-100">
+                                        <a href="<?= htmlspecialchars(folio_href($b)) ?>" class="inline-flex items-center gap-1.5 text-brand-900 bg-white border border-brand-200 hover:border-brand-900 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm opacity-0 group-hover:opacity-100 focus:opacity-100">
                                             <i class="ph-bold ph-receipt"></i> View Folio
                                         </a>
                                     </td>

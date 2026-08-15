@@ -6,6 +6,7 @@ AuthHelper::requirePermission('view_finance');
 CsrfToken::checkTimeout();
 
 require_once __DIR__ . '/../../pms_core/Database.php';
+require_once __DIR__ . '/../../pms_core/config.php';
 $db = Database::getInstance()->getConnection();
 $propertyId = AuthHelper::getPropertyId();
 
@@ -56,7 +57,8 @@ $query = "
         booking_id AS booking_id,
         ABS(fl.amount) AS amount,
         fl.payment_method,
-        fl.display_id
+        fl.display_id,
+        COALESCE(NULLIF(b.display_id, ''), CAST(b.id AS CHAR)) AS booking_public_id
     FROM folio_ledger fl
     JOIN bookings b ON fl.booking_id = b.id
     WHERE b.property_id = :p1 AND fl.amount != 0 AND DATE(fl.recorded_at) >= :start1 AND DATE(fl.recorded_at) <= :end1
@@ -78,7 +80,8 @@ $query = "
         booking_id AS booking_id,
         amount,
         payment_method,
-        display_id
+        display_id,
+        NULL AS booking_public_id
     FROM finance_transactions
     WHERE property_id = :p2 AND DATE(recorded_at) >= :start2 AND DATE(recorded_at) <= :end2
       AND (booking_id IS NULL OR booking_id = 0)
@@ -169,7 +172,7 @@ $incCatStmt->execute(['p1' => $propertyId, 's1' => $start, 'e1' => $end, 'p2' =>
 $incomeCategoryBreakdown = $incCatStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $unpaidQuery = "
-    SELECT b.id, g.name as guest_name, r.room_number, COALESCE(fl_agg.balance, 0) as balance 
+    SELECT b.id, b.display_id, g.name as guest_name, r.room_number, COALESCE(fl_agg.balance, 0) as balance 
     FROM bookings b 
     LEFT JOIN guests g ON b.guest_id = g.id 
     JOIN rooms r ON b.room_id = r.id 
@@ -186,13 +189,7 @@ $unpaidStmt = $db->prepare($unpaidQuery);
 $unpaidStmt->execute([(int)$propertyId]);
 $unpaidBookings = $unpaidStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$pmStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'payment_methods' AND property_id = ?");
-$pmStmt->execute([$propertyId]);
-$pmJson = $pmStmt->fetchColumn();
-$paymentMethods = $pmJson ? json_decode($pmJson, true) : [];
-if (empty($paymentMethods)) {
-    $paymentMethods = ["Cash", "UPI", "Online / Gateway"];
-}
+$paymentMethods = get_payment_methods($db, (int)$propertyId);
 
 $incStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'FINANCE_INCOME_CATEGORIES' AND property_id = ?");
 $incStmt->execute([$propertyId]);
@@ -579,11 +576,14 @@ $totalCatExpenses = array_sum($catSummary);
                                 <td class="px-6 py-4 text-brand-800 font-medium">
                                     <?php 
                                     $hasFolioLink = !empty($t['booking_id']);
+                                    $folioBooking = ['id' => $t['booking_id'], 'display_id' => $t['booking_public_id'] ?? ''];
+                                    $folioUrl = $hasFolioLink ? folio_href($folioBooking) : '';
+                                    $folioLabel = $hasFolioLink ? booking_public_id($folioBooking) : '';
                                     $bId = $t['booking_id'];
                                     ?>
                                     <?php if($hasFolioLink && $bId): ?>
-                                        <a href="folio.php?id=<?= htmlspecialchars((string)($bId), ENT_QUOTES, 'UTF-8') ?>" class="text-brand-accent hover:underline flex items-center gap-1 font-bold">
-                                            Folio #<?= htmlspecialchars((string)($bId)) ?>
+                                        <a href="<?= htmlspecialchars($folioUrl, ENT_QUOTES, 'UTF-8') ?>" class="text-brand-accent hover:underline flex items-center gap-1 font-bold">
+                                            Folio #<?= htmlspecialchars($folioLabel, ENT_QUOTES, 'UTF-8') ?>
                                             <i class="ph ph-arrow-square-out text-sm"></i>
                                         </a>
                                         <div class="text-xs text-brand-900/70 mt-1"><?= htmlspecialchars((string)($t['actual_desc'])) ?></div>
@@ -605,7 +605,7 @@ $totalCatExpenses = array_sum($catSummary);
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-right space-x-1">
                                     <?php if($hasFolioLink && $bId): ?>
-                                        <a href="folio.php?id=<?= htmlspecialchars((string)($bId), ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-accentLight text-brand-accent hover:bg-brand-accentLight font-bold text-xs transition-colors" title="View & Modify in Room Folio">
+                                        <a href="<?= htmlspecialchars($folioUrl, ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-accentLight text-brand-accent hover:bg-brand-accentLight font-bold text-xs transition-colors" title="View & Modify in Room Folio">
                                             Modify in Folio <i class="ph ph-arrow-right"></i>
                                         </a>
                                     <?php else: ?>
@@ -640,8 +640,11 @@ $totalCatExpenses = array_sum($catSummary);
                                 </div>
                             </div>
                             <div class="text-sm text-brand-800 font-medium mb-1">
+                                <?php
+                                $folioBooking = ['id' => $t['booking_id'], 'display_id' => $t['booking_public_id'] ?? ''];
+                                ?>
                                 <?php if(!empty($t['booking_id'])): ?>
-                                    <a href="folio.php?id=<?= htmlspecialchars((string)($t['booking_id']), ENT_QUOTES, 'UTF-8') ?>" class="text-brand-accent hover:underline font-bold">Folio #<?= htmlspecialchars((string)($t['booking_id'])) ?></a>
+                                    <a href="<?= htmlspecialchars(folio_href($folioBooking), ENT_QUOTES, 'UTF-8') ?>" class="text-brand-accent hover:underline font-bold">Folio #<?= htmlspecialchars(booking_public_id($folioBooking)) ?></a>
                                     - <?= htmlspecialchars((string)($t['actual_desc'])) ?>
                                 <?php else: ?>
                                     <?= htmlspecialchars((string)($t['actual_desc'])) ?>
@@ -798,11 +801,11 @@ $totalCatExpenses = array_sum($catSummary);
                     <?php foreach ($unpaidBookings as $ub): ?>
                     <div class="flex items-center justify-between p-4 bg-brand-50 rounded-xl hover:bg-brand-100 transition-colors">
                         <div>
-                            <a href="folio.php?id=<?= htmlspecialchars((string)($ub['id']), ENT_QUOTES, 'UTF-8') ?>" class="font-bold text-brand-900 hover:text-brand-accent transition-colors flex items-center gap-1">
+                            <a href="<?= htmlspecialchars(folio_href($ub), ENT_QUOTES, 'UTF-8') ?>" class="font-bold text-brand-900 hover:text-brand-accent transition-colors flex items-center gap-1">
                                 <?= htmlspecialchars((string)($ub['guest_name'] ?? 'Unknown Guest')) ?>
                                 <i class="ph ph-arrow-square-out text-sm"></i>
                             </a>
-                            <p class="text-xs text-brand-900/70 mt-1">Room <?= htmlspecialchars((string)($ub['room_number'])) ?> (Folio #<?= htmlspecialchars((string)($ub['id']), ENT_QUOTES, 'UTF-8') ?>)</p>
+                            <p class="text-xs text-brand-900/70 mt-1">Room <?= htmlspecialchars((string)($ub['room_number'])) ?> (Folio #<?= htmlspecialchars(booking_public_id($ub), ENT_QUOTES, 'UTF-8') ?>)</p>
                         </div>
                         <div class="text-right">
                             <span class="text-lg font-bold text-orange-600">₹<?= htmlspecialchars((string)(number_format($ub['balance'], 2)), ENT_QUOTES, 'UTF-8') ?></span>

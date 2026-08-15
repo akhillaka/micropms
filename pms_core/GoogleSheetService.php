@@ -232,8 +232,8 @@ class GoogleSheetService {
         // Staff user info from audit log or current session
         $staffUser = self::getBookingStaffUser($pdo, $bookingId);
 
-        return [
-            "property_id"            => (int)$b['property_id'], // hidden from sheet, used for routing
+        $row = [
+            "property_id"            => (int)$b['property_id'],
             "Booking ID"             => $b['display_id'] ?: ("BKG-" . $b['id']),
             "Folio No"                => $b['offline_folio_id'] ?: ("FOL-" . $b['id']),
             "Room No"                => $b['room_number'] ?: "-",
@@ -252,6 +252,7 @@ class GoogleSheetService {
             "Check-in/Check-Out"     => ucfirst(str_replace('_', ' ', $b['booking_status'])),
             "user"                   => $staffUser
         ];
+        return self::applyFieldFilter($pdo, (int)$b['property_id'], 'booking', $row);
     }
 
     private static function buildPaymentData($pdo, $ledgerId) {
@@ -273,7 +274,7 @@ class GoogleSheetService {
         $paymentType = $l['payment_method'] ?: ucfirst($l['transaction_type']);
         $staffUser = self::getLedgerStaffUser($pdo, $ledgerId);
 
-        return [
+        return self::applyFieldFilter($pdo, (int)($l['property_id'] ?? 0), 'payment', [
             "Booking ID"   => $l['display_id'] ?: ("BKG-" . $l['booking_id']),
             "Folio No"      => $l['offline_folio_id'] ?: ("FOL-" . $l['booking_id']),
             "Room No"      => $l['room_number'] ?: "-",
@@ -285,7 +286,7 @@ class GoogleSheetService {
             "Payment Date" => date('Y-m-d H:i:s', $recTs),
             "Category"     => $l['description'] ?: ucfirst($l['transaction_type']),
             "user"         => $staffUser
-        ];
+        ]);
     }
 
     private static function buildExpenseData($pdo, $expenseId) {
@@ -302,7 +303,7 @@ class GoogleSheetService {
         $recTs = strtotime($f['recorded_at']);
         $staffUser = $f['staff_name'] ?: ($f['username'] ?: 'Admin');
 
-        return [
+        return self::applyFieldFilter($pdo, (int)$f['property_id'], 'expense', [
             "Expense ID"     => "EXP-" . $f['id'],
             "Category"       => $f['category'],
             "Amount"         => (float)$f['amount'],
@@ -311,7 +312,56 @@ class GoogleSheetService {
             "Month"          => date('M-Y', $recTs),
             "Expense Date"   => date('Y-m-d H:i:s', $recTs),
             "User"           => $staffUser
+        ]);
+    }
+
+    /**
+     * @return array{booking: list<string>, payment: list<string>, expense: list<string>}
+     */
+    public static function fieldCatalog(): array {
+        return [
+            'booking' => [
+                'Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Phone No',
+                'Rate per night', 'Month', 'Check-in Date', 'Check-In TIme', 'Check-Out-Date',
+                'Check-Out Time', 'Duration in days', 'Duration in hrs', 'Total Amount Collected',
+                'Check-in/Check-Out', 'user',
+            ],
+            'payment' => [
+                'Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Amount Paid',
+                'Payment Type', 'Month', 'Payment Date', 'Category', 'user',
+            ],
+            'expense' => [
+                'Expense ID', 'Category', 'Amount', 'Description', 'Payment Method', 'Month',
+                'Expense Date', 'User',
+            ],
         ];
+    }
+
+    private static function applyFieldFilter($pdo, int $propertyId, string $type, array $row): array {
+        if ($propertyId <= 0) {
+            return $row;
+        }
+        $raw = get_db_setting($pdo, 'GOOGLE_SHEETS_FIELDS', $propertyId, '');
+        $map = $raw !== '' ? json_decode($raw, true) : null;
+        $enabled = [];
+        if (is_array($map) && isset($map[$type]) && is_array($map[$type]) && $map[$type] !== []) {
+            foreach ($map[$type] as $key) {
+                $key = trim((string)$key);
+                if ($key !== '') {
+                    $enabled[] = $key;
+                }
+            }
+        }
+        if ($enabled === []) {
+            return $row;
+        }
+        $out = [];
+        foreach ($row as $k => $v) {
+            if ($k === 'property_id' || in_array($k, $enabled, true)) {
+                $out[$k] = $v;
+            }
+        }
+        return $out !== [] ? $out : $row;
     }
 
     private static function getBookingStaffUser($pdo, $bookingId) {

@@ -47,7 +47,8 @@ while (time() < $endTime) {
         $jobProcessed = true;
         echo "Processing Google Sheets Job #{$gsJob['id']}...\n";
         try {
-            $success = GoogleSheetService::sendWebhook($gsJob['payload']);
+            $gsProp = isset($gsJob['property_id']) ? (int)$gsJob['property_id'] : null;
+            $success = GoogleSheetService::sendWebhook($gsJob['payload'], $gsProp && $gsProp > 0 ? $gsProp : null);
             if ($success) {
                 QueueService::complete($gsJob['id']);
                 echo "Completed Google Sheets Job #{$gsJob['id']}\n";

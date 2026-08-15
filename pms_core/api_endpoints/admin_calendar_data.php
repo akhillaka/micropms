@@ -22,7 +22,7 @@ ApiHandler::run(function(\PDO $db) {
     $rooms = $roomsStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $stmt = $db->prepare("
-        SELECT b.id, b.room_id, b.check_in, b.check_out, b.booking_status,
+        SELECT b.id, b.display_id, b.room_id, b.check_in, b.check_out, b.booking_status,
                b.payment_status, b.total_amount, b.rate_plan_name,
                g.name as guest_name, g.phone as guest_phone
         FROM bookings b
