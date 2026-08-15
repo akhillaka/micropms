@@ -154,6 +154,11 @@ $portalWifiSsid        = (string)get_db_setting($db, 'GUEST_PORTAL_WIFI_SSID', $
 $portalWifiPassword    = (string)get_db_setting($db, 'GUEST_PORTAL_WIFI_PASSWORD', $propertyId, (defined('PROPERTY_WIFI_PASS') ? PROPERTY_WIFI_PASS : ''));
 $portalHelpDeskNo      = (string)get_db_setting($db, 'GUEST_PORTAL_HELP_DESK_NO', $propertyId, '');
 $portalLocalAttractions= (string)get_db_setting($db, 'GUEST_PORTAL_LOCAL_ATTRACTIONS', $propertyId, '');
+$portalBannersJson = get_db_setting($db, 'GUEST_PORTAL_BANNERS', $propertyId, '');
+$portalBanners = json_decode($portalBannersJson, true);
+if (!is_array($portalBanners)) {
+    $portalBanners = [];
+}
 $wifiCardEnabled = get_db_setting($db, 'GUEST_PORTAL_WIFI_ENABLED', $propertyId, 'true') === 'true';
 $sightseeingEnabled = get_db_setting($db, 'GUEST_PORTAL_SIGHTSEEING_ENABLED', $propertyId, 'true') === 'true';
 $wakeupEnabled = get_db_setting($db, 'GUEST_PORTAL_WAKEUP_ENABLED', $propertyId, 'true') === 'true';
@@ -970,6 +975,52 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                                     <textarea id="portal_local_attractions" rows="4" placeholder="1. Taj Mahal - 5 km&#10;2. City Museum - 2 km&#10;3. Local Market - 1 km" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono focus:border-indigo-400 focus:bg-white transition resize-none"><?= htmlspecialchars((string)($portalLocalAttractions)) ?></textarea>
                                     <p class="text-[10px] text-slate-400 mt-1">One attraction per line — displayed as a visual list for guests</p>
                                 </div>
+                            </div>
+
+                            <div class="pt-4 mt-2 border-t-2 border-dashed border-brand-200">
+                                <div class="flex items-center gap-2 mb-4">
+                                    <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                                        <i class="ph ph-images text-lg"></i>
+                                    </div>
+                                    <div>
+                                        <span class="text-sm font-bold text-brand-800 block">Scrolling banners</span>
+                                        <p class="text-[11px] text-slate-500">Highlight cards that auto-scroll on the guest portal home screen</p>
+                                    </div>
+                                </div>
+                                <div id="bannersList" class="space-y-4 mb-3">
+                                    <?php foreach ($portalBanners as $b): ?>
+                                    <div class="banner-row p-4 bg-brand-50 rounded-xl border border-brand-200 space-y-3">
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="block text-[11px] font-bold text-brand-900/70 uppercase tracking-wider mb-1">Title</label>
+                                                <input type="text" class="banner-title w-full bg-white border border-brand-200 p-2.5 rounded-xl text-sm outline-none" value="<?= htmlspecialchars((string)($b['title'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="Weekend brunch">
+                                            </div>
+                                            <div>
+                                                <label class="block text-[11px] font-bold text-brand-900/70 uppercase tracking-wider mb-1">Subtitle</label>
+                                                <input type="text" class="banner-subtitle w-full bg-white border border-brand-200 p-2.5 rounded-xl text-sm outline-none" value="<?= htmlspecialchars((string)($b['subtitle'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="10 AM – 2 PM">
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-bold text-brand-900/70 uppercase tracking-wider mb-1">Description</label>
+                                            <textarea class="banner-description w-full bg-white border border-brand-200 p-2.5 rounded-xl text-sm outline-none" rows="2" placeholder="Short offer copy"><?= htmlspecialchars((string)($b['description'] ?? '')) ?></textarea>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="block text-[11px] font-bold text-brand-900/70 uppercase tracking-wider mb-1">Link (optional)</label>
+                                                <input type="text" class="banner-action w-full bg-white border border-brand-200 p-2.5 rounded-xl text-sm outline-none" value="<?= htmlspecialchars((string)($b['action'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="https://...">
+                                            </div>
+                                            <div>
+                                                <label class="block text-[11px] font-bold text-brand-900/70 uppercase tracking-wider mb-1">Image URL (optional)</label>
+                                                <input type="text" class="banner-image w-full bg-white border border-brand-200 p-2.5 rounded-xl text-sm outline-none" value="<?= htmlspecialchars((string)($b['image'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="https://.../image.jpg">
+                                            </div>
+                                        </div>
+                                        <button type="button" onclick="this.closest('.banner-row').remove()" class="text-xs font-bold text-error-600 hover:underline">Remove</button>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <button type="button" onclick="addPortalBannerRow()" class="text-sm font-bold text-brand-accent flex items-center gap-1 hover:bg-brand-accentLight py-2 px-3 rounded-lg transition-colors">
+                                    <i class="ph ph-plus"></i> Add banner
+                                </button>
                             </div>
 
                         </div>
@@ -2422,6 +2473,57 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
     }
 
 
+    function addPortalBannerRow() {
+        const list = document.getElementById('bannersList');
+        if (!list) return;
+        const wrap = document.createElement('div');
+        wrap.className = 'banner-row p-4 bg-brand-50 rounded-xl border border-brand-200 space-y-3';
+        wrap.innerHTML = `
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[11px] font-bold text-brand-900/70 uppercase tracking-wider mb-1">Title</label>
+                    <input type="text" class="banner-title w-full bg-white border border-brand-200 p-2.5 rounded-xl text-sm outline-none" placeholder="Weekend brunch">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-bold text-brand-900/70 uppercase tracking-wider mb-1">Subtitle</label>
+                    <input type="text" class="banner-subtitle w-full bg-white border border-brand-200 p-2.5 rounded-xl text-sm outline-none" placeholder="10 AM – 2 PM">
+                </div>
+            </div>
+            <div>
+                <label class="block text-[11px] font-bold text-brand-900/70 uppercase tracking-wider mb-1">Description</label>
+                <textarea class="banner-description w-full bg-white border border-brand-200 p-2.5 rounded-xl text-sm outline-none" rows="2" placeholder="Short offer copy"></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[11px] font-bold text-brand-900/70 uppercase tracking-wider mb-1">Link (optional)</label>
+                    <input type="text" class="banner-action w-full bg-white border border-brand-200 p-2.5 rounded-xl text-sm outline-none" placeholder="https://...">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-bold text-brand-900/70 uppercase tracking-wider mb-1">Image URL (optional)</label>
+                    <input type="text" class="banner-image w-full bg-white border border-brand-200 p-2.5 rounded-xl text-sm outline-none" placeholder="https://.../image.jpg">
+                </div>
+            </div>
+            <button type="button" onclick="this.closest('.banner-row').remove()" class="text-xs font-bold text-error-600 hover:underline">Remove</button>
+        `;
+        list.appendChild(wrap);
+    }
+
+    function collectPortalBanners() {
+        const banners = [];
+        document.querySelectorAll('#bannersList .banner-row').forEach((row) => {
+            const title = (row.querySelector('.banner-title')?.value || '').trim();
+            if (!title) return;
+            banners.push({
+                title,
+                subtitle: (row.querySelector('.banner-subtitle')?.value || '').trim(),
+                description: (row.querySelector('.banner-description')?.value || '').trim(),
+                action: (row.querySelector('.banner-action')?.value || '').trim(),
+                image: (row.querySelector('.banner-image')?.value || '').trim()
+            });
+        });
+        return banners;
+    }
+
     async function submitGuestPortalSettings(e) {
         e.preventDefault();
         const upsell = document.getElementById('portal_upsell_enabled').checked;
@@ -2452,6 +2554,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
         const extendStayEnabled = document.getElementById('portal_extend_stay_enabled').checked;
         const upgradeEnabled = document.getElementById('portal_upgrade_enabled').checked;
         const contactEnabled = document.getElementById('portal_contact_enabled').checked;
+        const banners = collectPortalBanners();
         
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
 
@@ -2486,7 +2589,8 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                     wakeup_enabled: wakeupEnabled,
                     extend_stay_enabled: extendStayEnabled,
                     upgrade_enabled: upgradeEnabled,
-                    contact_enabled: contactEnabled
+                    contact_enabled: contactEnabled,
+                    banners: banners
                 })
             });
             const data = await res.json();

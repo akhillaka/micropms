@@ -731,25 +731,41 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
             </div>
 
             <!-- Today's Highlights -->
-            <?php if (!empty($banners)): ?>
+            <?php
+            $portalBanners = array_values(array_filter($banners, static function ($banner) {
+                return is_array($banner) && trim((string)($banner['title'] ?? '')) !== '';
+            }));
+            ?>
+            <?php if ($portalBanners !== []): ?>
             <div class="mb-4 flex justify-between items-center">
-                <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider">Today's Highlights</h3>
+                <h3 class="text-sm font-bold text-gray-600 uppercase tracking-wider">Today's Highlights</h3>
             </div>
-            <div class="flex overflow-x-auto gap-4 pb-4 hide-scrollbar">
-                <?php foreach ($banners as $banner): ?>
-                <div class="neumorphic-card min-w-[200px] max-w-[240px] p-4 flex-shrink-0 flex flex-col justify-between" onclick="window.location.href='<?= htmlspecialchars($banner['action']) ?>'">
-                    <div>
-                        <?php if(!empty($banner['image'])): ?>
-                            <img src="<?= htmlspecialchars($banner['image']) ?>" alt="" class="w-full h-24 object-cover rounded-lg mb-3">
-                        <?php endif; ?>
-                        <p class="font-bold text-gray-800 text-sm mb-1"><?= htmlspecialchars($banner['title']) ?></p>
-                        <p class="text-xs text-[var(--accent-gold-dark)] font-bold mb-2"><?= htmlspecialchars($banner['subtitle']) ?></p>
-                        <?php if(!empty($banner['description'])): ?>
-                            <p class="text-[10px] text-gray-500 leading-tight"><?= htmlspecialchars($banner['description']) ?></p>
-                        <?php endif; ?>
+            <div class="gp-banner-carousel mb-4" id="gpBannerCarousel" data-count="<?= count($portalBanners) ?>">
+                <div class="gp-banner-viewport">
+                    <div class="gp-banner-track">
+                        <?php foreach ($portalBanners as $banner): ?>
+                        <?php
+                            $bannerAction = trim((string)($banner['action'] ?? ''));
+                            $bannerHref = $bannerAction !== '' && preg_match('#^https?://#i', $bannerAction) ? $bannerAction : '';
+                        ?>
+                        <article class="gp-banner-slide neumorphic-card"<?= $bannerHref !== '' ? ' data-href="' . htmlspecialchars($bannerHref, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
+                            <?php if (!empty($banner['image'])): ?>
+                                <img src="<?= htmlspecialchars((string)$banner['image']) ?>" alt="" class="gp-banner-image">
+                            <?php endif; ?>
+                            <p class="font-bold text-gray-800 text-sm mb-1"><?= htmlspecialchars((string)$banner['title']) ?></p>
+                            <?php if (!empty($banner['subtitle'])): ?>
+                                <p class="text-xs text-[var(--accent-gold-dark)] font-bold mb-2"><?= htmlspecialchars((string)$banner['subtitle']) ?></p>
+                            <?php endif; ?>
+                            <?php if (!empty($banner['description'])): ?>
+                                <p class="text-[10px] text-gray-500 leading-tight"><?= htmlspecialchars((string)$banner['description']) ?></p>
+                            <?php endif; ?>
+                        </article>
+                        <?php endforeach; ?>
                     </div>
                 </div>
-                <?php endforeach; ?>
+                <?php if (count($portalBanners) > 1): ?>
+                <div class="gp-banner-dots" role="tablist" aria-label="Banner slides"></div>
+                <?php endif; ?>
             </div>
             <?php endif; ?>
             
@@ -1153,6 +1169,64 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
             closeSheet();
             if (cb) cb();
         });
+
+        function initBannerCarousel() {
+            const root = document.getElementById('gpBannerCarousel');
+            if (!root) return;
+            const track = root.querySelector('.gp-banner-track');
+            const slides = Array.from(root.querySelectorAll('.gp-banner-slide'));
+            const dotsWrap = root.querySelector('.gp-banner-dots');
+            const count = slides.length;
+            if (!track || count === 0) return;
+
+            slides.forEach((slide) => {
+                const href = slide.getAttribute('data-href');
+                if (href) {
+                    slide.style.cursor = 'pointer';
+                    slide.addEventListener('click', () => { window.location.href = href; });
+                }
+            });
+
+            if (count < 2 || !dotsWrap) return;
+
+            let index = 0;
+            const dots = slides.map((_, i) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'gp-banner-dot' + (i === 0 ? ' is-active' : '');
+                btn.setAttribute('aria-label', 'Show highlight ' + (i + 1));
+                btn.addEventListener('click', () => goTo(i, true));
+                dotsWrap.appendChild(btn);
+                return btn;
+            });
+
+            function goTo(next, pause) {
+                index = (next + count) % count;
+                track.style.transform = 'translateX(-' + (index * 100) + '%)';
+                dots.forEach((dot, i) => dot.classList.toggle('is-active', i === index));
+                if (pause) restart();
+            }
+
+            let timer = null;
+            function start() {
+                stop();
+                timer = setInterval(() => goTo(index + 1, false), 4500);
+            }
+            function stop() {
+                if (timer) clearInterval(timer);
+                timer = null;
+            }
+            function restart() {
+                start();
+            }
+
+            root.addEventListener('mouseenter', stop);
+            root.addEventListener('mouseleave', start);
+            root.addEventListener('touchstart', stop, { passive: true });
+            root.addEventListener('touchend', start, { passive: true });
+            start();
+        }
+        document.addEventListener('DOMContentLoaded', initBannerCarousel);
 
         function switchTab(tabId) {
             const view = document.getElementById('view-' + tabId);

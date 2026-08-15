@@ -143,77 +143,68 @@ class NotificationRelay {
     /**
      * Send a test message to verify Telegram integration.
      */
-    public static function sendTestTelegram(): array {
-        // Ensure Database settings are loaded dynamically
+    public static function sendTestTelegram(?int $propertyId = null): array {
         require_once __DIR__ . '/Database.php';
-        Database::getInstance();
+        $db = Database::getInstance()->getConnection();
 
-        if (!defined('TELEGRAM_BOT_TOKEN') || empty(TELEGRAM_BOT_TOKEN) || TELEGRAM_BOT_TOKEN === 'your_telegram_bot_token') {
-            return ['ok' => false, 'error' => 'Bot token not configured'];
+        if ($propertyId === null) {
+            require_once __DIR__ . '/AuthHelper.php';
+            $propertyId = (int)AuthHelper::getPropertyId();
+        }
+
+        $stmt = $db->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ? AND key_name IN ('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID')");
+        $stmt->execute([$propertyId]);
+        $settings = [];
+        while ($row = $stmt->fetch()) {
+            $settings[$row['key_name']] = $row['key_value'];
+        }
+
+        $token = trim((string)($settings['TELEGRAM_BOT_TOKEN'] ?? (defined('TELEGRAM_BOT_TOKEN') ? TELEGRAM_BOT_TOKEN : '')));
+        $chatIds = (string)($settings['TELEGRAM_CHAT_ID'] ?? (defined('TELEGRAM_CHAT_ID') ? TELEGRAM_CHAT_ID : ''));
+
+        if ($token === '' || $token === 'your_telegram_bot_token') {
+            return ['ok' => false, 'success' => false, 'error' => 'Bot token not configured'];
+        }
+
+        $idList = array_values(array_filter(array_map('trim', explode(',', $chatIds))));
+        if ($idList === []) {
+            return ['ok' => false, 'success' => false, 'error' => 'Chat ID not configured'];
         }
 
         $msg = "✅ <b>MicroPMS Telegram Test</b>\n\n"
              . "Bot is connected and working!\n"
-             . "Time: " . date('d M Y, h:i A') . "\n"
-             . "Server: " . gethostname();
+             . "Time: " . date('d M Y, h:i A');
 
-        $url = 'https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage';
-        
-        $chatIds = defined('TELEGRAM_CHAT_ID') ? TELEGRAM_CHAT_ID : '';
-        $idList = array_filter(array_map('trim', explode(',', $chatIds)));
-        
-        if (empty($idList)) {
-            return ['ok' => false, 'error' => 'Chat ID not configured'];
-        }
-        
-        $results = [];
+        $url = 'https://api.telegram.org/bot' . $token . '/sendMessage';
+        $sent = 0;
+        $lastError = '';
+
         foreach ($idList as $id) {
-            $data = [
+            $res = self::makePostRequest($url, [
                 'chat_id'    => $id,
                 'text'       => $msg,
-                'parse_mode' => 'HTML'
-            ];
-
-            try {
-                $ch = curl_init($url);
-                if ($ch === false) {
-                    throw new \RuntimeException('Failed to initialize cURL');
-                }
-                
-                curl_setopt($ch, CURLOPT_POST, 1);
-                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-                curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-                
-                $response = curl_exec($ch);
-
-                if (curl_errno($ch)) {
-                    throw new \RuntimeException("cURL Error: " . curl_error($ch));
-                }
-
-                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                curl_close($ch); // FIX: Close handle
-                $body = is_string($response) ? json_decode($response, true) : [];
-
-                $success = match (true) {
-                    isset($body['ok']) && $body['ok'] === true => true,
-                    $httpCode >= 200 && $httpCode < 300 => true,
-                    default => false
-                };
-                
-                if (!$success) {
-                    return ['ok' => false, 'error' => $body['description'] ?? "HTTP $httpCode on chat ID $id"];
-                }
-            } catch (\Exception $e) {
-                if (isset($ch) && $ch !== false && (is_resource($ch) || $ch instanceof \CurlHandle)) {
-                    curl_close($ch);
-                }
-                return ['ok' => false, 'error' => $e->getMessage() . " on chat ID $id"];
+                'parse_mode' => 'HTML',
+            ]);
+            if (is_array($res) && !empty($res['ok'])) {
+                $sent++;
+            } else {
+                $lastError = is_array($res)
+                    ? (string)($res['error_message'] ?? $res['description'] ?? 'Telegram rejected the request')
+                    : 'Could not reach Telegram';
             }
         }
-        return ['ok' => true];
+
+        if ($sent > 0) {
+            return [
+                'ok' => true,
+                'success' => true,
+                'message' => $sent === count($idList)
+                    ? 'Test message sent'
+                    : "Sent to {$sent} of " . count($idList) . ' chats' . ($lastError !== '' ? ": {$lastError}" : ''),
+            ];
+        }
+
+        return ['ok' => false, 'success' => false, 'error' => $lastError !== '' ? $lastError : 'Telegram test failed'];
     }
 
     public static function sendWhatsApp(string $phoneNumber, array|string $payloadData, bool $isTemplate = true, ?int $propertyId = null): array {

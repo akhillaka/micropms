@@ -8,7 +8,11 @@ require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('manage_settings');
 
-    $data = json_decode(file_get_contents('php://input'), true);
+    $data = CsrfToken::getJsonPayload();
+    if ($data === []) {
+        $data = json_decode((string)file_get_contents('php://input'), true);
+        $data = is_array($data) ? $data : [];
+    }
     $propertyId = AuthHelper::getPropertyId();
     
     $settings = [
@@ -38,6 +42,28 @@ ApiHandler::run(function(\PDO $db) {
         'GUEST_PORTAL_HELP_DESK_NO'          => trim($data['help_desk_no'] ?? ''),
         'GUEST_PORTAL_LOCAL_ATTRACTIONS'     => trim($data['local_attractions'] ?? ''),
     ];
+
+    $bannerRows = $data['banners'] ?? null;
+    if (is_array($bannerRows)) {
+        $cleanBanners = [];
+        foreach ($bannerRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $title = trim((string)($row['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            $cleanBanners[] = [
+                'title' => $title,
+                'subtitle' => trim((string)($row['subtitle'] ?? '')),
+                'description' => trim((string)($row['description'] ?? '')),
+                'action' => trim((string)($row['action'] ?? '')),
+                'image' => trim((string)($row['image'] ?? '')),
+            ];
+        }
+        $settings['GUEST_PORTAL_BANNERS'] = json_encode($cleanBanners, JSON_UNESCAPED_UNICODE);
+    }
 
     $stmt = $db->prepare("INSERT INTO system_settings (property_id, key_name, key_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE key_value = VALUES(key_value)");
     

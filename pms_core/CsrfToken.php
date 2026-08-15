@@ -85,6 +85,11 @@ class CsrfToken {
         return false;
     }
 
+    public static function getJsonPayload(): array {
+        $json = json_decode(self::getInputBody(), true);
+        return is_array($json) ? $json : [];
+    }
+
     public static function requireValid(): void {
         if (!self::validate()) {
             http_response_code(403);

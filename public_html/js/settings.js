@@ -554,20 +554,33 @@ async function testTelegram() {
                 _csrf_token: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
             })
         });
-        const data = await res.json();
-        if (data.ok) {
+        const raw = await res.text();
+        let data = {};
+        try {
+            data = raw ? JSON.parse(raw) : {};
+        } catch (parseErr) {
+            throw new Error(raw ? 'Invalid response from server' : 'Empty response from server');
+        }
+        if (data.ok || data.success) {
             btn.innerHTML = '<i class="ph ph-check-circle"></i> Sent!';
             btn.classList.remove('bg-sky-50', 'text-sky-600');
             btn.classList.add('bg-green-50', 'text-green-600');
+            if (typeof showToast === 'function') {
+                showToast(data.message || 'Telegram test message sent', 'success');
+            }
         } else {
             btn.innerHTML = '<i class="ph ph-x-circle"></i> Failed';
             btn.classList.remove('bg-sky-50', 'text-sky-600');
             btn.classList.add('bg-red-50', 'text-red-600');
-            showToast('Test failed: ' + (data.error || 'Unknown error'));
+            if (typeof showToast === 'function') {
+                showToast('Test failed: ' + (data.error || data.message || 'Unknown error'), 'error');
+            }
         }
     } catch(e) {
         btn.innerHTML = '<i class="ph ph-x-circle"></i> Error';
-        showToast('Connection error');
+        if (typeof showToast === 'function') {
+            showToast(e && e.message ? e.message : 'Could not reach the Telegram test API', 'error');
+        }
     }
 
     setTimeout(() => {
