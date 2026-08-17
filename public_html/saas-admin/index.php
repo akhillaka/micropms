@@ -469,6 +469,29 @@ try {
                 $error = "Plan ID and Name are required.";
             }
         }
+
+        if ($action === 'deploy_hostinger') {
+            require_once __DIR__ . '/../../pms_core/CsrfToken.php';
+            require_once __DIR__ . '/../../pms_core/services/GithubDeployService.php';
+            require_once __DIR__ . '/../../pms_core/AuditLogger.php';
+            if (!CsrfToken::validate($_POST['_csrf_token'] ?? null)) {
+                $error = 'Security token expired. Refresh the page and try again.';
+            } else {
+                $deployResult = GithubDeployService::triggerDeploy();
+                if (!empty($deployResult['ok'])) {
+                    $message = $deployResult['message'];
+                    try {
+                        AuditLogger::log((int)($_SESSION['saas_admin_id'] ?? 0), 'DEPLOY_HOSTINGER', 'SYSTEM', null, [
+                            'repo' => GithubDeployService::repo(),
+                        ]);
+                    } catch (\Throwable $e) {
+                    }
+                } else {
+                    $error = $deployResult['message'] ?? 'Deploy failed';
+                }
+            }
+            $openSaasTab = 'deploy';
+        }
     }
 
 // Fetch all properties
@@ -501,6 +524,12 @@ $saasTrialDays = (int)($settings['SAAS_TRIAL_DAYS'] ?? 30);
 $saasDefaultCurrency = $settings['SAAS_DEFAULT_CURRENCY'] ?? 'INR';
 $saasPortalSubdomain = $settings['SAAS_PORTAL_SUBDOMAIN'] ?? '';
 $saasPlans = SaaSPlans::get($db);
+
+require_once __DIR__ . '/../../pms_core/CsrfToken.php';
+require_once __DIR__ . '/../../pms_core/services/GithubDeployService.php';
+$deployConfigured = GithubDeployService::isConfigured();
+$deployLatestRun = $deployConfigured ? GithubDeployService::latestRun() : null;
+$openSaasTab = $openSaasTab ?? '';
 
 $metrics = [
     'active_tenants' => 0,
@@ -790,6 +819,9 @@ try {
             <button onclick="switchTab('onboard')" id="tab-onboard" class="tab-btn">
                 <i class="ph ph-user-plus"></i> Onboarding
             </button>
+            <button onclick="switchTab('deploy')" id="tab-deploy" class="tab-btn">
+                <i class="ph ph-rocket-launch"></i> Deploy
+            </button>
             <button onclick="switchTab('settings')" id="tab-settings" class="tab-btn">
                 <i class="ph ph-gear"></i> Settings
             </button>
@@ -1009,6 +1041,64 @@ try {
             </div>
         </div>
             
+        <!-- TAB CONTENT: Deploy to Hostinger -->
+        <div id="content-deploy" class="tab-content hidden">
+            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm max-w-2xl mx-auto overflow-hidden">
+                <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                    <h2 class="font-extrabold text-slate-900 flex items-center gap-2">
+                        <i class="ph ph-rocket-launch text-blue-700"></i> Push update to Hostinger
+                    </h2>
+                    <p class="text-xs text-slate-500 mt-1">Starts the GitHub Action that copies <code class="font-mono">public_html</code>, <code class="font-mono">pms_core</code>, and <code class="font-mono">db_migrations</code> to the live server. Does not overwrite <code class="font-mono">.env</code> or uploads.</p>
+                </div>
+                <div class="p-6 space-y-4">
+                    <?php
+                    $runStatus = $deployLatestRun['status'] ?? '';
+                    $runConclusion = $deployLatestRun['conclusion'] ?? '';
+                    $runLabel = 'No runs yet';
+                    if ($runStatus === 'in_progress' || $runStatus === 'queued') {
+                        $runLabel = 'In progress';
+                    } elseif ($runConclusion === 'success') {
+                        $runLabel = 'Last run succeeded';
+                    } elseif ($runConclusion === 'failure' || $runConclusion === 'cancelled') {
+                        $runLabel = 'Last run: ' . $runConclusion;
+                    } elseif ($runStatus !== '') {
+                        $runLabel = $runStatus;
+                    }
+                    ?>
+                    <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 text-sm">
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Latest GitHub run</p>
+                        <p class="font-bold text-slate-800"><?= htmlspecialchars($runLabel) ?></p>
+                        <?php if (!empty($deployLatestRun['created_at'])): ?>
+                            <p class="text-xs text-slate-500 mt-1">
+                                <?= htmlspecialchars((string)date('d M Y, g:i A', strtotime($deployLatestRun['created_at']))) ?>
+                                <?php if (!empty($deployLatestRun['head_sha'])): ?>
+                                    · <?= htmlspecialchars($deployLatestRun['head_sha']) ?>
+                                <?php endif; ?>
+                            </p>
+                        <?php endif; ?>
+                        <?php if (!empty($deployLatestRun['html_url'])): ?>
+                            <a href="<?= htmlspecialchars($deployLatestRun['html_url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="text-xs font-bold text-blue-700 hover:underline mt-2 inline-block">Open log on GitHub</a>
+                        <?php endif; ?>
+                    </div>
+
+                    <?php if ($deployConfigured): ?>
+                    <form method="POST" onsubmit="return confirm('Push the current GitHub main branch to Hostinger now?');">
+                        <input type="hidden" name="action" value="deploy_hostinger">
+                        <?= CsrfToken::field() ?>
+                        <button type="submit" class="btn-primary-saas w-full py-3.5 text-sm justify-center">
+                            <i class="ph ph-rocket-launch text-base"></i> Deploy to Hostinger
+                        </button>
+                    </form>
+                    <p class="text-[11px] text-slate-500">After a green run, open <a href="/admin/run_migration.php" class="font-bold text-blue-700 hover:underline">/admin/run_migration.php</a> as superadmin if this release added database files.</p>
+                    <?php else: ?>
+                    <p class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-4">
+                        Add <code class="font-mono font-bold">GITHUB_DEPLOY_TOKEN</code> to the server <code class="font-mono">.env</code> (a GitHub personal access token with Actions write on this repo). Then reload this page.
+                    </p>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
         <!-- TAB CONTENT: Platform Settings -->
         <div id="content-settings" class="tab-content hidden">
             <form method="POST" class="space-y-6 max-w-4xl mx-auto">
@@ -1427,6 +1517,9 @@ try {
             document.getElementById('content-' + tabId).classList.remove('hidden');
             document.getElementById('tab-' + tabId).classList.add('active');
         }
+        <?php if (($openSaasTab ?? '') === 'settings' || ($openSaasTab ?? '') === 'deploy'): ?>
+        switchTab(<?= json_encode($openSaasTab) ?>);
+        <?php endif; ?>
 
         function openEditModal(p) {
             document.getElementById('edit_property_id').value = p.id || '';
