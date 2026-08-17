@@ -64,6 +64,7 @@ function renderTimeOptions(string $selectedVal = ''): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MicroPMS Booking</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="js/api-client.js"></script>
     <script src="js/ui.js"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -125,6 +126,19 @@ function renderTimeOptions(string $selectedVal = ''): string {
             border-color: #1E3A8A !important;
             box-shadow: 0 0 0 4px rgba(30, 58, 138, 0.15) !important;
         }
+        @keyframes pms-skeleton { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+        .skeleton {
+            display: block;
+            background: linear-gradient(90deg, #e2e8f0 0%, #f8fafc 45%, #e2e8f0 90%);
+            background-size: 200% 100%;
+            animation: pms-skeleton 1.15s ease infinite;
+            border-radius: 6px;
+            min-height: 0.75rem;
+        }
+        .skeleton.h-16 { height: 4rem; }
+        .skeleton.w-full { width: 100%; }
+        .pms-empty-state { display:flex; flex-direction:column; align-items:center; gap:8px; padding:28px 16px; color:#64748B; text-align:center; }
+        .pms-empty-retry { margin-top:6px; background:#fff; border:1px solid #E2E8F0; border-radius:0.75rem; padding:0.5rem 1rem; font-size:0.8125rem; font-weight:700; color:#1E3A8A; cursor:pointer; }
     </style>
 </head>
 <body class="flex flex-col min-h-screen bg-gradient-to-tr from-slate-50 via-indigo-50/20 to-slate-100/50">

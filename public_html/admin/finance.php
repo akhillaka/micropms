@@ -545,9 +545,11 @@ $totalCatExpenses = array_sum($catSummary);
                         <tbody class="divide-y divide-gray-50" id="desktopLedger">
                             <?php if(empty($transactions)): ?>
                             <tr>
-                                <td colspan="6" class="px-6 py-12 text-center text-brand-900/50 font-medium text-sm">
-                                    <i class="ph ph-receipt text-3xl mb-2 block opacity-50"></i>
-                                    No ledger entries found for this period.
+                                <td colspan="7" class="px-6 py-12 text-center text-slate-500">
+                                    <div class="pms-empty-state">
+                                        <i class="ph ph-receipt"></i>
+                                        <p>No ledger entries found for this period.</p>
+                                    </div>
                                 </td>
                             </tr>
                             <?php else: ?>
@@ -821,8 +823,15 @@ $totalCatExpenses = array_sum($catSummary);
         function setDates(start, end) {
             document.getElementById('dateStart').value = start;
             document.getElementById('dateEnd').value = end;
+            const ledger = document.getElementById('desktopLedger');
+            if (ledger && window.ApiClient) ApiClient.showSkeleton(ledger, { rows: 6, type: 'table' });
             document.getElementById('filterForm').submit();
         }
+
+        document.getElementById('filterForm')?.addEventListener('submit', function () {
+            const ledger = document.getElementById('desktopLedger');
+            if (ledger && window.ApiClient) ApiClient.showSkeleton(ledger, { rows: 6, type: 'table' });
+        });
         
         function filterLedger() {
             const searchInput = document.getElementById('ledgerSearch').value.toLowerCase();

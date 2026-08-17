@@ -476,7 +476,17 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                     <th class="px-5 py-3 text-right">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="folio-ledger-body">
+                                <?php if (empty($ledger)): ?>
+                                <tr>
+                                    <td colspan="13" class="px-5 py-12 text-center text-slate-500">
+                                        <div class="pms-empty-state">
+                                            <i class="ph ph-notebook"></i>
+                                            <p>No folio charges yet. Post a transaction to start the ledger.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <?php else: ?>
                                 <?php 
                                 $runningBalance = 0;
                                 $srNo = 1;
@@ -541,6 +551,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                     </td>
                                 </tr>
                                 <?php endforeach; ?>
+                                <?php endif; ?>
                             </tbody>
                         </table>
                     </div>

@@ -712,6 +712,20 @@ try {
 
         /* ── Loading/Toast stubs ── */
         #global-toast-container { position:fixed; bottom:24px; right:24px; z-index:9999; display:flex; flex-direction:column; gap:10px; pointer-events:none; }
+        @keyframes pms-skeleton { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+        .skeleton {
+            display: block;
+            background: linear-gradient(90deg, #e2e8f0 0%, #f8fafc 45%, #e2e8f0 90%);
+            background-size: 200% 100%;
+            animation: pms-skeleton 1.15s ease infinite;
+            border-radius: 6px;
+            min-height: 0.75rem;
+        }
+        .skeleton.h-4 { height: 1rem; }
+        .skeleton.w-full { width: 100%; }
+        .pms-empty-state { display:flex; flex-direction:column; align-items:center; gap:8px; padding:28px 16px; color:#64748B; text-align:center; }
+        .pms-empty-state i { font-size:1.75rem; opacity:0.45; }
+        .pms-empty-retry { margin-top:6px; background:#fff; border:1px solid #E2E8F0; border-radius:0.75rem; padding:0.5rem 1rem; font-size:0.8125rem; font-weight:700; color:#1E3A8A; cursor:pointer; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen pb-16">
@@ -873,7 +887,17 @@ try {
                                 <th class="text-right">Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="saas-properties-body">
+                            <?php if (empty($properties)): ?>
+                                <tr>
+                                    <td colspan="6" class="px-6 py-12 text-center text-slate-500">
+                                        <div class="pms-empty-state">
+                                            <i class="ph ph-buildings"></i>
+                                            <p>No properties registered yet.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php else: ?>
                             <?php foreach ($properties as $p): ?>
                                 <tr>
                                     <td>
@@ -961,6 +985,7 @@ try {
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
@@ -1529,6 +1554,7 @@ try {
         </div>
     </div>
 
+    <script src="/js/api-client.js"></script>
     <script>
         const csrfToken = <?= json_encode(CsrfToken::generate()) ?>;
         document.querySelectorAll('form').forEach((form) => {
@@ -1601,6 +1627,8 @@ try {
         }
 
         async function loadStaffList() {
+            const tbody = document.getElementById('staffListBody');
+            if (window.ApiClient) ApiClient.showSkeleton(tbody, { rows: 4, type: 'table' });
             const formData = new FormData();
             formData.append('action', 'get_staff');
             formData.append('property_id', activePropertyId);
@@ -1610,10 +1638,13 @@ try {
                 const res = await fetch('', { method: 'POST', body: formData });
                 const data = await res.json();
                 if (data.success) {
-                    const tbody = document.getElementById('staffListBody');
                     tbody.innerHTML = '';
                     if (data.staff.length === 0) {
-                        tbody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 text-center text-slate-500">No staff users registered.</td></tr>`;
+                        if (window.ApiClient) {
+                            ApiClient.showEmptyState(tbody, { message: 'No staff users registered.', icon: 'ph-users' });
+                        } else {
+                            tbody.innerHTML = `<tr><td colspan="4" class="px-4 py-3 text-center text-slate-500">No staff users registered.</td></tr>`;
+                        }
                         return;
                     }
                     data.staff.forEach(su => {
@@ -1690,6 +1721,8 @@ try {
         }
 
         async function loadSystemLogs() {
+            const tbody = document.getElementById('systemLogsBody');
+            if (window.ApiClient) ApiClient.showSkeleton(tbody, { rows: 6, type: 'table' });
             const propId = document.getElementById('logFilterProperty').value;
             const formData = new FormData();
             formData.append('action', 'get_audit_logs');
@@ -1702,10 +1735,13 @@ try {
                 const res = await fetch('', { method: 'POST', body: formData });
                 const data = await res.json();
                 if (data.success) {
-                    const tbody = document.getElementById('systemLogsBody');
                     tbody.innerHTML = '';
                     if (data.logs.length === 0) {
-                        tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-4 text-center text-slate-500">No logs found.</td></tr>`;
+                        if (window.ApiClient) {
+                            ApiClient.showEmptyState(tbody, { message: 'No logs found.', icon: 'ph-scroll' });
+                        } else {
+                            tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-4 text-center text-slate-500">No logs found.</td></tr>`;
+                        }
                         return;
                     }
                     data.logs.forEach(log => {

@@ -71,9 +71,9 @@ class BookingAssistant {
 
   // Initialize event listeners
   initEventListeners() {
-    // Check if network status shifts
     window.addEventListener('online', () => this.handleNetworkChange(true));
     window.addEventListener('offline', () => this.handleNetworkChange(false));
+    document.addEventListener('pms:offline-queue', (e) => this.updateOfflineBanner(e.detail || {}));
   }
 
   // Network offline/online status check
@@ -82,13 +82,37 @@ class BookingAssistant {
   }
 
   handleNetworkChange(isOnline) {
+    this.updateOfflineBanner({ online: isOnline });
+    if (isOnline && window.ApiClient) {
+      ApiClient.offlineQueue.flushWhenOnline().catch(() => { /* ignore */ });
+    }
+  }
+
+  async updateOfflineBanner(detail) {
     const banner = document.getElementById('offline-banner');
     if (!banner) return;
-    if (isOnline) {
-      banner.style.display = 'none';
-    } else {
-      banner.style.display = 'block';
+    const online = detail.online != null ? detail.online : navigator.onLine;
+    let remaining = detail.remaining;
+    if (remaining == null && window.ApiClient) {
+      remaining = await ApiClient.offlineQueue.count().catch(() => 0);
     }
+    remaining = remaining || 0;
+    if (!online) {
+      banner.style.display = 'block';
+      banner.classList.remove('syncing');
+      banner.textContent = remaining
+        ? `⚠️ Offline Mode — ${remaining} action(s) waiting to sync`
+        : '⚠️ Offline Mode — actions will sync when you are back online';
+      return;
+    }
+    if (remaining > 0) {
+      banner.style.display = 'block';
+      banner.classList.add('syncing');
+      banner.textContent = `🔄 Syncing ${remaining} saved action(s)…`;
+      return;
+    }
+    banner.style.display = 'none';
+    banner.classList.remove('syncing');
   }
 
   // Check user auth status on startup
@@ -100,6 +124,7 @@ class BookingAssistant {
       if (response && response.success && response.logged_in) {
         this.currentUser = response.user;
         this.csrfToken = response.csrf_token;
+        if (this.csrfToken) window.__PMS_CSRF = this.csrfToken;
         document.getElementById('user-display-name').textContent = this.currentUser.username.toUpperCase();
         this.showScreen('dashboard');
         this.startLiveSync();
@@ -636,6 +661,7 @@ class BookingAssistant {
       if (res && res.success) {
         this.currentUser = res.user;
         this.csrfToken = res.csrf_token;
+        if (this.csrfToken) window.__PMS_CSRF = this.csrfToken;
         document.getElementById('user-display-name').textContent = this.currentUser.username.toUpperCase();
         document.getElementById('header-user').style.display = 'flex';
         document.getElementById('bottom-nav').style.display = 'flex';
@@ -664,6 +690,10 @@ class BookingAssistant {
   // Load Dashboard statistical information
   async loadDashboardData() {
     try {
+      ['db-stat-occupied', 'db-stat-available', 'db-stat-cleaning', 'stat-available', 'stat-occupied', 'stat-cleaning'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el && window.ApiClient) ApiClient.showSkeleton(el, { type: 'kpi' });
+      });
       const res = await this.apiCall('api/dashboard.php');
       if (res && res.success) {
         document.getElementById('stat-available').textContent = res.summary.available_rooms;
@@ -1201,20 +1231,21 @@ class BookingAssistant {
 
     // Call API to create guest profile (or check duplicate mobile number)
     this.showLoading('Saving guest profile...');
+    const clientId = 'offline_guest_' + Date.now();
     try {
       const res = await this.apiCall('api/guests.php?action=create', {
         phone: this.wizardData.guest_phone,
         name: this.wizardData.guest_name
-      });
+      }, { queueOffline: true, clientId, queueLabel: 'Create guest' });
       this.hideLoading();
 
-      if (res && res.success) {
-        this.wizardData.guest_id = res.guest_id;
+      if (res && (res.success || res.queued)) {
+        this.wizardData.guest_id = res.queued ? clientId : res.guest_id;
         this.wizardData.is_new_guest = true;
-        this.wizardData.id_status = 'Pending';
+        this.wizardData.id_status = res.queued ? 'Offline Draft' : 'Pending';
         
         this.nextWizardStep(3);
-        this.showToast('Guest profile created', 'success');
+        this.showToast(res.queued ? 'Offline: guest saved locally and will sync later' : 'Guest profile created', res.queued ? 'info' : 'success');
       } else {
         this.showToast(res.message || 'Failed to save profile', 'danger');
       }
@@ -1322,40 +1353,20 @@ class BookingAssistant {
 
   async uploadCapturedImage(base64Data) {
     this.showLoading('Uploading ID proof...');
-    
     try {
-      const loc = window.location.pathname;
-      const assistantIndex = loc.indexOf('/assistant');
-      const pmsApiBase = assistantIndex !== -1 ? loc.substring(0, assistantIndex) + '/api/' : '/api/';
-      const uploadUrl = pmsApiBase + 'ocr_upload.php';
-      
-      const headers = {
-        'Content-Type': 'application/json'
-      };
-      if (this.csrfToken) {
-        headers['X-CSRF-TOKEN'] = this.csrfToken;
-      }
-      
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({
-          image: base64Data,
-          guest_id: this.wizardData.guest_id,
-          id_type: this.activeScanSide === 'front' ? 'id_proof_front' : 'id_proof_back'
-        }),
-        cache: 'no-store'
-      });
-      
-      const res = await response.json();
+      const res = await this.apiCall('api/ocr_upload.php', {
+        image: base64Data,
+        guest_id: this.wizardData.guest_id,
+        id_type: this.activeScanSide === 'front' ? 'id_proof_front' : 'id_proof_back'
+      }, { queueOffline: true, queueKind: 'upload', queueLabel: 'ID proof upload' });
       this.hideLoading();
-      
-      if (res && res.success) {
-        this.showToast('ID proof uploaded successfully!', 'success');
-        Voice.speak('ID proof uploaded successfully.');
+
+      if (res && (res.success || res.queued)) {
+        this.showToast(res.queued ? 'Offline: ID queued for upload' : 'ID proof uploaded successfully!', res.queued ? 'info' : 'success');
+        Voice.speak(res.queued ? 'Saved offline. Will upload later.' : 'ID proof uploaded successfully.');
         this.loadDashboardData();
       } else {
-        this.showToast(res?.error || 'Upload failed', 'danger');
+        this.showToast(res?.message || res?.error || 'Upload failed', 'danger');
         Voice.speak('Upload failed. Please try again.');
       }
     } catch (e) {
@@ -1474,56 +1485,38 @@ class BookingAssistant {
     
     this.showLoading('Uploading ID proof...');
     
-    // Save image to server and update guest profile
     try {
       const uploadRes = await this.apiCall('api/ocr_upload.php', {
         guest_id: this.wizardData.guest_id,
         id_type: this.activeScanSide === 'front' ? 'id_proof_front' : 'id_proof_back',
         image: this.currentCapturedImageBase64
-      });
+      }, { queueOffline: true, queueKind: 'upload', queueLabel: 'ID proof upload' });
       this.hideLoading();
 
-      if (uploadRes && uploadRes.success) {
+      if (uploadRes && (uploadRes.success || uploadRes.queued)) {
+        const savedRef = uploadRes.queued
+          ? (this.currentCapturedImageBase64 || 'queued-id-image')
+          : uploadRes.filename;
         if (this.activeScanSide === 'front' && this.scanType === 'physical') {
-          // Scanned front of physical Aadhaar, now scan back
           this.activeScanSide = 'back';
-          this.wizardData.id_proof_front = uploadRes.filename;
-          
-          this.showToast('Front ID saved. Now scan back side.', 'info');
+          this.wizardData.id_proof_front = savedRef;
+          this.showToast(uploadRes.queued ? 'Offline: front ID queued for upload. Now scan back side.' : 'Front ID saved. Now scan back side.', 'info');
           Voice.speak('Front side saved. Now scan the back side of Aadhaar.');
-          
           setTimeout(() => this.openIdScanner('physical'), 800);
         } else {
-          // Finished ID verification steps
           if (this.activeScanSide === 'back') {
-            this.wizardData.id_proof_back = uploadRes.filename;
+            this.wizardData.id_proof_back = savedRef;
           } else {
-            this.wizardData.id_proof_front = uploadRes.filename; // Other ID/whatsapp
+            this.wizardData.id_proof_front = savedRef;
           }
-          
-          this.wizardData.id_status = 'Verified';
+          this.wizardData.id_status = uploadRes.queued ? 'Offline Draft' : 'Verified';
           this.nextWizardStep(4);
-          this.showToast('ID Verification completed', 'success');
+          this.showToast(uploadRes.queued ? 'Offline: ID saved and will upload when online' : 'ID Verification completed', uploadRes.queued ? 'info' : 'success');
         }
       }
     } catch (e) {
       this.hideLoading();
-      // Offline fallback: save images locally in wizardData
-      if (!navigator.onLine) {
-        if (this.activeScanSide === 'front' && this.scanType === 'physical') {
-          this.activeScanSide = 'back';
-          this.wizardData.id_proof_front = 'offline_front_placeholder.jpg';
-          this.showToast('Offline Mode: Front ID saved', 'info');
-          setTimeout(() => this.openIdScanner('physical'), 800);
-        } else {
-          this.wizardData.id_proof_back = 'offline_back_placeholder.jpg';
-          this.wizardData.id_status = 'Offline Draft';
-          this.nextWizardStep(4);
-          this.showToast('Offline Mode: ID verified offline', 'info');
-        }
-      } else {
-        this.showToast('Document upload error', 'danger');
-      }
+      this.showToast(e.message || 'Document upload error', 'danger');
     }
   }
 
@@ -2021,22 +2014,22 @@ class BookingAssistant {
     }
 
     try {
-      const res = await this.apiCall('api/bookings.php', payload);
+      const res = await this.apiCall('api/bookings.php', payload, { queueOffline: true, queueLabel: 'Create booking' });
       this.hideLoading();
 
-      if (res && res.success) {
-        this.completeBookingSuccess(res.booking_id, res.display_id);
+      if (res && (res.success || res.queued)) {
+        if (res.queued) {
+          this.completeBookingSuccess('pending', 'OFFLINE-SYNC');
+          this.showToast('Booking saved offline and will sync when you are online.', 'info');
+        } else {
+          this.completeBookingSuccess(res.booking_id, res.display_id);
+        }
       } else {
         this.showToast(res.message || 'Booking failed to create', 'danger');
       }
     } catch (e) {
       this.hideLoading();
-      
-      if (!navigator.onLine) {
-        this.showToast(e.message || 'No internet connection. Booking failed.', 'danger');
-      } else {
-        this.showToast('Server booking submission error', 'danger');
-      }
+      this.showToast(e.message || (!navigator.onLine ? 'No internet connection. Booking failed.' : 'Server booking submission error'), 'danger');
     }
   }
 
@@ -2815,41 +2808,26 @@ class BookingAssistant {
 
   async uploadIdProofFile(file, side, guestId) {
     this.showLoading('Uploading ID proof...');
-    
     try {
-      // Build the URL
-      const loc = window.location.pathname;
-      const assistantIndex = loc.indexOf('/assistant');
-      const pmsApiBase = assistantIndex !== -1 ? loc.substring(0, assistantIndex) + '/api/' : '/api/';
-      const uploadUrl = pmsApiBase + 'ocr_upload.php';
-      
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('guest_id', guestId);
-      formData.append('id_type', side === 'front' ? 'id_proof_front' : 'id_proof_back');
-      
-      const headers = {};
-      if (this.csrfToken) {
-        headers['X-CSRF-TOKEN'] = this.csrfToken;
-      }
-      
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: headers,
-        body: formData,
-        cache: 'no-store'
+      const image = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Could not read file'));
+        reader.readAsDataURL(file);
       });
-      
-      const res = await response.json();
+      const res = await this.apiCall('api/ocr_upload.php', {
+        guest_id: guestId,
+        id_type: side === 'front' ? 'id_proof_front' : 'id_proof_back',
+        image: image
+      }, { queueOffline: true, queueKind: 'upload', queueLabel: 'ID proof upload' });
       this.hideLoading();
-      
-      if (res && res.success) {
-        this.showToast('ID proof uploaded successfully!', 'success');
-        Voice.speak('ID proof uploaded successfully.');
-        // Refresh the notifications to remove the alert
+
+      if (res && (res.success || res.queued)) {
+        this.showToast(res.queued ? 'Offline: ID queued for upload' : 'ID proof uploaded successfully!', res.queued ? 'info' : 'success');
+        Voice.speak(res.queued ? 'Saved offline. Will upload later.' : 'ID proof uploaded successfully.');
         this.loadDashboardData();
       } else {
-        this.showToast(res?.error || 'Upload failed', 'danger');
+        this.showToast(res?.message || res?.error || 'Upload failed', 'danger');
         Voice.speak('Upload failed. Please try again.');
       }
     } catch (e) {
@@ -3576,6 +3554,7 @@ class BookingAssistant {
     this.hideLoading();
     this.currentUser = null;
     this.csrfToken = '';
+    window.__PMS_CSRF = '';
     this.loadStaffListForLogin();
   }
 
@@ -3648,16 +3627,15 @@ class BookingAssistant {
   }
 
   // --- UTILS & SHELL WRAPPERS ---
-  async apiCall(url, data = null) {
-    // Resolve dynamic path relative to the assistant subfolder
+  resolveApiUrl(url, bustCache) {
     const loc = window.location.pathname;
     const assistantIndex = loc.indexOf('/assistant');
     const basePath = assistantIndex !== -1 ? loc.substring(0, assistantIndex) + '/assistant/' : '/assistant/';
-    
+
     let cleanUrl = url;
     if (url.startsWith('./')) cleanUrl = url.substring(2);
     if (url.startsWith('/')) cleanUrl = url.substring(1);
-    
+
     let finalUrl = cleanUrl;
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       if (url.startsWith('../api/')) {
@@ -3675,47 +3653,71 @@ class BookingAssistant {
       }
     }
 
-    if (!data) {
+    if (bustCache) {
       finalUrl += (finalUrl.includes('?') ? '&' : '?') + '_t=' + Date.now();
     }
+    return finalUrl;
+  }
 
-    const options = {
-      method: data ? 'POST' : 'GET',
-      cache: 'no-store',
-      credentials: 'same-origin',
-      headers: {
-        'Accept': 'application/json',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
-    };
+  shouldQueueOffline(url, data) {
+    if (!data) return false;
+    const u = String(url);
+    if (/auth\.php|checkout\.php|dashboard\.php|payments\.php|pos\.php|booking_status|record_payment/.test(u)) {
+      return false;
+    }
+    const action = (data && data.action) || '';
+    if (u.includes('guests.php') && (action === 'create' || action === 'update_profile' || u.includes('action=create'))) return true;
+    if (u.includes('ocr_upload.php')) return true;
+    if (u.includes('bookings.php') && (action === 'create' || action === 'sync')) return true;
+    if (u.includes('housekeeping.php')) return true;
+    if (u.includes('quick_charges.php') && action === 'add') return true;
+    if (u.includes('service_requests.php')) return true;
+    return false;
+  }
 
-    if (this.csrfToken) {
-      options.headers['X-CSRF-TOKEN'] = this.csrfToken;
+  async apiCall(url, data = null, extra = {}) {
+    const finalUrl = this.resolveApiUrl(url, !data);
+    if (this.csrfToken) window.__PMS_CSRF = this.csrfToken;
+
+    const queueOffline = extra.queueOffline != null
+      ? extra.queueOffline
+      : this.shouldQueueOffline(finalUrl, data);
+
+    if (!window.ApiClient) {
+      throw new Error('API client failed to load');
     }
 
-    if (data) {
-      options.headers['Content-Type'] = 'application/json';
-      options.body = JSON.stringify(data);
-    }
-
-    const response = await fetch(finalUrl, options);
-    if (!response.ok) {
-      if (response.status === 419 || response.status === 403) {
+    try {
+      return await ApiClient.apiFetch(finalUrl, {
+        method: data ? 'POST' : 'GET',
+        body: data ? JSON.stringify(data) : undefined,
+        csrfToken: this.csrfToken,
+        queueOffline: queueOffline,
+        queueKind: extra.queueKind || 'json',
+        queueLabel: extra.queueLabel || '',
+        clientId: extra.clientId || '',
+        retryable: extra.retryable,
+        toast: false,
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+    } catch (e) {
+      if (e.status === 419 || (e.status === 403 && /csrf|session/i.test(String(e.message || e.code || '')))) {
         this.logout();
         throw new Error('CSRF Session Expired');
       }
-      let errorMsg = 'API server status failure';
-      try {
-        const errorData = await response.json();
-        if (errorData && errorData.message) {
-          errorMsg = errorData.message;
-        }
-      } catch (e) {}
-      
-      throw new Error(errorMsg);
+      if (e.queued) {
+        return { success: true, queued: true, message: e.message, clientId: extra.clientId || '' };
+      }
+      const err = new Error(e.message || 'API server status failure');
+      err.status = e.status;
+      err.code = e.code;
+      err.retryable = e.retryable;
+      throw err;
     }
-    return response.json();
   }
 
   showToast(message, type = 'info') {

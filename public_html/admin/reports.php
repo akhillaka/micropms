@@ -238,9 +238,12 @@ $monthEnd = date('Y-m-t');
 
                 <!-- Error state -->
                 <div id="report_error" class="hidden p-8 text-center">
-                    <div class="inline-flex items-center gap-3 bg-error-50 border border-error-200 text-error-700 px-6 py-4 rounded-xl">
-                        <i class="ph-fill ph-warning text-2xl"></i>
-                        <span class="font-bold" id="report_error_msg">Failed to load report.</span>
+                    <div class="inline-flex flex-col items-center gap-3 bg-error-50 border border-error-200 text-error-700 px-6 py-4 rounded-xl">
+                        <div class="inline-flex items-center gap-3">
+                            <i class="ph-fill ph-warning text-2xl"></i>
+                            <span class="font-bold" id="report_error_msg">Failed to load report.</span>
+                        </div>
+                        <button type="button" class="pms-empty-retry" onclick="loadSpecificReport()">Retry</button>
                     </div>
                 </div>
             </div>
@@ -331,8 +334,9 @@ $monthEnd = date('Y-m-t');
             ids.forEach(id => document.getElementById(id).innerHTML = `<div class="skeleton h-6 w-1/2 mt-1"></div>`);
 
             try {
-                const res = await fetch(`/api/admin/reports?type=revpar&start_date=${start}&end_date=${end}`);
-                const json = await res.json();
+                const json = window.ApiClient
+                    ? await ApiClient.apiFetch(`/api/admin/reports?type=revpar&start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`)
+                    : await (await fetch(`/api/admin/reports?type=revpar&start_date=${start}&end_date=${end}`)).json();
                 if(json.success && json.data) {
                     let tRev = 0, tRooms = 0, tOccRooms = 0;
                     json.data.forEach(d => {
@@ -397,15 +401,19 @@ $monthEnd = date('Y-m-t');
 
             // Show skeleton loading
             document.getElementById('table_container').classList.remove('hidden');
-            const skeletonRow = '<tr>' + Array(5).fill('<td class="px-6 py-4"><div class="skeleton h-4 w-full"></div></td>').join('') + '</tr>';
-            document.getElementById('table_head').innerHTML = '<tr>' + Array(5).fill('<th class="px-6 py-4"><div class="skeleton h-3 w-24"></div></th>').join('') + '</tr>';
-            document.getElementById('table_body').innerHTML = Array(5).fill(skeletonRow).join('');
+            if (window.ApiClient) {
+                ApiClient.showSkeleton(document.getElementById('table_body'), { rows: 5, cols: 5, type: 'table' });
+                document.getElementById('table_head').innerHTML = '<tr>' + Array(5).fill('<th class="px-6 py-4"><div class="skeleton h-3 w-24"></div></th>').join('') + '</tr>';
+            } else {
+                const skeletonRow = '<tr>' + Array(5).fill('<td class="px-6 py-4"><div class="skeleton h-4 w-full"></div></td>').join('') + '</tr>';
+                document.getElementById('table_head').innerHTML = '<tr>' + Array(5).fill('<th class="px-6 py-4"><div class="skeleton h-3 w-24"></div></th>').join('') + '</tr>';
+                document.getElementById('table_body').innerHTML = Array(5).fill(skeletonRow).join('');
+            }
 
             try {
-                console.log(`[Reports] Fetching: type=${type} start=${start} end=${end}`);
-                const res = await fetch(`/api/admin/reports?type=${type}&start_date=${start}&end_date=${end}`);
-                const json = await res.json();
-                console.log(`[Reports] Response:`, json);
+                const json = window.ApiClient
+                    ? await ApiClient.apiFetch(`/api/admin/reports?type=${encodeURIComponent(type)}&start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`)
+                    : await (await fetch(`/api/admin/reports?type=${type}&start_date=${start}&end_date=${end}`)).json();
                 
                 if(!json.success) {
                     document.getElementById('table_container').classList.add('hidden');
@@ -441,7 +449,11 @@ $monthEnd = date('Y-m-t');
             
             if(!data || data.length === 0) {
                 thead.innerHTML = '';
-                tbody.innerHTML = '<tr><td colspan="9" class="p-12 text-center"><div class="flex flex-col items-center justify-center opacity-50"><i class="ph-fill ph-ghost text-5xl mb-3"></i><p class="font-bold">No data found</p></div></td></tr>';
+                if (window.ApiClient) {
+                    ApiClient.showEmptyState(tbody, { message: 'No data found for this period.', retryFn: loadSpecificReport, icon: 'ph-chart-bar' });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="9" class="p-12 text-center"><div class="flex flex-col items-center justify-center opacity-50"><i class="ph-fill ph-ghost text-5xl mb-3"></i><p class="font-bold">No data found</p></div></td></tr>';
+                }
                 return;
             }
             

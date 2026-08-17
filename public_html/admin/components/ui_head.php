@@ -616,6 +616,7 @@ try {
         if (e.target === this) pmsConfirmResolve(false);
     });
 </script>
+<script src="/js/api-client.js"></script>
 <script src="/js/ui.js"></script>
 
 <?php if (!empty($nightAuditActions)): ?>

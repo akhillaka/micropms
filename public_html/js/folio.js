@@ -42,34 +42,51 @@ async function submitStatusChange(btn) {
     }
 
     const originalText = btn.innerText;
+    const run = async () => {
+        const ledger = document.getElementById('folio-ledger-body');
+        if (ledger && window.ApiClient) ApiClient.showSkeleton(ledger, { rows: 6, type: 'table' });
+        try {
+            const data = window.ApiClient
+                ? await ApiClient.apiFetch('/api/admin/booking_status', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        action: pendingStatusAction,
+                        booking_id: bookingId,
+                        reason: reason
+                    })
+                })
+                : await (await fetch('/api/admin/booking_status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: pendingStatusAction,
+                        booking_id: bookingId,
+                        reason: reason
+                    })
+                })).json();
+
+            if (data.success) {
+                UI.hideModal('status-change-modal');
+                location.reload();
+            } else {
+                showToast(data.message || 'Action failed');
+            }
+        } catch (e) {
+            if (!e || e.name !== 'ApiError') {
+                showToast((e && e.message) || 'Connection error');
+            }
+        }
+    };
+
+    if (window.ApiClient) {
+        return ApiClient.withButtonLoading(btn, run(), 'Processing…');
+    }
     btn.innerText = 'Processing...';
     btn.disabled = true;
-
-    try {
-        const res = await fetch('/api/admin/booking_status', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: pendingStatusAction,
-                booking_id: bookingId,
-                reason: reason
-            })
-        });
-        const data = await res.json();
-
-        if (data.success) {
-            UI.hideModal('status-change-modal');
-            location.reload();
-        } else {
-            showToast(data.message || 'Action failed');
-            btn.innerText = originalText;
-            btn.disabled = false;
-        }
-    } catch(e) {
-        showToast('Connection error');
+    return run().finally(() => {
         btn.innerText = originalText;
         btn.disabled = false;
-    }
+    });
 }
 
 function updateRatePlanDropdown() {

@@ -197,39 +197,47 @@
             let origHtml = 'Find Available Rooms <i class="ph ph-arrow-right text-sm"></i>';
             if (btn) { origHtml = btn.innerHTML; btn.innerHTML = '<i class="ph ph-spinner animate-spin mr-2"></i> Checking...'; btn.disabled = true; }
 
-            // Show loading placeholder in rooms container
             const container = document.getElementById('rooms-container');
-            if (container) container.innerHTML = '<div class="card-glass p-8 text-center text-slate-400"><i class="ph ph-spinner animate-spin text-3xl mb-3 text-indigo-400"></i><p class="font-semibold mt-2">Finding available rooms...</p></div>';
+            if (container && window.ApiClient) {
+                ApiClient.showSkeleton(container, { type: 'cards', rows: 3 });
+            } else if (container) {
+                container.innerHTML = '<div class="card-glass p-8 text-center text-slate-400"><i class="ph ph-spinner animate-spin text-3xl mb-3 text-indigo-400"></i><p class="font-semibold mt-2">Finding available rooms...</p></div>';
+            }
 
-            // IMMEDIATELY switch to step 2 — no waiting for fetch
             goToStep2(checkIn, checkOut);
 
-            // Now fetch rooms in background
-            fetch('/api/system/check_availability', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || ''
-                },
-                body: JSON.stringify({ check_in: checkIn, check_out: checkOut })
-            })
-            .then(function(res) { return res.text(); })
-            .then(function(text) {
-                let data = null;
-                try { data = JSON.parse(text); } catch (e1) {
-                    const m = text.match(/\{[\s\S]*\}/);
-                    if (m) { try { data = JSON.parse(m[0]); } catch(e2) {} }
-                }
+            const run = window.ApiClient
+                ? ApiClient.apiFetch('/api/system/check_availability', {
+                    method: 'POST',
+                    body: JSON.stringify({ check_in: checkIn, check_out: checkOut }),
+                    toast: false
+                })
+                : fetch('/api/system/check_availability', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                    },
+                    body: JSON.stringify({ check_in: checkIn, check_out: checkOut })
+                }).then(function(res) { return res.json(); });
+
+            run.then(function(data) {
                 const categories = (data && Array.isArray(data.categories)) ? data.categories : [];
                 window.lastAvailableCategories = categories;
                 renderRooms(categories);
                 if (data && !data.success && data.message) showNotification(data.message, 'error');
-            })
-            .catch(function(err) {
-                renderRooms([]);
-                showNotification('Could not load rooms: ' + err.message, 'error');
-            })
-            .finally(function() {
+            }).catch(function(err) {
+                if (container && window.ApiClient) {
+                    ApiClient.showEmptyState(container, {
+                        message: 'Could not load rooms: ' + (err.message || 'network error'),
+                        retryFn: function () { document.getElementById('btn-check')?.click(); },
+                        icon: 'ph-wifi-slash'
+                    });
+                } else {
+                    renderRooms([]);
+                    showNotification('Could not load rooms: ' + err.message, 'error');
+                }
+            }).finally(function() {
                 if (btn) { btn.innerHTML = origHtml; btn.disabled = false; }
             });
         };
@@ -365,20 +373,30 @@
                 const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
                 const roomIds = selectedRoomIds.map(r => r.id);
                 try {
-                    const res = await fetch('/api/system/place_room_hold', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-Token': csrf
-                        },
-                        body: JSON.stringify({
-                            room_ids: roomIds,
-                            check_in: getCheckIn(),
-                            check_out: getCheckOut(),
-                            hold_token: window.holdToken || ''
+                    const data = window.ApiClient
+                        ? await ApiClient.apiFetch('/api/system/place_room_hold', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                room_ids: roomIds,
+                                check_in: getCheckIn(),
+                                check_out: getCheckOut(),
+                                hold_token: window.holdToken || ''
+                            }),
+                            toast: false
                         })
-                    });
-                    const data = await res.json();
+                        : await (await fetch('/api/system/place_room_hold', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-Token': csrf
+                            },
+                            body: JSON.stringify({
+                                room_ids: roomIds,
+                                check_in: getCheckIn(),
+                                check_out: getCheckOut(),
+                                hold_token: window.holdToken || ''
+                            })
+                        })).json();
                     if (data.success && data.hold_token) {
                         window.holdToken = data.hold_token;
                     } else if (!data.success && data.message) {
@@ -680,12 +698,17 @@
             formData.append('idempotency_key', window.bookingIdempotencyKey);
 
             try {
-                const res = await fetch('/api/system/create_hold', {
-                    method: 'POST',
-                    headers: { 'X-CSRF-Token': csrf },
-                    body: formData
-                });
-                const data = await res.json();
+                const data = window.ApiClient
+                    ? await ApiClient.apiFetch('/api/system/create_hold', {
+                        method: 'POST',
+                        headers: { 'X-CSRF-Token': csrf },
+                        body: formData
+                    })
+                    : await (await fetch('/api/system/create_hold', {
+                        method: 'POST',
+                        headers: { 'X-CSRF-Token': csrf },
+                        body: formData
+                    })).json();
                 
                 if(data.success) {
                     const count = data.booking_ids ? data.booking_ids.length : 1;
