@@ -43,7 +43,7 @@ $activePropertyId = AuthHelper::getPropertyId();
                 
                 <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 md:p-8">
                     <h2 class="text-lg font-bold text-slate-800 mb-2">Automated Notifications</h2>
-                    <p class="text-sm text-slate-500 mb-6">Configure automatic messages to be sent to guests via WhatsApp, Email, and Telegram when system events occur.</p>
+                    <p class="text-sm text-slate-500 mb-6">Each event ships with a guest email and a staff Telegram note. Open Configure, edit if you want, then enable the channel and save. WhatsApp still uses your approved Meta templates.</p>
                     
                     <div id="events-container" class="space-y-4">
                         <div class="text-center py-8 text-slate-400">Loading events...</div>
@@ -89,9 +89,13 @@ $activePropertyId = AuthHelper::getPropertyId();
                                 <input type="checkbox" id="is_email_active" name="is_email_active" value="1" class="w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-slate-300">
                                 <span class="font-bold text-slate-800">Enable Email Automation</span>
                             </label>
+                            <p class="text-xs text-slate-500 -mt-2 mb-4">Sent to the guest’s email on file. Default copy is already in the editor.</p>
                             
                             <div>
-                                <label class="block text-sm font-semibold text-slate-700 mb-1">Email Subject</label>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-sm font-semibold text-slate-700">Email Subject</label>
+                                    <button type="button" onclick="loadDefaultChannel('email')" class="text-xs font-bold text-brand-600 hover:text-brand-800">Load default</button>
+                                </div>
                                 <input type="text" id="email_subject" name="email_subject" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500" placeholder="e.g. Booking Confirmation - {hotel_name}">
                             </div>
                             
@@ -127,19 +131,24 @@ $activePropertyId = AuthHelper::getPropertyId();
                                 <input type="checkbox" id="is_telegram_active" name="is_telegram_active" value="1" class="w-5 h-5 rounded text-blue-500 focus:ring-blue-400 border-slate-300">
                                 <span class="font-bold text-slate-800">Enable Telegram Automation</span>
                             </label>
+                            <p class="text-xs text-slate-500 -mt-2 mb-4">Posted to your property Telegram chat — written for the desk, not the guest. HTML: <code class="font-mono">&lt;b&gt;</code>, <code class="font-mono">&lt;i&gt;</code>, <code class="font-mono">&lt;a href=""&gt;</code>.</p>
                             
                             <div>
-                                <label class="block text-sm font-semibold text-slate-700 mb-1">Telegram Message (HTML allowed)</label>
-                                <textarea id="telegram_body_text" name="telegram_body_text" rows="6" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500" placeholder="e.g. <b>New Booking!</b>\nName: {guest_name}"></textarea>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-sm font-semibold text-slate-700">Telegram Message</label>
+                                    <button type="button" onclick="loadDefaultChannel('telegram')" class="text-xs font-bold text-brand-600 hover:text-brand-800">Load default</button>
+                                </div>
+                                <textarea id="telegram_body_text" name="telegram_body_text" rows="8" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 font-mono text-sm leading-relaxed" placeholder="e.g. <b>New Booking</b>&#10;Name: {guest_name}"></textarea>
                             </div>
                         </div>
                     </form>
                     
                     <div class="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-800 leading-relaxed">
                         <strong class="block mb-1">Available Variables:</strong>
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono mt-2">
+                        <div id="variables-grid" class="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono mt-2">
                             <span>{hotel_name}</span>
                             <span>{guest_name}</span>
+                            <span>{first_name}</span>
                             <span>{guest_phone}</span>
                             <span>{guest_email}</span>
                             <span>{booking_id}</span>
@@ -168,6 +177,13 @@ $activePropertyId = AuthHelper::getPropertyId();
         let waTemplates = [];
         let automationsData = [];
         let currentWaMapping = [];
+        let currentEventIndex = 0;
+
+        const GLOBAL_VARS = [
+            'hotel_name', 'guest_name', 'first_name', 'guest_phone', 'guest_email',
+            'booking_id', 'check_in_date', 'check_out_date', 'room_type', 'room_number',
+            'total_amount', 'paid_amount', 'balance_amount', 'invoice_link'
+        ];
 
         document.addEventListener('DOMContentLoaded', () => {
             // Initialize TinyMCE for Email inside DOMContentLoaded so the
@@ -187,7 +203,10 @@ $activePropertyId = AuthHelper::getPropertyId();
                 'removeformat | help',
                 content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 14px }',
                 branding: false,
-                promotion: false
+                promotion: false,
+                convert_urls: false,
+                relative_urls: false,
+                remove_script_host: false
             });
 
             fetchWaTemplates();
@@ -239,11 +258,14 @@ $activePropertyId = AuthHelper::getPropertyId();
                 const isEmailOn = ev.is_email_active === 1;
                 const isWaOn = ev.is_wa_active === 1;
                 const isTgOn = ev.is_telegram_active === 1;
+                const defaultHint = (ev.using_default_email || ev.using_default_telegram)
+                    ? '<span class="ml-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">defaults ready</span>'
+                    : '';
                 
                 return `
                 <div class="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl hover:border-brand-200 transition-colors">
                     <div>
-                        <h3 class="font-bold text-slate-800">${ev.event_name}</h3>
+                        <h3 class="font-bold text-slate-800">${ev.event_name}${defaultHint}</h3>
                         <p class="text-xs text-slate-500 font-mono mt-1">${ev.event_key}</p>
                     </div>
                     <div class="flex items-center gap-4">
@@ -275,6 +297,7 @@ $activePropertyId = AuthHelper::getPropertyId();
         }
 
         function openModal(index) {
+            currentEventIndex = index;
             const ev = automationsData[index];
             document.getElementById('modal-title').innerText = `Configure: ${ev.event_name}`;
             document.getElementById('event_key').value = ev.event_key;
@@ -299,10 +322,32 @@ $activePropertyId = AuthHelper::getPropertyId();
                 currentWaMapping = [];
             }
             renderWaVariables();
+            renderVariableChips(ev);
             
             // Reset to Email tab
             document.querySelector('.channel-tab').click();
             document.getElementById('automation-modal').classList.remove('hidden');
+        }
+
+        function loadDefaultChannel(channel) {
+            const ev = automationsData[currentEventIndex];
+            if (!ev || !ev.defaults) return;
+            if (channel === 'email') {
+                document.getElementById('email_subject').value = ev.defaults.email_subject || '';
+                const tinyEditor = tinymce.get('email_body_html');
+                if (tinyEditor) tinyEditor.setContent(ev.defaults.email_body_html || '');
+            }
+            if (channel === 'telegram') {
+                document.getElementById('telegram_body_text').value = ev.defaults.telegram_body_text || '';
+            }
+        }
+
+        function renderVariableChips(ev) {
+            const grid = document.getElementById('variables-grid');
+            if (!grid) return;
+            const extras = Array.isArray(ev.extra_variables) ? ev.extra_variables : [];
+            const all = [...GLOBAL_VARS, ...extras.filter(v => !GLOBAL_VARS.includes(v))];
+            grid.innerHTML = all.map(v => `<span>{${v}}</span>`).join('');
         }
 
         function closeModal() {

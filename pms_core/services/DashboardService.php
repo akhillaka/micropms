@@ -56,7 +56,8 @@ class DashboardService {
             if ($status === 'booked' && $biDate === $this->todayStr) $summary['arrivals']++;
             if ($status === 'checked_in' && $boDate === $this->todayStr) $summary['departures']++;
             if ($status === 'cancelled') $summary['cancelled']++;
-            if ($paymentStatus === 'pending_hold') $summary['on_hold']++;
+            // Hold = unpaid reservation still awaiting confirmation, not in-house or checked-out.
+            if ($paymentStatus === 'pending_hold' && $status === 'booked') $summary['on_hold']++;
         }
         return $summary;
     }

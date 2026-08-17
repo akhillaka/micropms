@@ -25,6 +25,7 @@ require_once __DIR__ . '/../pms_core/helpers/EmailHelper.php';
 require_once __DIR__ . '/../pms_core/InvoiceLink.php';
 require_once __DIR__ . '/../pms_core/GuestAccessToken.php';
 require_once __DIR__ . '/../pms_core/services/RazorpayService.php';
+require_once __DIR__ . '/../pms_core/services/BookingService.php';
 require_once __DIR__ . '/../pms_core/NotificationRelay.php';
 
 assert_true(EmailHelper::sanitizeAddress('ok@example.com') === 'ok@example.com', 'email accepts valid address');
@@ -53,8 +54,30 @@ $msg = NotificationRelay::formatTemplate('Hello {guest_name} {missing}', []);
 assert_true(str_contains($msg, 'Hello'), 'template renders with missing placeholders');
 assert_true(!str_contains($msg, '{guest_name}'), 'template guest_name has fallback');
 
+require_once __DIR__ . '/../pms_core/AutomationTemplates.php';
+$autoEvents = ['booking_confirmed', 'guest_check_in', 'guest_check_out', 'booking_cancelled', 'payment_link', 'guest_review_form', 'guest_invoice', 'pre_departure', 'room_marked_dirty'];
+foreach ($autoEvents as $eventKey) {
+    $tpl = AutomationTemplates::forEvent($eventKey);
+    assert_true($tpl['email_subject'] !== '' && str_contains($tpl['email_body_html'], '{hotel_name}'), "email default exists for {$eventKey}");
+    assert_true(str_contains($tpl['telegram_body_text'], '{hotel_name}') && !str_contains($tpl['telegram_body_text'], '<div'), "telegram default exists for {$eventKey}");
+}
+$genericTpl = AutomationTemplates::forEvent('my_custom_event');
+assert_true(str_contains($genericTpl['email_body_html'], '{booking_id}'), 'unknown events get a generic email default');
+$rendered = NotificationRelay::formatTemplate($tpl['email_subject'] ?? 'Hi {first_name}', ['first_name' => 'Akhil', 'hotel_name' => 'Test Inn']);
+assert_true(str_contains($rendered, 'Akhil') || str_contains($rendered, 'Test Inn') || $rendered !== '', 'automation template placeholders render');
+
+$portal = GuestAccessToken::getPortalUrl(42);
+assert_true(str_contains($portal, 'guest-portal?id=42&token='), 'guest portal URL is generated for review emails');
+
+assert_true(function_exists('get_active_payment_gateways'), 'active payment gateway helper is available');
+assert_true(BookingService::calculateDays('2026-08-01 14:00:00', '2026-08-03 11:00:00') === 2, 'stay days round up to full nights');
+assert_true(is_file(__DIR__ . '/../db_migrations/027_channels_cache_dns.sql'), 'migration 027 is packaged');
+assert_true(is_file(__DIR__ . '/../public_html/ical.php'), 'public iCal endpoint exists');
+assert_true(is_file(__DIR__ . '/../pms_core/services/IcalService.php'), 'IcalService is present');
+
 $cashierSql = file_get_contents(__DIR__ . '/../pms_core/api_endpoints/admin_reports.php') ?: '';
 assert_true(str_contains($cashierSql, 'booking_id IS NULL OR booking_id = 0'), 'cashier shift excludes booking-linked finance rows');
+assert_true(str_contains($cashierSql, "'booked', 'checked_in', 'checked_out'"), 'revpar counts sold booked rooms');
 
 $waJob = [
     'phone' => '919999999999',

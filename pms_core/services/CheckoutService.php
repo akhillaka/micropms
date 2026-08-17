@@ -51,10 +51,10 @@ class CheckoutService {
             }
 
             try {
-                $db->prepare("UPDATE bookings SET booking_status = 'checked_out', actual_checkout = NOW() WHERE id = ? AND property_id = ?")
+                $db->prepare("UPDATE bookings SET booking_status = 'checked_out', payment_status = 'completed_paid', actual_checkout = NOW() WHERE id = ? AND property_id = ?")
                    ->execute([$bookingId, $propertyId]);
             } catch (\PDOException $e) {
-                $db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = ? AND property_id = ?")
+                $db->prepare("UPDATE bookings SET booking_status = 'checked_out', payment_status = 'completed_paid' WHERE id = ? AND property_id = ?")
                    ->execute([$bookingId, $propertyId]);
             }
 

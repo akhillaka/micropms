@@ -231,10 +231,10 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                         <table class="table-brutal">
                             <thead>
                                 <tr class="bg-brand-50 border-b border-brand-100 text-[10px] text-brand-500 uppercase tracking-widest">
-                                    <th class="px-6 py-4 font-bold text-left">Folio</th>
+                                    <th class="px-6 py-4 font-bold text-left">Booking</th>
                                     <th class="px-6 py-4 font-bold text-left">Room</th>
                                     <th class="px-6 py-4 font-bold text-left">Dates</th>
-                                    <th class="px-6 py-4 font-bold text-center">Status</th>
+                                    <th class="px-6 py-4 font-bold text-center">Stay</th>
                                     <th class="px-6 py-4 font-bold text-right">Total</th>
                                     <th class="px-6 py-4 font-bold text-right">Actions</th>
                                 </tr>
@@ -242,19 +242,37 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                             <tbody class="divide-y divide-gray-100">
                                 <?php foreach($bookings as $b): ?>
                                 <tr class="hover:bg-brand-50 transition-colors group">
-                                    <td class="px-6 py-4 font-black text-brand-900">#<?= htmlspecialchars((string)($b['id']), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td class="px-6 py-4 font-black text-brand-900"><?= htmlspecialchars((string)($b['display_id'] ?: ('#' . $b['id'])), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-6 py-4 font-bold text-brand-900"><?= htmlspecialchars((string)($b['room_number']), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-6 py-4">
                                         <div class="text-sm font-bold text-brand-900"><?= htmlspecialchars((string)(date('M j, Y', strtotime($b['check_in']))), ENT_QUOTES, 'UTF-8') ?></div>
                                         <div class="text-[11px] text-brand-500 font-medium">to <?= htmlspecialchars((string)(date('M j, Y', strtotime($b['check_out']))), ENT_QUOTES, 'UTF-8') ?></div>
                                     </td>
                                     <td class="px-6 py-4 text-center">
-                                        <?php if($b['payment_status'] === 'completed_paid'): ?>
-                                            <span class="inline-flex items-center justify-center px-2 py-1 rounded bg-success-100 text-success-700 text-[10px] font-bold uppercase tracking-widest border border-success-200">Paid</span>
-                                        <?php elseif($b['payment_status'] === 'cancelled'): ?>
-                                            <span class="inline-flex items-center justify-center px-2 py-1 rounded bg-error-100 text-error-700 text-[10px] font-bold uppercase tracking-widest border border-error-200">Cancelled</span>
-                                        <?php else: ?>
-                                            <span class="inline-flex items-center justify-center px-2 py-1 rounded bg-orange-100 text-orange-700 text-[10px] font-bold uppercase tracking-widest border border-orange-200">Pending</span>
+                                        <?php
+                                            $stay = (string)($b['booking_status'] ?? 'booked');
+                                            $stayMap = [
+                                                'booked' => ['Booked', 'bg-amber-100 text-amber-800 border-amber-200'],
+                                                'checked_in' => ['In house', 'bg-emerald-100 text-emerald-800 border-emerald-200'],
+                                                'checked_out' => ['Checked out', 'bg-slate-100 text-slate-700 border-slate-200'],
+                                                'cancelled' => ['Cancelled', 'bg-rose-100 text-rose-800 border-rose-200'],
+                                            ];
+                                            [$stayLabel, $stayClass] = $stayMap[$stay] ?? ['Booked', 'bg-amber-100 text-amber-800 border-amber-200'];
+                                            $pay = (string)($b['payment_status'] ?? '');
+                                            $payLabel = '';
+                                            if ($stay === 'cancelled' || $pay === 'cancelled') {
+                                                $payLabel = '';
+                                            } elseif ($pay === 'completed_paid') {
+                                                $payLabel = 'Paid';
+                                            } elseif ($stay === 'checked_out') {
+                                                $payLabel = 'Settled';
+                                            } else {
+                                                $payLabel = 'Balance due';
+                                            }
+                                        ?>
+                                        <span class="inline-flex items-center justify-center px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest border <?= htmlspecialchars($stayClass, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($stayLabel, ENT_QUOTES, 'UTF-8') ?></span>
+                                        <?php if ($payLabel !== ''): ?>
+                                            <div class="text-[10px] font-semibold text-slate-400 mt-1"><?= htmlspecialchars($payLabel, ENT_QUOTES, 'UTF-8') ?></div>
                                         <?php endif; ?>
                                     </td>
                                     <td class="px-6 py-4 text-right">

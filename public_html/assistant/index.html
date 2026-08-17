@@ -1309,8 +1309,20 @@
   <div class="modal-overlay" id="extend-stay-popup" onclick="app.closeExtendStayPopup(event)">
     <div class="numpad-container" style="width: 100%; padding: 24px;" onclick="event.stopPropagation()">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h3 style="font-weight: 800; font-size: 1.25rem;">⏳ Extend Stay</h3>
+        <h3 style="font-weight: 800; font-size: 1.25rem;">Edit stay dates</h3>
         <button onclick="app.closeExtendStayPopup()" style="background: none; border: none; font-size: 1.5rem; color: var(--color-text-muted); padding: 5px;">&times;</button>
+      </div>
+
+      <div style="display:grid; gap:12px; margin-bottom: 16px;">
+        <div>
+          <label style="display:block;font-size:0.75rem;font-weight:800;color:var(--color-text-secondary);margin-bottom:4px;text-transform:uppercase;">Check-in date & time</label>
+          <input type="datetime-local" id="extend-checkin-datetime" step="60" class="form-control" style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--color-border);font-weight:700;">
+        </div>
+        <div>
+          <label style="display:block;font-size:0.75rem;font-weight:800;color:var(--color-text-secondary);margin-bottom:4px;text-transform:uppercase;">Check-out date & time</label>
+          <input type="datetime-local" id="extend-checkout-datetime" step="60" class="form-control" style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--color-border);font-weight:700;">
+        </div>
+        <button class="btn-large btn-brand" onclick="app.saveStayDates()" style="width:100%;min-height:48px;font-weight:800;">Save dates</button>
       </div>
 
       <!-- Current & New Checkout display -->
@@ -1360,7 +1372,7 @@
   </div>
 
   <script src="/js/api-client.js?v=1"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/app.js?v=7"></script>
 
   <!-- FIRST-LAUNCH TUTORIAL OVERLAY -->
   <div id="tutorial-overlay" style="display:none; position:fixed; inset:0; z-index:999; background:rgba(0,0,0,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);">

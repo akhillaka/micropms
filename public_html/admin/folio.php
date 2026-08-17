@@ -61,6 +61,8 @@ $id = $bookingPk;
 
 $propertyId = (int)$booking['property_id'];
 $paymentMethods = get_payment_methods($db, (int)$activePropId);
+$activeGateways = get_active_payment_gateways($db, (int)$activePropId);
+$stayEditable = !in_array(($booking['booking_status'] ?? 'booked'), ['checked_out', 'cancelled'], true);
 
 $paymentCategories = get_payment_categories($db, (int)$activePropId);
 
@@ -545,7 +547,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                         <?php elseif (preg_match('/Order #(\d+)/', $l['description'], $matches) && strpos($l['description'], 'Reverse') === false): ?>
                                             <a href="modules/pos/pos.php?edit_order=<?= htmlspecialchars((string)($matches[1]), ENT_QUOTES, 'UTF-8') ?>" class="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 transition-colors text-[10px] uppercase tracking-wider inline-flex items-center gap-1" title="Edit POS Order"><i class="ph-bold ph-pencil-simple text-[10px]"></i> POS Order</a>
                                         <?php else: ?>
-                                            <button onclick="openEditLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['description'] ?? ''))) ?>', <?= htmlspecialchars((string)(abs($l['amount'])), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['payment_method'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['display_id'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['category'] ?? ''))) ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
+                                            <button onclick="openEditLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['description'] ?? ''))) ?>', <?= htmlspecialchars((string)(abs($l['amount'])), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['payment_method'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['display_id'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['category'] ?? ''))) ?>', '<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime((string)$l['recorded_at']))), ENT_QUOTES, 'UTF-8') ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
                                             <button onclick="deleteLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>)" class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-trash text-sm"></i></button>
                                         <?php endif; ?>
                                     </td>
@@ -639,12 +641,12 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check In <?= htmlspecialchars((string)($bookingStatus !== 'booked' ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
-                            <input type="datetime-local" id="edit_check_in" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime($booking['check_in']))), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)(!in_array($bookingStatus, ['booked']) ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(!in_array($bookingStatus, ['booked']) ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check In <?= htmlspecialchars((string)(!$stayEditable ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
+                            <input type="datetime-local" id="edit_check_in" step="60" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime($booking['check_in']))), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)(!$stayEditable ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(!$stayEditable ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check Out <?= htmlspecialchars((string)($bookingStatus === 'checked_out' ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
-                            <input type="datetime-local" id="edit_check_out" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime($booking['check_out']))), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(in_array($bookingStatus, ['checked_out', 'cancelled']) ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check Out <?= htmlspecialchars((string)(!$stayEditable ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
+                            <input type="datetime-local" id="edit_check_out" step="60" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime($booking['check_out']))), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)(!$stayEditable ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(!$stayEditable ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                         <?php if ($taxEnabled): ?>
                         <div>
@@ -838,6 +840,10 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <input type="number" id="edit_l_amount" min="0" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                     </div>
                     <div>
+                        <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Date & Time</label>
+                        <input type="datetime-local" id="edit_l_date" step="60" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
+                    </div>
+                    <div>
                         <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Payment Method</label>
                         <select id="edit_l_method" class="w-full input-glass rounded-xl p-3 text-sm font-semibold">
                             <option value="">N/A (Charge)</option>
@@ -937,32 +943,26 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                             <span class="text-xs"><?= htmlspecialchars((string)($pm)) ?></span>
                         </button>
                         <?php endforeach; ?>
-                        
-                        <?php 
-                            // Only show gateway options if Online/Card/Gateway is in config
-                            $hasOnline = false;
-                            foreach ($paymentMethods as $pm) {
-                                $pmL = strtolower($pm);
-                                if (strpos($pmL, 'online') !== false || strpos($pmL, 'card') !== false || strpos($pmL, 'gateway') !== false || strpos($pmL, 'razorpay') !== false) {
-                                    $hasOnline = true;
-                                    break;
-                                }
-                            }
-                            if ($hasOnline):
-                        ?>
-                        
-                        <!-- Razorpay Checkout -->
-                        <button onclick="payViaGateway(this)" class="bg-brand-900 text-white border border-indigo-700 rounded-2xl py-4 font-bold active:scale-[0.98] transition-all flex flex-col items-center justify-center gap-1 shadow-md shadow-indigo-100">
+
+                        <?php if (!empty($activeGateways['razorpay'])): ?>
+                        <button onclick="payViaGateway(this, 'razorpay')" class="bg-brand-900 text-white border border-indigo-700 rounded-2xl py-4 font-bold active:scale-[0.98] transition-all flex flex-col items-center justify-center gap-1 shadow-md shadow-indigo-100">
                             <i class="ph ph-credit-card text-xl text-indigo-200"></i>
                             <span class="text-xs">Razorpay Gateway</span>
                         </button>
-                        
-                        <!-- Send Link -->
+                        <?php endif; ?>
+
+                        <?php if (!empty($activeGateways['phonepe'])): ?>
+                        <button onclick="payViaGateway(this, 'phonepe')" class="bg-indigo-700 text-white border border-indigo-800 rounded-2xl py-4 font-bold active:scale-[0.98] transition-all flex flex-col items-center justify-center gap-1 shadow-md">
+                            <i class="ph ph-device-mobile text-xl text-indigo-100"></i>
+                            <span class="text-xs">PhonePe Gateway</span>
+                        </button>
+                        <?php endif; ?>
+
+                        <?php if ($activeGateways !== []): ?>
                         <button onclick="sendPaymentLink(this)" class="bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-2xl py-4 font-bold active:scale-[0.98] transition-all flex flex-col items-center justify-center gap-1 shadow-sm">
                             <i class="ph ph-whatsapp-logo text-xl"></i>
-                            <span class="text-xs">Send Link</span>
+                            <span class="text-xs">WhatsApp Link</span>
                         </button>
-                        
                         <?php endif; ?>
                     </div>
                 </div>
@@ -1036,11 +1036,8 @@ $statusColor = $statusMap[$bookingStatus]['color'];
             balance: <?= htmlspecialchars((string)($balance), ENT_QUOTES, 'UTF-8') ?>,
             catRatePlans: <?= json_encode($catRatePlans) ?>,
             ratePlanName: <?= json_encode($ratePlanName) ?>,
-            razorpayKeyId: <?= json_encode((function () use ($db, $activePropId) {
-                require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
-                $rz = RazorpayService::forProperty($db, (int)$activePropId);
-                return $rz ? $rz->getKeyId() : '';
-            })(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+            razorpayKeyId: <?= json_encode((string)($activeGateways['razorpay']['key_id'] ?? ''), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+            activeGateways: <?= json_encode(array_keys($activeGateways), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
             guestName: <?= json_encode($booking["guest_name"], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
             guestPhone: <?= json_encode($booking["guest_phone"], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>
 

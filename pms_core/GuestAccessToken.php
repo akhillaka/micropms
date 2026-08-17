@@ -7,6 +7,13 @@ declare(strict_types=1);
  * Access ends after cancellation or 7 days past checkout.
  */
 class GuestAccessToken {
+    public static function getPortalUrl(string|int $bookingId): string {
+        $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $token = self::generate($bookingId);
+        return "{$protocol}://{$host}/guest-portal?id={$bookingId}&token={$token}";
+    }
+
     public static function generate(string|int $bookingId): string {
         $secret = defined('INVOICE_SECRET') ? (string)INVOICE_SECRET : '';
         if ($secret === '') {

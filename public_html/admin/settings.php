@@ -738,15 +738,15 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                                         <label class="block text-[10px] font-bold text-brand-400 uppercase tracking-wider">Custom Message Template (Telegram)</label>
                                         <?php
                                         $defaultTgs = [
-                                            'booking_confirmed' => "⚡ <b>Online Booking Confirmed</b>\n\n<b>Guest:</b> {guest_name}\n<b>Room:</b> {room_number}\n<b>Check-in:</b> {check_in_date}\n<b>Check-out:</b> {check_out_date}\n<b>Paid:</b> ₹{paid_amount}",
-                                            'check_in'          => "🔑 <b>Guest Checked In</b>\n\n<b>Guest:</b> {guest_name}\n<b>Room:</b> {room_number}\n<b>Total Folio:</b> ₹{total_amount}",
-                                            'check_out'         => "🚪 <b>Guest Checked Out</b>\n\n<b>Guest:</b> {guest_name}\n<b>Room:</b> {room_number}\n<b>Total Paid:</b> ₹{paid_amount}",
-                                            'overstay'          => "🕛 <b>Overstay Alert</b>\n\n<b>Guest:</b> {guest_name}\n<b>Room:</b> {room_number}\n<b>Checkout was:</b> {check_out_date}",
-                                            'payment_received'  => "💰 <b>Payment Recorded</b>\n\n<b>Guest:</b> {guest_name}\n<b>Room:</b> {room_number}\n<b>Amount:</b> ₹{amount}\n<b>Method:</b> {method}\n<b>Ref:</b> {ref}",
-                                            'room_dirty'        => "🧹 <b>Room marked Dirty (Checkout)</b>\n\n<b>Room:</b> {room_number}\n<b>Category:</b> {room_type}",
-                                            'daily_summary'     => "📊 <b>Daily Summary Report</b>\n\n<b>Revenue:</b> ₹{total_amount}\n<b>Occupancy:</b> {occupancy_pct}%\n<b>Dirty Rooms:</b> {dirty_count}",
-                                            'folio_activity'    => "🧾 <b>Folio Activity Alert</b>\n\n<b>Guest:</b> {guest_name}\n<b>Room:</b> {room_number}\n<b>Activity:</b> {description}\n<b>Amount:</b> ₹{amount}",
-                                            'pre_departure'     => "🔔 <b>Pre-Departure Notice</b>\n\n<b>Guest:</b> {guest_name}\n<b>Room:</b> {room_number}\n<b>Checkout scheduled at:</b> {check_out_date}",
+                                            'booking_confirmed' => "<b>New booking</b> · {hotel_name}\n\n{guest_name}\nRoom {room_number}\n\n{check_in_date}\n→ {check_out_date}\n\n₹{total_amount}  ·  paid ₹{paid_amount}",
+                                            'check_in'          => "<b>Checked in</b> · {hotel_name}\n\n{guest_name}\nRoom {room_number}\nOut {check_out_date}\n\nBalance ₹{balance_amount}",
+                                            'check_out'         => "<b>Checked out</b> · {hotel_name}\n\n{guest_name}\nRoom {room_number}\nPaid ₹{paid_amount}",
+                                            'overstay'          => "<b>Overstay</b> · {hotel_name}\n\n{guest_name}\nRoom {room_number}\nCheckout was {check_out_date}",
+                                            'payment_received'  => "<b>Payment</b> · {hotel_name}\n\n{guest_name}\nRoom {room_number}\n₹{amount} · {method}\n{ref}",
+                                            'room_dirty'        => "<b>Room dirty</b> · {hotel_name}\n\nRoom {room_number}\n{room_type}\nReady for housekeeping",
+                                            'daily_summary'     => "<b>Daily summary</b> · {hotel_name}\n\nRevenue ₹{total_amount}\nOccupancy {occupancy_pct}%\nDirty rooms {dirty_count}",
+                                            'folio_activity'    => "<b>Folio</b> · {hotel_name}\n\n{guest_name}\nRoom {room_number}\n{description}\n₹{amount}",
+                                            'pre_departure'     => "<b>Checkout in ~30 min</b> · {hotel_name}\n\n{guest_name}\nRoom {room_number}\nDue {check_out_date}",
                                         ];
                                         $savedTgTemplate = defined('TG_TEMPLATE_' . strtoupper($key)) ? constant('TG_TEMPLATE_' . strtoupper($key)) : ($defaultTgs[$key] ?? '');
                                         ?>

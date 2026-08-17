@@ -321,9 +321,8 @@ ApiHandler::run(function(\PDO $db) {
     });
 
     $methods = get_payment_methods($db, (int)$propertyId);
-
-    // Payment categories
     $categories = get_payment_categories($db, (int)$propertyId);
+    $gateways = get_active_payment_gateways($db, (int)$propertyId);
 
     ApiResponse::success([
         'summary' => [
@@ -338,7 +337,9 @@ ApiHandler::run(function(\PDO $db) {
         ],
         'alerts' => $alerts,
         'payment_methods' => $methods,
-        'payment_categories' => $categories
+        'payment_categories' => $categories,
+        'active_gateways' => array_values($gateways),
+        'razorpay_key_id' => (string)($gateways['razorpay']['key_id'] ?? ''),
     ]);
 
 }, true, true, false);

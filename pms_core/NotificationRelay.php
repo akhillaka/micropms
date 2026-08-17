@@ -21,7 +21,7 @@ class NotificationRelay {
      * Replace placeholders with context data.
      */
     public static function formatTemplate(string $template, array $context): string {
-        foreach (['guest_name', 'action_url', 'first_name', 'hotel_name', 'room_number'] as $fallbackKey) {
+        foreach (['guest_name', 'action_url', 'first_name', 'hotel_name', 'room_number', 'room_type', 'booking_id', 'check_in_date', 'check_out_date', 'checkout_time', 'total_amount', 'paid_amount', 'balance_amount', 'amount_due', 'invoice_link', 'payment_link', 'review_link', 'guest_phone', 'guest_email'] as $fallbackKey) {
             if (!isset($context[$fallbackKey])) {
                 $context[$fallbackKey] = '';
             }
@@ -539,8 +539,25 @@ class NotificationRelay {
                 
                 // Generate Invoice Link (secure HMAC-SHA256, 24hr expiry)
                 require_once __DIR__ . '/InvoiceLink.php';
+                require_once __DIR__ . '/GuestAccessToken.php';
                 $bData['invoice_link'] = InvoiceLink::getUrl((int)$bData['db_booking_id']);
-                
+                try {
+                    $bData['review_link'] = GuestAccessToken::getPortalUrl((int)$bData['db_booking_id']);
+                } catch (\Throwable $e) {
+                    $bData['review_link'] = $bData['invoice_link'];
+                }
+                if (empty($bData['checkout_time']) && !empty($bData['check_out_date'])) {
+                    $bData['checkout_time'] = (string)$bData['check_out_date'];
+                }
+                $guestName = trim((string)($bData['guest_name'] ?? ''));
+                $bData['first_name'] = $guestName !== '' ? explode(' ', $guestName)[0] : 'there';
+                if (!isset($bData['amount_due'])) {
+                    $bData['amount_due'] = $bData['balance_amount'];
+                }
+                if (empty($bData['payment_link'])) {
+                    $bData['payment_link'] = $bData['invoice_link'];
+                }
+
                 // Merge DB context
                 foreach($bData as $k => $v) { $context[$k] = $v; }
                 // Set phone and email if not provided
@@ -553,6 +570,11 @@ class NotificationRelay {
         
         // Merge any custom overrides
         foreach($customDataArray as $k => $v) { $context[$k] = $v; }
+
+        if (empty($context['first_name'])) {
+            $gn = trim((string)($context['guest_name'] ?? ''));
+            $context['first_name'] = $gn !== '' ? explode(' ', $gn)[0] : 'there';
+        }
         
         // Canonicalise the phone number for WhatsApp
         $phoneNumberE164 = null;
@@ -629,10 +651,21 @@ class NotificationRelay {
             }
         }
 
+        require_once __DIR__ . '/AutomationTemplates.php';
+        $defaults = AutomationTemplates::forEvent($eventKey);
+
         // 2. Email Automation
-        if (!empty($auto['is_email_active']) && !empty($guestEmail) && !empty($auto['email_body_html'])) {
-            $subject = self::formatTemplate((string)$auto['email_subject'], $context);
-            $body = self::formatTemplate((string)$auto['email_body_html'], $context);
+        $emailSubject = trim((string)($auto['email_subject'] ?? ''));
+        $emailBody = trim((string)($auto['email_body_html'] ?? ''));
+        if ($emailSubject === '') {
+            $emailSubject = $defaults['email_subject'];
+        }
+        if ($emailBody === '') {
+            $emailBody = $defaults['email_body_html'];
+        }
+        if (!empty($auto['is_email_active']) && !empty($guestEmail) && $emailBody !== '') {
+            $subject = self::formatTemplate($emailSubject, $context);
+            $body = self::formatTemplate($emailBody, $context);
             
             $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('email', ?, ?)")
                ->execute([$propertyId, json_encode([
@@ -644,8 +677,12 @@ class NotificationRelay {
         }
 
         // 3. Telegram Automation
-        if (!empty($auto['is_telegram_active']) && !empty($auto['telegram_body_text'])) {
-            $body = self::formatTemplate((string)$auto['telegram_body_text'], $context);
+        $telegramBody = trim((string)($auto['telegram_body_text'] ?? ''));
+        if ($telegramBody === '') {
+            $telegramBody = $defaults['telegram_body_text'];
+        }
+        if (!empty($auto['is_telegram_active']) && $telegramBody !== '') {
+            $body = self::formatTemplate($telegramBody, $context);
             
             $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('telegram', ?, ?)")
                ->execute([$propertyId, json_encode([

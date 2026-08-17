@@ -487,7 +487,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                 if (currentFilter === 'arrivals' && (b.booking_status !== 'booked' || biDate !== todayStr)) return false;
                 if (currentFilter === 'departures' && (b.booking_status !== 'checked_in' || boDate !== todayStr)) return false;
                 if (currentFilter === 'cancelled' && b.booking_status !== 'cancelled') return false;
-                if (currentFilter === 'on_hold' && b.payment_status !== 'pending_hold') return false;
+                if (currentFilter === 'on_hold' && (b.payment_status !== 'pending_hold' || b.booking_status !== 'booked')) return false;
 
                 return true;
             });

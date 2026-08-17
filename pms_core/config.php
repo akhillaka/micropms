@@ -78,6 +78,33 @@ if (!function_exists('get_payment_methods')) {
     }
 }
 
+if (!function_exists('get_active_payment_gateways')) {
+    /**
+     * Gateways marked active in Settings → Payment Gateways.
+     * @return array<string, array{gateway: string, key_id: string}>
+     */
+    function get_active_payment_gateways(\PDO $db, int $propertyId): array {
+        try {
+            $stmt = $db->prepare("SELECT gateway, key_id FROM payment_gateway_configs WHERE property_id = ? AND is_active = 1");
+            $stmt->execute([$propertyId]);
+            $out = [];
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $gw = strtolower(trim((string)($row['gateway'] ?? '')));
+                if ($gw === '') {
+                    continue;
+                }
+                $out[$gw] = [
+                    'gateway' => $gw,
+                    'key_id' => (string)($row['key_id'] ?? ''),
+                ];
+            }
+            return $out;
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+}
+
 if (!function_exists('get_payment_categories')) {
     /**
      * Revenue / folio categories from Settings → Payment Config.

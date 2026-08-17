@@ -124,7 +124,7 @@ class BookingService {
             // Extra bed charges
             if ($extraBed === 1) {
                 $days = self::calculateDays($checkIn, $checkOut);
-                $extraBedCost = $days * 500.00;
+                $extraBedCost = $days * self::extraBedNightlyRate($db, (int)($room['property_id'] ?? $propId));
                 if ($priceOverride === null) {
                     $totalAmount += $extraBedCost;
                 }
@@ -694,9 +694,21 @@ class BookingService {
     }
 
     /**
+     * Nightly extra-bed rate for a property (system_settings.EXTRA_BED_RATE, default 500).
+     */
+    public static function extraBedNightlyRate(\PDO $db, int $propertyId): float {
+        $raw = '500';
+        if (function_exists('get_db_setting')) {
+            $raw = get_db_setting($db, 'EXTRA_BED_RATE', $propertyId, '500');
+        }
+        $rate = (float)$raw;
+        return $rate > 0 ? $rate : 500.00;
+    }
+
+    /**
      * Calculate number of days between two dates (minimum 1).
      */
-    private static function calculateDays(string $start, string $end): int {
+    public static function calculateDays(string $start, string $end): int {
         $days = (int)ceil((strtotime($end) - strtotime($start)) / 86400);
         return max(1, $days);
     }

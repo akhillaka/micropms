@@ -19,6 +19,13 @@ ApiHandler::run(function(\PDO $db) {
     $desc     = trim($data['description'] ?? '');
     $method   = trim($data['payment_method'] ?? '');
     $category = trim((string)($data['category'] ?? ''));
+    $recordedAtIn = trim(str_replace('T', ' ', (string)($data['recorded_at'] ?? '')));
+    if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $recordedAtIn)) {
+        $recordedAtIn .= ':00';
+    }
+    if ($recordedAtIn !== '' && !preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $recordedAtIn)) {
+        $recordedAtIn = '';
+    }
     if (!$ledgerId || !$desc) {
         ApiResponse::error('Missing fields');
     }
@@ -56,7 +63,7 @@ ApiHandler::run(function(\PDO $db) {
         $bookingId = (int)$origEntry['booking_id'];
         $displayId = $origEntry['display_id'];
         $ref = $origEntry['transaction_ref'] ?? '';
-        $recordedAt = $origEntry['recorded_at'];
+        $recordedAt = $recordedAtIn !== '' ? $recordedAtIn : $origEntry['recorded_at'];
         $propertyId = (int)$origEntry['property_id'];
 
         // Remove original ledger entry
@@ -127,18 +134,44 @@ ApiHandler::run(function(\PDO $db) {
         }
 
         $setCat = $category !== '';
-        if ($method !== '' && $setCat) {
+        $setDate = $recordedAtIn !== '';
+        if ($method !== '' && $setCat && $setDate) {
+            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm, category = :cat, recorded_at = :dt WHERE id = :id AND property_id = :pid");
+            $stmt->execute(['amt' => $amount, 'desc' => $desc, 'pm' => $method, 'cat' => $category, 'dt' => $recordedAtIn, 'id' => $ledgerId, 'pid' => $propertyId]);
+        } elseif ($method !== '' && $setCat) {
             $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm, category = :cat WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'pm' => $method, 'cat' => $category, 'id' => $ledgerId, 'pid' => $propertyId]);
+        } elseif ($method !== '' && $setDate) {
+            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm, recorded_at = :dt WHERE id = :id AND property_id = :pid");
+            $stmt->execute(['amt' => $amount, 'desc' => $desc, 'pm' => $method, 'dt' => $recordedAtIn, 'id' => $ledgerId, 'pid' => $propertyId]);
         } elseif ($method !== '') {
             $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'pm' => $method, 'id' => $ledgerId, 'pid' => $propertyId]);
+        } elseif ($setCat && $setDate) {
+            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, category = :cat, recorded_at = :dt WHERE id = :id AND property_id = :pid");
+            $stmt->execute(['amt' => $amount, 'desc' => $desc, 'cat' => $category, 'dt' => $recordedAtIn, 'id' => $ledgerId, 'pid' => $propertyId]);
         } elseif ($setCat) {
             $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, category = :cat WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'cat' => $category, 'id' => $ledgerId, 'pid' => $propertyId]);
+        } elseif ($setDate) {
+            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, recorded_at = :dt WHERE id = :id AND property_id = :pid");
+            $stmt->execute(['amt' => $amount, 'desc' => $desc, 'dt' => $recordedAtIn, 'id' => $ledgerId, 'pid' => $propertyId]);
         } else {
             $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'id' => $ledgerId, 'pid' => $propertyId]);
+        }
+
+        if ($setDate && $origAmt < 0) {
+            $displayId = (string)($origEntry['display_id'] ?? '');
+            if ($displayId !== '') {
+                $finDt = $db->prepare("UPDATE finance_transactions SET recorded_at = :dt WHERE booking_id = :bid AND property_id = :pid AND description LIKE :pat");
+                $finDt->execute([
+                    'dt' => $recordedAtIn,
+                    'bid' => (int)$origEntry['booking_id'],
+                    'pid' => $propertyId,
+                    'pat' => '%Receipt ' . $displayId . '%'
+                ]);
+            }
         }
 
         if ($setCat && $origAmt < 0) {

@@ -58,6 +58,8 @@ class BookingAssistant {
     this.historySearch = '';
     this.paymentMethods = [];
     this.paymentCategories = ['Room Revenue', 'F&B', 'Other'];
+    this.activeGateways = [];
+    this.razorpayKeyId = '';
 
     this.init();
   }
@@ -726,6 +728,8 @@ class BookingAssistant {
           this.paymentCategories = res.payment_categories;
           this.applyPaymentCategoriesToUI();
         }
+        this.activeGateways = Array.isArray(res.active_gateways) ? res.active_gateways : [];
+        this.razorpayKeyId = res.razorpay_key_id || '';
 
         // Alerts badge
         const badgeCount = res.alerts.length;
@@ -2548,6 +2552,18 @@ class BookingAssistant {
               ${m.label.replace(/</g, '&lt;')}
             </button>
           `).join('') || '<p style="grid-column:1/-1;font-size:0.8rem;color:var(--color-text-muted);">No payment methods configured in Settings.</p>'}
+          ${this.activeGateways.some(g => g.gateway === 'razorpay') ? `
+            <button type="button" onclick="app.payViaRazorpay()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border:2px solid #1e3a8a;border-radius:10px;background:#1e3a8a;font-weight:800;font-size:0.85rem;color:white;cursor:pointer;">
+              Razorpay
+            </button>` : ''}
+          ${this.activeGateways.some(g => g.gateway === 'phonepe') ? `
+            <button type="button" onclick="app.sendAssistantPaymentLink()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border:2px solid #5b21b6;border-radius:10px;background:#5b21b6;font-weight:800;font-size:0.85rem;color:white;cursor:pointer;">
+              PhonePe
+            </button>` : ''}
+          ${this.activeGateways.length ? `
+            <button type="button" onclick="app.sendAssistantPaymentLink()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border:2px solid #059669;border-radius:10px;background:#ecfdf5;font-weight:800;font-size:0.85rem;color:#047857;cursor:pointer;">
+              WhatsApp Link
+            </button>` : ''}
         </div>
       </div>
     `;
@@ -2730,6 +2746,104 @@ class BookingAssistant {
     } catch (e) {
       this.hideLoading();
       this.showToast(e.message || 'Payment API connection error', 'danger');
+    }
+  }
+
+  async sendAssistantPaymentLink() {
+    if (!this.activePaymentBookingId) {
+      this.showToast('No booking selected', 'warning');
+      return;
+    }
+    this.showLoading('Sending WhatsApp payment link...');
+    try {
+      const res = await this.apiCall('/api/admin/generate_payment_link', {
+        booking_id: this.activePaymentBookingId
+      });
+      this.hideLoading();
+      const picker = document.getElementById('quick-payment-mode-picker');
+      if (picker) picker.remove();
+      if (res && res.success) {
+        this.showToast(res.message || 'Payment link sent on WhatsApp', 'success');
+      } else {
+        this.showToast(res.message || 'Could not send payment link', 'danger');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.showToast(e.message || 'Could not send payment link', 'danger');
+    }
+  }
+
+  async payViaRazorpay() {
+    const amt = parseFloat(document.getElementById('quick-payment-amount')?.value) || 0;
+    if (amt <= 0) return this.showToast('Amount must be greater than zero', 'danger');
+    if (!this.activePaymentBookingId) return this.showToast('No booking selected', 'warning');
+
+    this.showLoading('Opening Razorpay...');
+    try {
+      const orderRes = await this.apiCall('/api/admin/create_razorpay_order', {
+        booking_id: this.activePaymentBookingId,
+        amount: amt
+      });
+      this.hideLoading();
+      if (!orderRes || !orderRes.success) {
+        this.showToast(orderRes.message || 'Could not start Razorpay', 'danger');
+        return;
+      }
+
+      const openCheckout = () => {
+        const date = document.getElementById('quick-payment-date')?.value || '';
+        const categoryEl = document.getElementById('quick-payment-category');
+        const category = categoryEl ? categoryEl.value : '';
+        const rzp = new window.Razorpay({
+          key: this.razorpayKeyId || orderRes.key_id,
+          amount: Math.round(amt * 100),
+          currency: 'INR',
+          name: 'MicroPMS',
+          description: 'Collect payment',
+          order_id: orderRes.order_id,
+          handler: async (response) => {
+            const picker = document.getElementById('quick-payment-mode-picker');
+            if (picker) picker.remove();
+            this.showLoading('Recording payment...');
+            try {
+              const rec = await this.apiCall('/api/admin/record_payment', {
+                booking_id: this.activePaymentBookingId,
+                amount: amt,
+                method: 'Razorpay',
+                ref: response.razorpay_payment_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
+                date: date,
+                category: category
+              });
+              this.hideLoading();
+              if (rec && rec.success) {
+                this.showToast(`₹${amt} via Razorpay recorded!`, 'success');
+              } else {
+                this.showToast(rec.message || 'Payment captured but folio update failed', 'danger');
+              }
+            } catch (err) {
+              this.hideLoading();
+              this.showToast(err.message || 'Could not record Razorpay payment', 'danger');
+            }
+          }
+        });
+        rzp.open();
+      };
+
+      if (typeof window.Razorpay === 'undefined') {
+        const script = document.createElement('script');
+        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        script.onload = openCheckout;
+        script.onerror = () => this.showToast('Could not load Razorpay', 'danger');
+        document.head.appendChild(script);
+      } else {
+        openCheckout();
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.showToast(e.message || 'Razorpay error', 'danger');
     }
   }
 
@@ -2930,6 +3044,8 @@ class BookingAssistant {
     this.activeActionIdFront = b.id_proof_front || '';
     this.activeActionIdBack = b.id_proof_back || '';
     this.activeActionCheckOut = b.check_out || '';
+    this.activeActionCheckIn = b.check_in || '';
+    this.activeActionBooking = b;
     
     document.getElementById('action-sheet-name').textContent = gName;
     document.getElementById('action-sheet-phone').textContent = gPhone;
@@ -2992,11 +3108,55 @@ class BookingAssistant {
     const friendlyDate = formatNiceDate(this.activeActionCheckOut);
     document.getElementById('extend-current-checkout').textContent = friendlyDate || this.activeActionCheckOut;
     
-    // Reset new checkout display
     const newDisplay = document.getElementById('extend-new-checkout-display');
     if (newDisplay) newDisplay.textContent = 'Tap below';
+
+    const toLocal = (mysql) => {
+      if (!mysql) return '';
+      return String(mysql).replace(' ', 'T').slice(0, 16);
+    };
+    const inEl = document.getElementById('extend-checkin-datetime');
+    const outEl = document.getElementById('extend-checkout-datetime');
+    if (inEl) inEl.value = toLocal(this.activeActionCheckIn);
+    if (outEl) outEl.value = toLocal(this.activeActionCheckOut);
     
     document.getElementById('extend-stay-popup').classList.add('active');
+  }
+
+  async saveStayDates() {
+    const inVal = document.getElementById('extend-checkin-datetime')?.value || '';
+    const outVal = document.getElementById('extend-checkout-datetime')?.value || '';
+    if (!inVal || !outVal) {
+      this.showToast('Set both check-in and check-out date & time', 'warning');
+      return;
+    }
+    if (new Date(outVal) <= new Date(inVal)) {
+      this.showToast('Check-out must be after check-in', 'warning');
+      return;
+    }
+    const booking = this.activeActionBooking || {};
+    this.showLoading('Updating stay dates...');
+    try {
+      const res = await this.apiCall('/api/admin/edit_booking', {
+        booking_id: this.activeActionBookingId,
+        room_id: booking.room_id,
+        rate_plan_name: booking.rate_plan_name || '',
+        check_in: inVal.replace('T', ' ') + ':00',
+        check_out: outVal.replace('T', ' ') + ':00'
+      });
+      this.hideLoading();
+      if (res && res.success) {
+        this.closeExtendStayPopup();
+        this.showToast('Stay dates updated', 'success');
+        this.loadBookingHistory();
+        this.loadDashboardData();
+      } else {
+        this.showToast(res.message || 'Could not update dates', 'danger');
+      }
+    } catch (e) {
+      this.hideLoading();
+      this.showToast(e.message || 'Could not update dates', 'danger');
+    }
   }
 
   closeExtendStayPopup(event) {

@@ -20,6 +20,14 @@ ApiHandler::run(function(\PDO $db) {
         throw new Exception("Missing parameters");
     }
     $data['booking_id'] = (int)$data['booking_id'];
+    $data['check_in'] = str_replace('T', ' ', (string)$data['check_in']);
+    $data['check_out'] = str_replace('T', ' ', (string)$data['check_out']);
+    if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $data['check_in'])) {
+        $data['check_in'] .= ':00';
+    }
+    if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $data['check_out'])) {
+        $data['check_out'] .= ':00';
+    }
 
     if (strtotime($data['check_out']) <= strtotime($data['check_in'])) {
         throw new Exception("Check-out date and time must be after check-in.");

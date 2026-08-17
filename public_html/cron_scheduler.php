@@ -119,6 +119,7 @@ if ($hour === 23) {
 echo "[SWEEP] Checking abandoned holds...\n";
 $sweepStmt = $db->prepare("UPDATE bookings SET payment_status = 'cancelled', booking_status = 'cancelled' 
                            WHERE payment_status = 'pending_hold' 
+                           AND booking_status = 'booked'
                            AND created_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)");
 $sweepStmt->execute();
 $sweptCount = $sweepStmt->rowCount();

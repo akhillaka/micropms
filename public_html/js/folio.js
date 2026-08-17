@@ -111,12 +111,12 @@ updateRatePlanDropdown();
 async function editBooking(btn) {
     const roomId = document.getElementById('edit_room_id').value;
     const ratePlan = document.getElementById('edit_rate_plan').value;
-    const inDate = document.getElementById('edit_check_in').value;
-    const outDate = document.getElementById('edit_check_out').value;
+    const inDate = (document.getElementById('edit_check_in').value || '').replace('T', ' ');
+    const outDate = (document.getElementById('edit_check_out').value || '').replace('T', ' ');
     const taxPrefEl = document.getElementById('edit_tax_pref');
     const taxPref = taxPrefEl ? taxPrefEl.value : 'exclusive';
 
-    if (new Date(outDate) <= new Date(inDate)) {
+    if (new Date(inDate.replace(' ', 'T')) >= new Date(outDate.replace(' ', 'T'))) {
         showToast("Check-out date and time must be strictly after the check-in date and time.");
         return;
     }
@@ -293,11 +293,13 @@ async function saveGuestEdit(btn) {
     if(data.success) location.reload(); else { showToast(data.message); UI.setLoading(btn, false); }
 }
 
-function openEditLedger(id, desc, amt, method = '', displayId = '', category = '') {
+function openEditLedger(id, desc, amt, method = '', displayId = '', category = '', recordedAt = '') {
     document.getElementById('edit_l_id').value = id;
     document.getElementById('edit_l_desc').value = desc;
     document.getElementById('edit_l_amount').value = amt;
     document.getElementById('edit_l_method').value = method;
+    const dateEl = document.getElementById('edit_l_date');
+    if (dateEl) dateEl.value = recordedAt || '';
 
     const catSelect = document.getElementById('edit_l_category');
     const catWrap = document.getElementById('edit_l_category_wrap');
@@ -418,7 +420,7 @@ async function saveLedgerEdit(btn) {
         const res = await fetch('/api/admin/edit_ledger', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ ledger_id: id, description: desc, amount: amt, payment_method: method, category: category, splits: splits })
+            body: JSON.stringify({ ledger_id: id, description: desc, amount: amt, payment_method: method, category: category, splits: splits, recorded_at: document.getElementById('edit_l_date')?.value || '' })
         });
         const data = await res.json();
         if(data.success) location.reload(); else { showToast(data.message); UI.setLoading(btn, false); }
@@ -596,10 +598,34 @@ async function recordManualPayment(btn, method) {
 }
 
 async function sendPaymentLink(btn) {
-    showToast('Payment link sent via WhatsApp successfully!');
+    const originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = 'Sending...';
+    try {
+        const res = await fetch('/api/admin/generate_payment_link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ booking_id: bookingId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message || 'Payment link sent on WhatsApp.', 'success');
+            UI.hideModal('collect-payment-modal');
+        } else {
+            showToast(data.message || data.error || 'Could not send payment link');
+        }
+    } catch (e) {
+        showToast('Network error sending payment link');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+    }
 }
 
-async function payViaGateway(btn) {
+async function payViaGateway(btn, gateway = 'razorpay') {
+    if (gateway === 'phonepe') {
+        return sendPaymentLink(btn);
+    }
     const amt = parseFloat(document.getElementById('cp_amount').value);
     if(amt <= 0 || isNaN(amt)) return showToast('Invalid amount');
 
