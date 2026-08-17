@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
 if (!AuthHelper::can('view_dashboard')) {
-    header('Location: /admin/login.php');
+    header('Location: /login');
     exit;
 }
 CsrfToken::checkTimeout();
@@ -152,7 +152,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
         <div class="bg-blue-700 text-white px-4 py-2.5 text-center text-xs font-bold flex items-center justify-center gap-2">
             <i class="ph ph-eye"></i>
             <span>SaaS VIEW: Currently viewing dashboard for <strong><?= htmlspecialchars((string)($hotelName)) ?></strong> (Property ID: <?= htmlspecialchars((string)($activePropertyId), ENT_QUOTES, 'UTF-8') ?>)</span>
-            <form method="POST" action="/saas-admin/index.php" class="inline">
+            <form method="POST" action="/saas-admin" class="inline">
                 <input type="hidden" name="action" value="switch_context">
                 <input type="hidden" name="property_id" value="1">
                 <button type="submit" class="underline text-yellow-300 ml-2 hover:text-yellow-100 transition">Switch back to Primary Hotel</button>
@@ -193,7 +193,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                 </div>
 
                 <?php if(AuthHelper::can('create_booking')): ?>
-                <a href="../booking_wizard.php" target="_blank" class="inline-flex btn-minimal text-xs py-2 px-3.5 gap-1.5 rounded-xl">
+                <a href="/booking_wizard" target="_blank" class="inline-flex btn-minimal text-xs py-2 px-3.5 gap-1.5 rounded-xl">
                     <i class="ph ph-plus-circle text-base"></i> New Reservation
                 </a>
                 <?php endif; ?>
@@ -310,7 +310,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                                 <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Actions Center</h3>
                                 <span id="actions-count-badge" class="hidden bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full"></span>
                             </div>
-                            <a href="actions.php" id="actions-view-all" class="hidden text-[10px] font-bold text-indigo-600 hover:underline">All →</a>
+                            <a href="/admin/actions" id="actions-view-all" class="hidden text-[10px] font-bold text-indigo-600 hover:underline">All →</a>
                         </div>
                         <div id="actions-container" class="p-4 space-y-3 overflow-y-auto max-h-[300px]">
                             <div class="flex items-center justify-center py-8 text-slate-400 text-xs">
@@ -362,7 +362,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                                     <i class="ph ph-sparkle text-xs"></i> Clean All
                                 </button>
                                 <?php endif; ?>
-                                <a href="modules/housekeeping/rooms_calendar.php" class="text-[10px] font-bold text-slate-500 hover:text-slate-600">Grid →</a>
+                                <a href="/admin/modules/housekeeping/rooms_calendar" class="text-[10px] font-bold text-slate-500 hover:text-slate-600">Grid →</a>
                             </div>
                         </div>
                         <div class="p-4 max-h-[360px] overflow-y-auto space-y-2">
@@ -551,7 +551,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                         </div>
                         <div class="flex items-center gap-2 w-full md:w-auto pl-14 md:pl-0 border-t border-slate-50 md:border-0 pt-3 md:pt-0 justify-end">
                             ${b.booking_status === 'booked' ? `<button onclick="quickCheckin(${b.id})" class="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl transition-all border border-emerald-100"><i class="ph ph-sign-in"></i> Check In</button>` : ''}
-                            <a href="folio.php?id=${encodeURIComponent(b.display_id || b.id)}" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors">Folio</a>
+                            <a href="/admin/folio?id=${encodeURIComponent(b.display_id || b.id)}" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors">Folio</a>
                             ${b.booking_status === 'checked_in' ? `<button onclick="quickCheckout(${b.id})" class="px-4 py-2 border border-rose-200 text-rose-600 hover:bg-rose-50 font-bold text-xs rounded-xl transition-all">Check Out</button>` : ''}
                         </div>
                     </div>

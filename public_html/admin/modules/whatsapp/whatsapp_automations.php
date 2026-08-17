@@ -38,8 +38,8 @@ if (!$waEnabled) {
                 Upgrade to our Enterprise plan to enable custom triggers, automated template flows, and direct delivery verification metrics.
             </p>
             <div class="pt-2 flex flex-col gap-2">
-                <a href="../../settings.php?tab=subscription" class="px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow cursor-pointer">Upgrade Subscription Plan</a>
-                <a href="../../index.php" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">Back to Dashboard</a>
+                <a href="/admin/settings?tab=subscription" class="px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow cursor-pointer">Upgrade Subscription Plan</a>
+                <a href="/admin" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">Back to Dashboard</a>
             </div>
         </div>
     </body>
@@ -139,7 +139,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
         <!-- Header -->
         <header class="bg-white px-5 py-4 flex items-center justify-between z-10 border-b border-brand-900/20 sticky top-0">
             <div class="flex items-center gap-3">
-                <a href="../../index.php" class="w-12 h-12 bg-brand-accent border border-brand-200 flex items-center justify-center text-black hover:-translate-y-0.5 active:translate-y-0.5 transition-transform">
+                <a href="/admin" class="w-12 h-12 bg-brand-accent border border-brand-200 flex items-center justify-center text-black hover:-translate-y-0.5 active:translate-y-0.5 transition-transform">
                     <i class="ph ph-caret-left text-2xl"></i>
                 </a>
                 <div>

@@ -71,7 +71,7 @@ It skips `.env` and `uploads/`. It does **not** delete extra files on the server
 2. GitHub → **Actions** → **Deploy to Hostinger** → **Run workflow** → branch `main` → **Run workflow**.
 3. Open the run. A green check means files are on Hostinger. A red X: open the failed step (almost always FTP host/user/port/protocol).
 4. After a green run: open the apex landing page, log in on `admin.`, and open one stay on `guest.`.
-5. If this release added files under `db_migrations/`, run `/admin/run_migration.php` on live (see below).
+5. If this release added files under `db_migrations/`, run `/admin/run_migration` on live (see below).
 
 GitHub’s built-in `GITHUB_TOKEN` is enough for checkout inside the Action. You do **not** add a PAT as an Actions secret unless you want the SaaS Deploy button (next section).
 
@@ -106,7 +106,7 @@ If this token is missing, deploys still work from GitHub → Actions. Do not use
 Code deploy does **not** change the MySQL schema by itself. After a deploy that includes new files in `db_migrations/`:
 
 1. Log in as **superadmin**.
-2. Open `https://admin.yourdomain.com/admin/run_migration.php` (or `/admin/run_migration.php` on localhost).
+2. Open `https://admin.yourdomain.com/admin/run_migration` (or `/admin/run_migration` on localhost).
 3. Click run. Pending SQL files apply in order; already-applied ones are skipped (safe to click again).
 
 Do this after the Action is green, before you assume new features work. Do not upload a full database dump.
@@ -125,7 +125,7 @@ Set `APP_BASE_DOMAIN=yourdomain.com` in the server `.env`.
 | `guest.yourdomain.com` | Guest portal |
 | `admin.yourdomain.com` | Staff admin |
 | `assistant.yourdomain.com` | Hotel Assistant |
-| `saas.yourdomain.com` | SaaS control panel + public `/register` |
+| `saas.yourdomain.com` | SaaS control panel. Public `/register` is a lead form, not self-signup. |
 
 Issue SSL for each hostname (or a wildcard). Landing **Login** goes to staff admin; **Register** creates a property on a SaaS plan and signs the owner into admin. Platform operators use `saas.` login.
 
@@ -142,7 +142,7 @@ You do **not** need subdomains on your Mac. `http://localhost:8000` stays path-b
 | `http://localhost:8000/guest-login` | Guest portal login |
 | `http://localhost:8000/assistant` | Hotel Assistant |
 | `http://localhost:8000/saas-admin` | SaaS panel |
-| `http://localhost:8000/register` | Public hotel register |
+| `http://localhost:8000/register` | Lead form (request access; no account yet) |
 
 Start the app from `public_html` so routing works:
 
@@ -151,7 +151,7 @@ cd public_html
 php -S 127.0.0.1:8000 router.php
 ```
 
-`http://localhost:8000/index.php?hotelId=1000` is an old bookmark. It now opens the staff dashboard for that property (you must already be logged in). Prefer `/admin?hotelId=1000`.
+`http://localhost:8000/index.php?hotelId=1000` redirects to `/admin?hotelId=1000`. Prefer `/admin?hotelId=1000`.
 
 ### Optional: fake subdomains on localhost
 

@@ -28,8 +28,8 @@ if (!$hkEnabled) {
         <div class="max-w-md w-full bg-white border border-slate-200 p-8 rounded-2xl shadow-md space-y-5">
             <h2 class="text-xl font-bold tracking-tight text-slate-800">Housekeeping Module Upgrade Needed</h2>
             <div class="pt-2 flex flex-col gap-2">
-                <a href="../../settings.php?tab=subscription" class="px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow cursor-pointer">Upgrade Subscription Plan</a>
-                <a href="../../index.php" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">Back to Dashboard</a>
+                <a href="/admin/settings?tab=subscription" class="px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow cursor-pointer">Upgrade Subscription Plan</a>
+                <a href="/admin" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">Back to Dashboard</a>
             </div>
         </div>
     </body>
@@ -55,7 +55,7 @@ if (!$hkEnabled) {
     <!-- App Bar -->
     <header class="bg-white px-5 py-4 flex items-center justify-between z-10 border-b border-slate-100 sticky top-0">
         <div class="flex items-center gap-3">
-            <a href="../../index.php" class="p-2 -ml-2 rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors">
+            <a href="/admin" class="p-2 -ml-2 rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors">
                 <i class="ph ph-caret-left text-2xl text-slate-800"></i>
             </a>
             <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">Service Requests</h1>

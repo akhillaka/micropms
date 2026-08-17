@@ -101,15 +101,22 @@ assert_true(ModuleHost::applyHostPrefix('/', 'admin') === '/admin', 'admin home 
 assert_true(ModuleHost::applyHostPrefix('/', 'assistant') === '/assistant', 'assistant home prefixes to /assistant');
 assert_true(ModuleHost::applyHostPrefix('/', 'saas') === '/saas-admin', 'saas home prefixes to /saas-admin');
 assert_true(ModuleHost::applyHostPrefix('/', 'apex') === '/', 'apex home stays landing');
-assert_true(ModuleHost::applyHostPrefix('/register', 'saas') === '/register', 'public register is not prefixed away');
+assert_true(ModuleHost::applyHostPrefix('/register', 'saas') === '/register', 'public lead form is not prefixed away');
+assert_true(is_file(__DIR__ . '/../db_migrations/028_saas_leads.sql'), 'leads migration is packaged');
+assert_true(is_file(__DIR__ . '/../pms_core/services/LeadService.php'), 'lead capture service exists');
 assert_true(ModuleHost::sessionCookieDomain('guest', 'yourdomain.com', 'guest.yourdomain.com') === '', 'guest cookie stays host-only');
 assert_true(ModuleHost::sessionCookieDomain('admin', 'yourdomain.com', 'admin.yourdomain.com') === '.yourdomain.com', 'staff cookie is shared on base domain');
 assert_true(ModuleHost::detectModule('admin.localhost') === 'admin', 'admin.localhost is a local module host');
 assert_true(ModuleHost::detectModule('guest.localhost') === 'guest', 'guest.localhost is a local module host');
 assert_true(ModuleHost::requestPortSuffix('admin.localhost:8000') === ':8000', 'local URLs keep the PHP server port');
 assert_true(ModuleHost::url('guest', '/guest-login', 'admin.localhost:8000') === 'http://guest.localhost:8000/guest-login', 'module URL keeps :8000');
+assert_true(ModuleHost::canonicalPublicPath('/admin/settings.php') === '/admin/settings', 'page URLs drop .php');
+assert_true(ModuleHost::canonicalPublicPath('/index.php') === '/', 'index.php becomes /');
+assert_true(ModuleHost::canonicalPublicPath('/admin/index.php') === '/admin', 'admin index is /admin');
+assert_true(ModuleHost::shouldKeepPhpInUrl('/webhook_razorpay.php') === true, 'webhooks keep .php');
+assert_true(ModuleHost::shouldKeepPhpInUrl('/admin/settings.php') === false, 'admin pages do not keep .php');
 assert_true(is_file(__DIR__ . '/../public_html/landing/index.php'), 'apex landing page exists');
-assert_true(is_file(__DIR__ . '/../public_html/landing/register.php'), 'public register page exists');
+assert_true(is_file(__DIR__ . '/../public_html/landing/register.php'), 'public lead request page exists');
 assert_true(is_file(__DIR__ . '/../pms_core/services/PropertyOnboardService.php'), 'property onboard service is shared');
 
 echo "\n{$passed} passed, {$failed} failed\n";

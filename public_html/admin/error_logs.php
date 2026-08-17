@@ -47,7 +47,7 @@ try {
         <!-- App Bar -->
         <header class="bg-white px-6 py-4 flex items-center justify-between sticky top-0 z-40 border-b border-slate-200">
             <div class="flex items-center gap-3">
-                <a href="index.php" class="p-2 -ml-2 rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors">
+                <a href="/admin" class="p-2 -ml-2 rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors">
                     <i class="ph ph-caret-left text-2xl text-slate-800"></i>
                 </a>
                 <div>
@@ -74,7 +74,7 @@ try {
                         <h2 class="text-base font-extrabold">Database Migration Required</h2>
                         <p class="text-xs font-semibold text-slate-500 mt-1">The upgraded role and error logs tables have not been created yet.</p>
                     </div>
-                    <a href="run_migration.php" class="inline-flex items-center gap-1.5 bg-brand-accent text-white px-5 py-2.5 rounded-xl font-bold text-xs hover:bg-brand-accentHover active:scale-95 transition-all shadow-sm">
+                    <a href="/admin/run_migration" class="inline-flex items-center gap-1.5 bg-brand-accent text-white px-5 py-2.5 rounded-xl font-bold text-xs hover:bg-brand-accentHover active:scale-95 transition-all shadow-sm">
                         <i class="ph ph-play text-sm"></i> Run Database Migration
                     </a>
                 </div>

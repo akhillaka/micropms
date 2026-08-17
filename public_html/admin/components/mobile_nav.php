@@ -4,16 +4,16 @@
 $adminBaseUrl = '/admin/';
 $currentPage = basename(parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: ($_SERVER['PHP_SELF'] ?? ''));
 $navItems = [
-    'index.php'                                      => ['icon' => 'ph-house',              'label' => 'Home',        'permission' => 'view_dashboard'],
-    '/booking_wizard.php'                            => ['icon' => 'ph-calendar-plus',      'label' => 'Wizard',      'permission' => 'create_booking'],
-    'modules/housekeeping/rooms_calendar.php'        => ['icon' => 'ph-calendar-blank',     'label' => 'Rooms',       'permission' => 'housekeeping'],
-    'modules/housekeeping/service_requests.php'      => ['icon' => 'ph-bell',               'label' => 'Requests',    'permission' => 'housekeeping'],
-    'guests.php'                                     => ['icon' => 'ph-users',              'label' => 'Guests',      'permission' => 'manage_guests'],
-    'finance.php'                                    => ['icon' => 'ph-wallet',             'label' => 'Finance',     'permission' => 'view_finance'],
-    'reports.php'                                    => ['icon' => 'ph-chart-line-up',      'label' => 'Reports',     'permission' => 'view_reports'],
-    'settings.php'                                   => ['icon' => 'ph-gear',               'label' => 'Settings',    'permission' => 'manage_settings'],
-    'automations.php'                                => ['icon' => 'ph-paper-plane-tilt',   'label' => 'Automations', 'permission' => 'manage_settings'],
-    'logout.php'                                     => ['icon' => 'ph-sign-out',           'label' => 'Logout',      'permission' => 'view_dashboard'],
+    '/admin'                                         => ['icon' => 'ph-house',              'label' => 'Home',        'permission' => 'view_dashboard'],
+    '/booking_wizard'                                => ['icon' => 'ph-calendar-plus',      'label' => 'Wizard',      'permission' => 'create_booking'],
+    '/admin/modules/housekeeping/rooms_calendar'     => ['icon' => 'ph-calendar-blank',     'label' => 'Rooms',       'permission' => 'housekeeping'],
+    '/admin/modules/housekeeping/service_requests'   => ['icon' => 'ph-bell',               'label' => 'Requests',    'permission' => 'housekeeping'],
+    '/admin/guests'                                  => ['icon' => 'ph-users',              'label' => 'Guests',      'permission' => 'manage_guests'],
+    '/admin/finance'                                 => ['icon' => 'ph-wallet',             'label' => 'Finance',     'permission' => 'view_finance'],
+    '/admin/reports'                                 => ['icon' => 'ph-chart-line-up',      'label' => 'Reports',     'permission' => 'view_reports'],
+    '/admin/settings'                                => ['icon' => 'ph-gear',               'label' => 'Settings',    'permission' => 'manage_settings'],
+    '/admin/automations'                             => ['icon' => 'ph-paper-plane-tilt',   'label' => 'Automations', 'permission' => 'manage_settings'],
+    '/admin/logout'                                  => ['icon' => 'ph-sign-out',           'label' => 'Logout',      'permission' => 'view_dashboard'],
 ];
 
 ?>
@@ -25,12 +25,12 @@ $navItems = [
             if (!AuthHelper::can($item['permission'])) {
                 continue;
             }
-            $isActive = ($currentPage === basename($url)); 
+            $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '';
+            $isActive = (rtrim((string)$path, '/') === rtrim($url, '/') || ($url === '/admin' && in_array($path, ['/admin', '/admin/', '/admin/index'], true)));
             $activeContainer = $isActive ? 'text-blue-600' : 'text-slate-400 hover:text-blue-600 scale-95 hover:scale-100';
             $iconWeight = $isActive ? 'ph-fill' : 'ph';
             ?>
-            <?php $finalUrl = (strpos($url, '../') === 0) ? str_replace('/admin/', '/', $adminBaseUrl) . substr($url, 3) : $adminBaseUrl . $url; ?>
-            <a href="<?= htmlspecialchars((string)($finalUrl)) ?>" class="relative flex flex-col items-center justify-center w-16 h-full transition-all duration-300 <?= htmlspecialchars((string)($activeContainer), ENT_QUOTES, 'UTF-8') ?>">
+            <a href="<?= htmlspecialchars((string)($url)) ?>" class="relative flex flex-col items-center justify-center w-16 h-full transition-all duration-300 <?= htmlspecialchars((string)($activeContainer), ENT_QUOTES, 'UTF-8') ?>">
                 
                 <!-- Active Indicator Dot / Pill -->
                 <?php if($isActive): ?>

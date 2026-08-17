@@ -4,7 +4,22 @@ declare(strict_types=1);
 require_once __DIR__ . '/../pms_core/ModuleHost.php';
 ModuleHost::startSession();
 
-$requestPath = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$requestPath = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/';
+$method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+if (
+    $method === 'GET'
+    && str_ends_with(strtolower((string)$requestPath), '.php')
+    && !ModuleHost::shouldKeepPhpInUrl((string)$requestPath)
+) {
+    $clean = ModuleHost::canonicalPublicPath((string)$requestPath);
+    if (($clean === '/' || $clean === '/index') && isset($_GET['hotelId']) && (int)$_GET['hotelId'] > 0) {
+        $clean = '/admin';
+    }
+    $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
+    header('Location: ' . $clean . ($qs !== '' ? ('?' . $qs) : ''), true, 301);
+    exit;
+}
+
 // PHP built-in server: serve css/js/images as files. Never return false for .php —
 // index.php includes this router, and return false from an include is a blank page.
 if (php_sapi_name() === 'cli-server') {
@@ -105,6 +120,7 @@ switch ($request) {
         break;
 
     case '/register':
+    case '/leads':
         require __DIR__ . '/landing/register.php';
         break;
 

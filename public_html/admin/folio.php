@@ -52,7 +52,7 @@ if (!$booking) render_error_page('Booking Not Found', 'The requested booking doe
 
 $publicId = booking_public_id($booking);
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && $publicId !== '' && $publicId !== $id) {
-    header('Location: /admin/folio.php?id=' . rawurlencode($publicId), true, 302);
+    header('Location: /admin/folio?id=' . rawurlencode($publicId), true, 302);
     exit;
 }
 
@@ -236,7 +236,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
         <!-- App Bar / Navigation -->
         <header class="bg-white px-6 py-4 flex items-center justify-between border-b border-slate-100 sticky top-0 z-50 shadow-sm mb-6">
             <div class="flex items-center gap-3">
-                <a href="index.php" class="p-2 -ml-2 rounded-full hover:bg-slate-100 transition-colors"><i class="ph ph-caret-left text-2xl text-slate-700"></i></a>
+                <a href="/admin" class="p-2 -ml-2 rounded-full hover:bg-slate-100 transition-colors"><i class="ph ph-caret-left text-2xl text-slate-700"></i></a>
                 <div>
                     <h1 class="text-base font-bold text-slate-900 leading-none">MicroPMS Folio</h1>
                     <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1 inline-block">Room Operations</span>
@@ -403,7 +403,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                 <button onclick="navigator.clipboard.writeText('<?= htmlspecialchars((string)($guestPortalUrl), ENT_QUOTES, 'UTF-8') ?>'); alert('Copied Guest Portal Link!');" class="pill-btn text-indigo-700 border-indigo-100 hover:bg-indigo-50/50">
                     <i class="ph ph-share-network text-sm"></i> Share Guest Link
                 </button>
-                <a href="invoice.php?id=<?= htmlspecialchars((string)($id), ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="pill-btn pill-btn-primary">
+                <a href="/admin/invoice?id=<?= htmlspecialchars((string)($id), ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="pill-btn pill-btn-primary">
                     <i class="ph ph-printer text-sm"></i> Print Invoice
                 </a>
             </div>
@@ -545,7 +545,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                         <?php if (!empty($l['transaction_ref']) && str_starts_with($l['transaction_ref'], 'pay_')): ?>
                                             <button onclick="refundRazorpay(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>)" class="px-2.5 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold border border-amber-200 transition-colors">Refund</button>
                                         <?php elseif (preg_match('/Order #(\d+)/', $l['description'], $matches) && strpos($l['description'], 'Reverse') === false): ?>
-                                            <a href="modules/pos/pos.php?edit_order=<?= htmlspecialchars((string)($matches[1]), ENT_QUOTES, 'UTF-8') ?>" class="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 transition-colors text-[10px] uppercase tracking-wider inline-flex items-center gap-1" title="Edit POS Order"><i class="ph-bold ph-pencil-simple text-[10px]"></i> POS Order</a>
+                                            <a href="/admin/modules/pos/pos?edit_order=<?= htmlspecialchars((string)($matches[1]), ENT_QUOTES, 'UTF-8') ?>" class="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 transition-colors text-[10px] uppercase tracking-wider inline-flex items-center gap-1" title="Edit POS Order"><i class="ph-bold ph-pencil-simple text-[10px]"></i> POS Order</a>
                                         <?php else: ?>
                                             <button onclick="openEditLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['description'] ?? ''))) ?>', <?= htmlspecialchars((string)(abs($l['amount'])), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['payment_method'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['display_id'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['category'] ?? ''))) ?>', '<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime((string)$l['recorded_at']))), ENT_QUOTES, 'UTF-8') ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
                                             <button onclick="deleteLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>)" class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-trash text-sm"></i></button>

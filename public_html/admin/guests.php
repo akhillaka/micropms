@@ -112,7 +112,7 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
         <!-- App Bar -->
         <header class="bg-white px-5 py-4 flex items-center justify-between z-10 border-b border-slate-100 sticky top-0 mb-6">
             <div class="flex items-center gap-3">
-                <a href="index.php" class="p-2 -ml-2 rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors">
+                <a href="/admin" class="p-2 -ml-2 rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors">
                     <i class="ph ph-caret-left text-2xl text-slate-800"></i>
                 </a>
                 <div>
@@ -179,7 +179,7 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
                     <button type="submit" class="bg-brand-900 text-white font-bold px-5 py-2.5 rounded-xl hover:-translate-y-0.5 hover:shadow-lg transition-all text-sm h-[42px]">
                         Filter
                     </button>
-                    <a href="guests.php" class="bg-brand-100 text-brand-900 font-bold px-4 py-2.5 rounded-xl hover:bg-brand-200 transition-all text-sm h-[42px] flex items-center justify-center">
+                    <a href="/admin/guests" class="bg-brand-100 text-brand-900 font-bold px-4 py-2.5 rounded-xl hover:bg-brand-200 transition-all text-sm h-[42px] flex items-center justify-center">
                         Clear
                     </a>
                 </div>
@@ -244,7 +244,7 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
                                     <div class="text-xs font-bold text-brand-900"><?= htmlspecialchars((string)($g['last_visit'] ? date('M j, Y', strtotime($g['last_visit'])) : 'Never'), ENT_QUOTES, 'UTF-8') ?></div>
                                 </td>
                                 <td class="px-6 py-4 text-right">
-                                    <a href="guest_profile.php?id=<?= htmlspecialchars((string)($g['id']), ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-1.5 text-brand-900 bg-white border border-brand-200 hover:border-brand-900 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm">
+                                    <a href="/admin/guest_profile?id=<?= htmlspecialchars((string)($g['id']), ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-1.5 text-brand-900 bg-white border border-brand-200 hover:border-brand-900 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm">
                                         <i class="ph ph-user-circle"></i> View Profile
                                     </a>
                                 </td>
@@ -310,7 +310,7 @@ $returningPct = $totalGuestsAll > 0 ? round(($returningGuests / $totalGuestsAll)
                         
                         if (data.success && data.guests && data.guests.length > 0) {
                             dropdown.innerHTML = data.guests.map(g => `
-                                <a href="guest_profile.php?id=${g.id}" class="block px-4 py-3 hover:bg-brand-50 transition-colors text-left w-full group">
+                                <a href="/admin/guest_profile?id=${g.id}" class="block px-4 py-3 hover:bg-brand-50 transition-colors text-left w-full group">
                                     <div class="font-bold text-brand-900 text-sm group-hover:text-brand-accent transition-colors">${g.guest_name}</div>
                                     <div class="text-[11px] text-brand-500 font-medium flex items-center gap-1 mt-0.5"><i class="ph-fill ph-phone text-brand-300"></i> ${g.guest_phone}</div>
                                 </a>

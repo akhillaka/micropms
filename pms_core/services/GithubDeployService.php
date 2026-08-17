@@ -30,7 +30,7 @@ class GithubDeployService
         $code = (int)($result['code'] ?? 0);
 
         if ($code === 204) {
-            return ['ok' => true, 'message' => 'Hostinger deploy started from branch ' . $ref . '. Wait a minute, then refresh this page for status. After it succeeds, run /admin/run_migration.php if this release added schema files.'];
+            return ['ok' => true, 'message' => 'Hostinger deploy started from branch ' . $ref . '. Wait a minute, then refresh this page for status. After it succeeds, run /admin/run_migration if this release added schema files.'];
         }
 
         $err = self::apiError($result);

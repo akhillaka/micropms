@@ -300,6 +300,53 @@ try {
             } catch (\Exception $e) {
                 $error = 'Failed to create property: ' . $e->getMessage();
             }
+        } elseif ($action === 'update_lead_status') {
+            require_once __DIR__ . '/../../pms_core/services/LeadService.php';
+            try {
+                LeadService::setStatus($db, (int)($_POST['lead_id'] ?? 0), trim((string)($_POST['status'] ?? '')));
+                $message = 'Lead status updated.';
+            } catch (\Exception $e) {
+                $error = $e->getMessage();
+            }
+            $openSaasTab = 'leads';
+        } elseif ($action === 'convert_lead') {
+            require_once __DIR__ . '/../../pms_core/services/LeadService.php';
+            require_once __DIR__ . '/../../pms_core/services/PropertyOnboardService.php';
+            $leadId = (int)($_POST['lead_id'] ?? 0);
+            $openSaasTab = 'leads';
+            try {
+                $lead = LeadService::find($db, $leadId);
+                if ($lead === null) {
+                    throw new \InvalidArgumentException('Lead not found.');
+                }
+                if (($lead['status'] ?? '') === 'converted') {
+                    throw new \InvalidArgumentException('This lead already has an account.');
+                }
+                $created = PropertyOnboardService::create($db, [
+                    'name' => $lead['hotel_name'] ?? '',
+                    'city' => $lead['city'] ?? '',
+                    'phone' => $lead['phone'] ?? '',
+                    'email' => $lead['email'] ?? '',
+                    'plan' => $lead['plan'] ?? 'starter',
+                    'max_rooms' => $lead['rooms_estimate'] ?? null,
+                    'admin_username' => $_POST['admin_username'] ?? '',
+                    'admin_password' => $_POST['admin_password'] ?? '',
+                    'admin_pin' => $_POST['admin_pin'] ?? '',
+                ]);
+                LeadService::markConverted($db, $leadId, $created['property_id']);
+                $message = "Account created for '{$created['property_name']}'. Share these credentials with the hotel.";
+                $createdCredentials = [
+                    'property_name' => $created['property_name'],
+                    'id' => $created['property_id'],
+                    'username' => $created['username'],
+                    'password' => $created['password'],
+                    'pin' => $created['pin'],
+                ];
+            } catch (\InvalidArgumentException $e) {
+                $error = $e->getMessage();
+            } catch (\Exception $e) {
+                $error = 'Failed to create account from lead: ' . $e->getMessage();
+            }
         } elseif ($action === 'edit_property') {
             $pId = (int)($_POST['property_id'] ?? 0);
             $name = trim($_POST['name'] ?? '');
@@ -567,9 +614,18 @@ $saasPlans = SaaSPlans::get($db);
 
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/services/GithubDeployService.php';
+require_once __DIR__ . '/../../pms_core/services/LeadService.php';
 $deployConfigured = GithubDeployService::isConfigured();
 $deployLatestRun = $deployConfigured ? GithubDeployService::latestRun() : null;
 $openSaasTab = $openSaasTab ?? '';
+$leads = [];
+$newLeadCount = 0;
+try {
+    $leads = LeadService::listAll($db);
+    $newLeadCount = LeadService::countNew($db);
+} catch (\Exception $e) {
+    $leads = [];
+}
 
 $metrics = [
     'active_tenants' => 0,
@@ -772,7 +828,7 @@ try {
                     <?= htmlspecialchars((string)($_SESSION['saas_admin_username'] ?? 'superadmin')) ?>
                     <span class="text-[9px] uppercase tracking-wider font-bold bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-md">Super</span>
                 </span>
-                <a href="logout.php" class="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl text-sm transition border border-red-200 cursor-pointer">
+                <a href="/saas-admin/logout" class="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl text-sm transition border border-red-200 cursor-pointer">
                     <i class="ph ph-sign-out text-base"></i> Logout
                 </a>
             </div>
@@ -870,6 +926,12 @@ try {
         <div class="bg-white border border-slate-200 rounded-2xl p-1.5 flex items-center gap-1 mb-6 shadow-sm overflow-x-auto no-scrollbar">
             <button onclick="switchTab('properties')" id="tab-properties" class="tab-btn active">
                 <i class="ph ph-buildings"></i> Properties
+            </button>
+            <button onclick="switchTab('leads')" id="tab-leads" class="tab-btn">
+                <i class="ph ph-tray"></i> Leads
+                <?php if ($newLeadCount > 0): ?>
+                <span class="ml-1 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-blue-600 text-white text-[10px] font-extrabold"><?= (int)$newLeadCount ?></span>
+                <?php endif; ?>
             </button>
             <button onclick="switchTab('onboard')" id="tab-onboard" class="tab-btn">
                 <i class="ph ph-user-plus"></i> Onboarding
@@ -1025,6 +1087,115 @@ try {
             </div>
         </div>
 
+        <!-- TAB CONTENT: Landing leads -->
+        <div id="content-leads" class="tab-content hidden">
+            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                            <i class="ph ph-tray text-blue-700"></i> Landing leads
+                        </h2>
+                        <p class="text-xs text-slate-500 mt-1">Hotels that requested access. Create an account when you are ready to grant login.</p>
+                    </div>
+                    <span class="text-xs font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full"><?= (int)count($leads) ?> total</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="saas-table">
+                        <thead>
+                            <tr>
+                                <th>Hotel</th>
+                                <th>Contact</th>
+                                <th>Plan</th>
+                                <th>Status</th>
+                                <th class="text-right">Grant access</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if ($leads === []): ?>
+                            <tr>
+                                <td colspan="5" class="px-6 py-12 text-center text-slate-500">
+                                    <p>No leads yet. Public requests from <code class="font-mono">/register</code> appear here.</p>
+                                </td>
+                            </tr>
+                            <?php else: ?>
+                            <?php foreach ($leads as $lead):
+                                $st = (string)($lead['status'] ?? 'new');
+                                $stClass = match ($st) {
+                                    'converted' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                                    'contacted' => 'bg-amber-50 text-amber-800 border-amber-200',
+                                    'dismissed' => 'bg-slate-100 text-slate-500 border-slate-200',
+                                    default => 'bg-blue-50 text-blue-700 border-blue-200',
+                                };
+                            ?>
+                            <tr>
+                                <td>
+                                    <div class="font-bold text-slate-900"><?= htmlspecialchars((string)$lead['hotel_name'], ENT_QUOTES, 'UTF-8') ?></div>
+                                    <div class="text-xs text-slate-500 mt-0.5"><?= htmlspecialchars((string)($lead['city'] ?: '—'), ENT_QUOTES, 'UTF-8') ?><?php if (!empty($lead['rooms_estimate'])): ?> · <?= (int)$lead['rooms_estimate'] ?> rooms<?php endif; ?></div>
+                                    <?php if (!empty($lead['message'])): ?>
+                                    <div class="text-xs text-slate-400 mt-1 max-w-xs"><?= htmlspecialchars((string)$lead['message'], ENT_QUOTES, 'UTF-8') ?></div>
+                                    <?php endif; ?>
+                                    <div class="text-[10px] text-slate-400 mt-1"><?= htmlspecialchars((string)($lead['created_at'] ?? ''), ENT_QUOTES, 'UTF-8') ?></div>
+                                </td>
+                                <td>
+                                    <div class="text-sm font-semibold text-slate-800"><?= htmlspecialchars((string)($lead['contact_name'] ?: '—'), ENT_QUOTES, 'UTF-8') ?></div>
+                                    <div class="text-xs text-blue-700"><?= htmlspecialchars((string)$lead['email'], ENT_QUOTES, 'UTF-8') ?></div>
+                                    <div class="text-xs text-slate-500"><?= htmlspecialchars((string)($lead['phone'] ?: ''), ENT_QUOTES, 'UTF-8') ?></div>
+                                </td>
+                                <td>
+                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase bg-slate-100 text-slate-600 border border-slate-200"><?= htmlspecialchars((string)($lead['plan'] ?? 'starter'), ENT_QUOTES, 'UTF-8') ?></span>
+                                    <?php if (!empty($lead['property_id'])): ?>
+                                    <div class="text-[10px] font-mono text-slate-400 mt-1">Property #<?= (int)$lead['property_id'] ?></div>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border <?= htmlspecialchars($stClass, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($st, ENT_QUOTES, 'UTF-8') ?></span>
+                                </td>
+                                <td class="text-right">
+                                    <?php if ($st !== 'converted' && $st !== 'dismissed'): ?>
+                                    <form method="POST" class="flex flex-col items-end gap-2">
+                                        <input type="hidden" name="action" value="convert_lead">
+                                        <input type="hidden" name="lead_id" value="<?= (int)$lead['id'] ?>">
+                                        <?= CsrfToken::field() ?>
+                                        <input type="text" name="admin_username" placeholder="Username (optional)" class="w-44 text-xs">
+                                        <div class="flex gap-1">
+                                            <input type="text" name="admin_password" placeholder="Password" class="w-28 text-xs">
+                                            <input type="text" name="admin_pin" maxlength="4" placeholder="PIN" class="w-16 text-xs">
+                                        </div>
+                                        <button type="submit" class="btn-primary-saas text-xs py-1.5 px-3" onclick="return confirm('Create a property and owner login for this hotel?')">Create account</button>
+                                    </form>
+                                    <div class="flex justify-end gap-2 mt-2">
+                                        <?php if ($st === 'new'): ?>
+                                        <form method="POST" class="inline">
+                                            <input type="hidden" name="action" value="update_lead_status">
+                                            <input type="hidden" name="lead_id" value="<?= (int)$lead['id'] ?>">
+                                            <input type="hidden" name="status" value="contacted">
+                                            <?= CsrfToken::field() ?>
+                                            <button type="submit" class="text-[10px] font-bold text-amber-700 hover:underline">Mark contacted</button>
+                                        </form>
+                                        <?php endif; ?>
+                                        <form method="POST" class="inline">
+                                            <input type="hidden" name="action" value="update_lead_status">
+                                            <input type="hidden" name="lead_id" value="<?= (int)$lead['id'] ?>">
+                                            <input type="hidden" name="status" value="dismissed">
+                                            <?= CsrfToken::field() ?>
+                                            <button type="submit" class="text-[10px] font-bold text-slate-400 hover:text-red-600">Dismiss</button>
+                                        </form>
+                                    </div>
+                                    <?php elseif ($st === 'converted'): ?>
+                                    <span class="text-xs font-semibold text-emerald-700">Access granted</span>
+                                    <?php else: ?>
+                                    <span class="text-xs text-slate-400">Dismissed</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- TAB CONTENT: Onboard Property -->
         <div id="content-onboard" class="tab-content hidden">
             <div class="bg-white border border-slate-200 rounded-2xl shadow-sm max-w-2xl mx-auto overflow-hidden">
@@ -1133,7 +1304,7 @@ try {
                         <li>In hPanel → File Manager, open the domain folder (parent of <code class="font-mono">public_html</code>).</li>
                         <li>Upload and extract so <code class="font-mono">public_html</code>, <code class="font-mono">pms_core</code>, and <code class="font-mono">db_migrations</code> are siblings.</li>
                         <li>Keep the existing server <code class="font-mono">.env</code>.</li>
-                        <li>Open <a href="/admin/run_migration.php" class="font-bold text-blue-700 hover:underline">/admin/run_migration.php</a> as owner and click Run.</li>
+                        <li>Open <a href="/admin/run_migration" class="font-bold text-blue-700 hover:underline">/admin/run_migration</a> as owner and click Run.</li>
                     </ol>
                     <form method="POST">
                         <input type="hidden" name="action" value="download_deploy_zip">
@@ -1610,7 +1781,7 @@ try {
             document.getElementById('content-' + tabId).classList.remove('hidden');
             document.getElementById('tab-' + tabId).classList.add('active');
         }
-        <?php if (($openSaasTab ?? '') === 'settings' || ($openSaasTab ?? '') === 'deploy'): ?>
+        <?php if (in_array(($openSaasTab ?? ''), ['settings', 'deploy', 'leads'], true)): ?>
         switchTab(<?= json_encode($openSaasTab) ?>);
         <?php endif; ?>
 

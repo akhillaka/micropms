@@ -27,7 +27,7 @@ if (!$booking) render_error_page('Booking Not Found', 'The requested booking doe
 
 $publicId = booking_public_id($booking);
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && $publicId !== '' && $publicId !== $id) {
-    header('Location: /admin/invoice.php?id=' . rawurlencode($publicId), true, 302);
+    header('Location: /admin/invoice?id=' . rawurlencode($publicId), true, 302);
     exit;
 }
 

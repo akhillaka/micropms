@@ -145,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($failedAttempts + 1 >= 5) {
                 // Send immediate Telegram Alert to Owner
                 $resetLink = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') 
-                           . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/admin/settings.php?tab=staff';
+                           . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/admin/settings?tab=staff';
                 try {
                     ErrorTracker::critical('auth', "Brute-force lockout triggered", [
                         'username' => $username,

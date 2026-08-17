@@ -55,7 +55,7 @@ $productFeatures = [
             <nav class="flex items-center gap-2 sm:gap-3">
                 <a href="<?= htmlspecialchars($saasLoginUrl, ENT_QUOTES, 'UTF-8') ?>" class="hidden sm:inline text-xs font-bold text-slate-500 hover:text-blue-700">Platform login</a>
                 <a href="<?= htmlspecialchars($loginUrl, ENT_QUOTES, 'UTF-8') ?>" class="text-xs font-bold text-slate-700 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50">Login</a>
-                <a href="<?= htmlspecialchars($registerUrl, ENT_QUOTES, 'UTF-8') ?>" class="text-xs font-extrabold text-white bg-blue-600 rounded-xl px-3 py-2 hover:bg-blue-700">Register</a>
+                <a href="<?= htmlspecialchars($registerUrl, ENT_QUOTES, 'UTF-8') ?>" class="text-xs font-extrabold text-white bg-blue-600 rounded-xl px-3 py-2 hover:bg-blue-700">Request access</a>
             </nav>
         </div>
     </header>
@@ -64,10 +64,10 @@ $productFeatures = [
         <div>
             <p class="text-xs font-extrabold uppercase tracking-widest text-blue-700 mb-3">Hotel operations software</p>
             <h1 class="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 leading-tight">Run the desk, the folio, and the guest stay from one PMS.</h1>
-            <p class="mt-5 text-slate-600 font-medium leading-relaxed">MicroPMS is built for independent hotels: reservations, in-house folio, a guest portal, and a phone assistant for the floor team. Pick a plan, register the property, and staff sign in on admin.</p>
+            <p class="mt-5 text-slate-600 font-medium leading-relaxed">MicroPMS is built for independent hotels: reservations, in-house folio, a guest portal, and a phone assistant for the floor team. Request access, we set up the property in SaaS, then staff sign in on admin.</p>
             <div class="mt-8 flex flex-wrap gap-3">
                 <a href="<?= htmlspecialchars($registerUrl, ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl px-5 py-3 text-sm">
-                    <i class="ph ph-user-plus"></i> Register your hotel
+                    <i class="ph ph-user-plus"></i> Request access
                 </a>
                 <a href="<?= htmlspecialchars($loginUrl, ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-800 font-extrabold rounded-xl px-5 py-3 text-sm hover:bg-slate-50">
                     <i class="ph ph-sign-in"></i> Staff login
@@ -116,7 +116,7 @@ $productFeatures = [
                         </li>
                         <?php endforeach; ?>
                     </ul>
-                    <a href="<?= htmlspecialchars($registerUrl . (str_contains($registerUrl, '?') ? '&' : '?') . 'plan=' . urlencode((string)$planKey), ENT_QUOTES, 'UTF-8') ?>" class="mt-6 text-center text-xs font-extrabold rounded-xl py-2.5 bg-blue-600 text-white hover:bg-blue-700">Start with <?= htmlspecialchars((string)($plan['name'] ?? $planKey), ENT_QUOTES, 'UTF-8') ?></a>
+                    <a href="<?= htmlspecialchars($registerUrl . (str_contains($registerUrl, '?') ? '&' : '?') . 'plan=' . urlencode((string)$planKey), ENT_QUOTES, 'UTF-8') ?>" class="mt-6 text-center text-xs font-extrabold rounded-xl py-2.5 bg-blue-600 text-white hover:bg-blue-700">Request <?= htmlspecialchars((string)($plan['name'] ?? $planKey), ENT_QUOTES, 'UTF-8') ?></a>
                 </article>
                 <?php endforeach; ?>
             </div>
@@ -128,7 +128,7 @@ $productFeatures = [
         <span class="flex gap-4">
             <a class="hover:text-blue-700" href="<?= htmlspecialchars($loginUrl, ENT_QUOTES, 'UTF-8') ?>">Staff login</a>
             <a class="hover:text-blue-700" href="<?= htmlspecialchars($saasLoginUrl, ENT_QUOTES, 'UTF-8') ?>">Platform login</a>
-            <a class="hover:text-blue-700" href="<?= htmlspecialchars($registerUrl, ENT_QUOTES, 'UTF-8') ?>">Register</a>
+            <a class="hover:text-blue-700" href="<?= htmlspecialchars($registerUrl, ENT_QUOTES, 'UTF-8') ?>">Request access</a>
         </span>
     </footer>
 </body>

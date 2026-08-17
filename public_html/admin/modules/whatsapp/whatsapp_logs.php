@@ -36,8 +36,8 @@ if (!$waEnabled) {
                 Upgrade to our Enterprise plan to enable custom triggers, automated template flows, and direct delivery verification metrics.
             </p>
             <div class="pt-2 flex flex-col gap-2">
-                <a href="../../settings.php?tab=subscription" class="px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow cursor-pointer">Upgrade Subscription Plan</a>
-                <a href="../../index.php" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">Back to Dashboard</a>
+                <a href="/admin/settings?tab=subscription" class="px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow cursor-pointer">Upgrade Subscription Plan</a>
+                <a href="/admin" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">Back to Dashboard</a>
             </div>
         </div>
     </body>
@@ -113,7 +113,7 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
         <header class="bg-white border-b-4 border-brand-900 p-4 sticky top-0 z-40 shrink-0">
             <div class="max-w-7xl mx-auto flex justify-between items-center">
                 <div class="flex items-center gap-4">
-                    <a href="../../index.php" class="w-10 h-10 bg-brand-50 rounded-xl border border-brand-200 flex items-center justify-center text-brand-900 hover:bg-brand-100 transition-colors">
+                    <a href="/admin" class="w-10 h-10 bg-brand-50 rounded-xl border border-brand-200 flex items-center justify-center text-brand-900 hover:bg-brand-100 transition-colors">
                         <i class="ph ph-arrow-left text-xl font-bold"></i>
                     </a>
                     <div>
@@ -156,7 +156,7 @@ $uniqueEvents = $db->query("SELECT DISTINCT event_key FROM wa_delivery_logs ORDE
                         <button type="submit" class="bg-brand-900 text-white font-bold px-5 py-2.5 rounded-lg hover:-translate-y-0.5 hover:shadow-lg transition-all text-sm h-11">
                             Filter
                         </button>
-                        <a href="whatsapp_logs.php" class="bg-brand-100 text-brand-900 font-bold px-4 py-2.5 rounded-lg hover:bg-brand-200 transition-all text-sm h-11 flex items-center justify-center">
+                        <a href="/admin/modules/whatsapp/whatsapp_logs" class="bg-brand-100 text-brand-900 font-bold px-4 py-2.5 rounded-lg hover:bg-brand-200 transition-all text-sm h-11 flex items-center justify-center">
                             Clear
                         </a>
                     </div>

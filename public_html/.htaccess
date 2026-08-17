@@ -20,6 +20,17 @@ RewriteRule ^(debug|test_|setup_audit|add_notifications).*\.php$ - [F,L]
 # Block hidden files (.git, .agents, etc.)
 RewriteRule ^\.(.+) - [F,L]
 
+# Send page URLs without .php (keep webhooks, cron, and API scripts).
+RewriteCond %{THE_REQUEST} \s/+index\.php[\s?] [NC]
+RewriteRule ^index\.php$ / [R=301,L,QSA]
+RewriteCond %{THE_REQUEST} \s/+admin/index\.php[\s?] [NC]
+RewriteRule ^admin/index\.php$ /admin [R=301,L,QSA]
+RewriteCond %{THE_REQUEST} \s/+saas-admin/index\.php[\s?] [NC]
+RewriteRule ^saas-admin/index\.php$ /saas-admin [R=301,L,QSA]
+RewriteCond %{THE_REQUEST} \s/+(.+)\.php[\s?] [NC]
+RewriteCond %{REQUEST_URI} !^/(webhook|cron|router\.php|api/|assistant/api/|admin/api/)
+RewriteRule ^(.+)\.php$ /$1 [R=301,L,QSA]
+
 # ── Routing ──────────────────────────────────────────────────────────────────
 # Allow direct access to existing files and directories (css, js, images)
 RewriteCond %{REQUEST_FILENAME} -f [OR]

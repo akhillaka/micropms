@@ -68,8 +68,8 @@ if (!$posEnabled) {
                 Upgrade to our Pro or Enterprise plan to configure shop outlets, track central stock, and charge bills to room folios.
             </p>
             <div class="pt-2 flex flex-col gap-2">
-                <a href="../../settings.php?tab=subscription" class="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow cursor-pointer">Upgrade Subscription Plan</a>
-                <a href="../../index.php" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">Back to Dashboard</a>
+                <a href="/admin/settings?tab=subscription" class="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow cursor-pointer">Upgrade Subscription Plan</a>
+                <a href="/admin" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">Back to Dashboard</a>
             </div>
         </div>
     </body>
@@ -194,7 +194,7 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
     <!-- App Header -->
     <header class="bg-white px-6 py-4 flex items-center justify-between border-b border-slate-100 sticky top-0 z-50 shadow-sm mb-6">
         <div class="flex items-center gap-3">
-            <a href="../../index.php" class="p-2 -ml-2 rounded-full hover:bg-slate-100 transition-colors cursor-pointer">
+            <a href="/admin" class="p-2 -ml-2 rounded-full hover:bg-slate-100 transition-colors cursor-pointer">
                 <i class="ph ph-caret-left text-2xl text-slate-800"></i>
             </a>
             <h1 class="text-base font-bold text-slate-900 leading-none font-display">

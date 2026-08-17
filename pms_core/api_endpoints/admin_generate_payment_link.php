@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/PhoneHelper.php';
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
 
 ApiHandler::run(function(\PDO $db) {
@@ -33,7 +34,8 @@ ApiHandler::run(function(\PDO $db) {
     $paymentLink = '';
     $rz = RazorpayService::forProperty($db, $propertyId);
     if ($rz) {
-        $callbackUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'yourdomain.com') . '/index.php?booking_id=' . $booking['id'];
+        $guestUrl = \GuestAccessToken::getPortalUrl((int)$booking['id']);
+        $callbackUrl = $guestUrl;
         $razorpayPhone = PhoneHelper::toE164($booking['guest_phone'] ?? '') ?? $booking['guest_phone'];
         $linkRes = $rz->createPaymentLink([
             'amount'         => (int)round($balance * 100),
@@ -59,7 +61,7 @@ ApiHandler::run(function(\PDO $db) {
     
     if (empty($paymentLink)) {
         // Fallback to local guest payment / portal page link
-        $paymentLink = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'yourdomain.com') . '/index.php?booking_id=' . $booking['id'];
+        $paymentLink = \GuestAccessToken::getPortalUrl((int)$booking['id']);
     }
     
     $message = "Hi {$booking['guest_name']}, you have an outstanding balance of Rs.{$balance} for your stay. Please pay using this link: {$paymentLink}";

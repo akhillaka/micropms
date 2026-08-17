@@ -79,15 +79,15 @@ if (count($assignedHotels) === 0) {
                     <i class="ph ph-squares-four text-lg"></i>
                     Group dashboard
                 </a>
-                <a href="/admin/group_performance.php" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
+                <a href="/admin/group_performance" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
                     <i class="ph ph-chart-bar text-lg text-slate-400"></i>
                     Group performance dashboard
                 </a>
-                <a href="/admin/group_calendar.php" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
+                <a href="/admin/group_calendar" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
                     <i class="ph ph-calendar text-lg text-slate-400"></i>
                     Group reservation calendar
                 </a>
-                <a href="/admin/group_billing.php" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
+                <a href="/admin/group_billing" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold hover:bg-slate-800 transition">
                     <i class="ph ph-credit-card text-lg text-slate-400"></i>
                     Accounts and billing
                 </a>
@@ -96,7 +96,7 @@ if (count($assignedHotels) === 0) {
 
         <!-- Logout Button -->
         <div>
-            <a href="/admin/logout.php" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold text-rose-400 hover:bg-rose-950/30 transition">
+            <a href="/admin/logout" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold text-rose-400 hover:bg-rose-950/30 transition">
                 <i class="ph ph-sign-out text-lg"></i>
                 Logout
             </a>
@@ -132,7 +132,7 @@ if (count($assignedHotels) === 0) {
 
                 <!-- Add Property Button -->
                 <?php if (AuthHelper::isSuperAdmin()): ?>
-                    <a href="/saas-admin/index.php" class="flex items-center gap-1.5 px-4 py-2 bg-black hover:bg-slate-900 text-white font-bold rounded-lg text-sm transition">
+                    <a href="/saas-admin" class="flex items-center gap-1.5 px-4 py-2 bg-black hover:bg-slate-900 text-white font-bold rounded-lg text-sm transition">
                         <i class="ph ph-plus font-bold"></i> Add Property
                     </a>
                 <?php endif; ?>
@@ -174,7 +174,7 @@ if (count($assignedHotels) === 0) {
 
                     <!-- Card footer button to open dashboard -->
                     <div class="p-6 pt-0">
-                        <a href="index.php?hotelId=<?= htmlspecialchars((string)($hotel['property_id']), ENT_QUOTES, 'UTF-8') ?>" class="block w-full text-center py-2.5 bg-slate-50 hover:bg-indigo-600 hover:text-white border border-slate-100 hover:border-indigo-600 text-slate-700 font-bold rounded-xl text-xs transition duration-200">
+                        <a href="/admin?hotelId=<?= htmlspecialchars((string)($hotel['property_id']), ENT_QUOTES, 'UTF-8') ?>" class="block w-full text-center py-2.5 bg-slate-50 hover:bg-indigo-600 hover:text-white border border-slate-100 hover:border-indigo-600 text-slate-700 font-bold rounded-xl text-xs transition duration-200">
                             Enter Dashboard
                         </a>
                     </div>

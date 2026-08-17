@@ -40,19 +40,19 @@ $adminBaseUrl = '/admin/';
         
         <!-- Main Navigation -->
         <?php if(AuthHelper::can('view_dashboard')): ?>
-            <a href="<?php echo $adminBaseUrl; ?>index.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph-fill ph-house text-lg text-brand-500"></i> Dashboard</a>
+            <a href="/admin" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph-fill ph-house text-lg text-brand-500"></i> Dashboard</a>
         <?php endif; ?>
         <?php if(AuthHelper::can('create_booking')): ?>
-            <a href="<?php echo str_replace('/admin/', '/', $adminBaseUrl); ?>booking_wizard.php" target="_blank" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph-fill ph-calendar text-lg text-blue-600"></i> New Reservation Wizard <i class="ph ph-arrow-up-right text-xs ml-auto text-slate-400"></i></a>
+            <a href="/booking_wizard" target="_blank" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph-fill ph-calendar text-lg text-blue-600"></i> New Reservation Wizard <i class="ph ph-arrow-up-right text-xs ml-auto text-slate-400"></i></a>
         <?php endif; ?>
         
         <?php if(AuthHelper::can('housekeeping')): ?>
-            <a href="<?php echo $adminBaseUrl; ?>modules/housekeeping/rooms_calendar.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-calendar-blank text-lg text-slate-400"></i> Rooms Calendar</a>
-            <a href="<?php echo $adminBaseUrl; ?>modules/housekeeping/service_requests.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-bell text-lg text-amber-500"></i> Service Requests</a>
+            <a href="/admin/modules/housekeeping/rooms_calendar" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-calendar-blank text-lg text-slate-400"></i> Rooms Calendar</a>
+            <a href="/admin/modules/housekeeping/service_requests" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-bell text-lg text-amber-500"></i> Service Requests</a>
         <?php endif; ?>
         
         <?php if(AuthHelper::can('manage_guests')): ?>
-            <a href="<?php echo $adminBaseUrl; ?>guests.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-users text-lg text-slate-400"></i> Guests</a>
+            <a href="/admin/guests" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-users text-lg text-slate-400"></i> Guests</a>
         <?php endif; ?>
         
         <!-- Operations Section -->
@@ -60,23 +60,23 @@ $adminBaseUrl = '/admin/';
         <p class="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Operations</p>
         
         <?php if(AuthHelper::can('send_whatsapp')): ?>
-            <a href="<?php echo $adminBaseUrl; ?>modules/whatsapp/whatsapp_automations.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-robot text-lg text-green-500"></i> Automations</a>
-            <a href="<?php echo $adminBaseUrl; ?>modules/whatsapp/whatsapp_logs.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-list-magnifying-glass text-lg text-green-500"></i> WA Delivery Logs</a>
+            <a href="/admin/modules/whatsapp/whatsapp_automations" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-robot text-lg text-green-500"></i> Automations</a>
+            <a href="/admin/modules/whatsapp/whatsapp_logs" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-list-magnifying-glass text-lg text-green-500"></i> WA Delivery Logs</a>
         <?php endif; ?>
         
         <?php if(AuthHelper::can('view_finance')): ?>
-            <a href="<?php echo $adminBaseUrl; ?>finance.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-wallet text-lg text-slate-400"></i> Finance</a>
+            <a href="/admin/finance" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-wallet text-lg text-slate-400"></i> Finance</a>
         <?php endif; ?>
         <?php if(AuthHelper::can('manage_pos')): ?>
-            <a href="<?php echo $adminBaseUrl; ?>modules/pos/pos.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-shopping-bag text-lg text-blue-600"></i> POS & Inventory</a>
+            <a href="/admin/modules/pos/pos" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-shopping-bag text-lg text-blue-600"></i> POS & Inventory</a>
         <?php endif; ?>
         
         <?php if(AuthHelper::can('run_night_audit') && !AuthHelper::can('manage_settings')): ?>
-            <a href="<?php echo $adminBaseUrl; ?>settings.php?tab=night-audit" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-moon-stars text-lg text-indigo-500"></i> Night Audit</a>
+            <a href="/admin/settings?tab=night-audit" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-moon-stars text-lg text-indigo-500"></i> Night Audit</a>
         <?php endif; ?>
         
         <?php if(AuthHelper::can('view_reports')): ?>
-            <a href="<?php echo $adminBaseUrl; ?>reports.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-chart-line-up text-lg text-slate-400"></i> Reports & Analytics</a>
+            <a href="/admin/reports" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-chart-line-up text-lg text-slate-400"></i> Reports & Analytics</a>
         <?php endif; ?>
         
         <!-- Settings Section -->
@@ -84,8 +84,8 @@ $adminBaseUrl = '/admin/';
             <div class="border-t border-slate-100 my-1"></div>
             <p class="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Settings</p>
             
-            <a href="<?php echo $adminBaseUrl; ?>settings.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-gear text-lg text-indigo-500"></i> Property Configuration</a>
-            <a href="<?php echo $adminBaseUrl; ?>automations.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-paper-plane-tilt text-lg text-blue-500"></i> Notification Automations</a>
+            <a href="/admin/settings" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-gear text-lg text-indigo-500"></i> Property Configuration</a>
+            <a href="/admin/automations" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-paper-plane-tilt text-lg text-blue-500"></i> Notification Automations</a>
         <?php endif; ?>
         
         <!-- System Section -->
@@ -93,22 +93,22 @@ $adminBaseUrl = '/admin/';
         <p class="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">System</p>
         
         <?php if(AuthHelper::can('view_audit_logs')): ?>
-            <a href="<?php echo $adminBaseUrl; ?>audit_logs.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-file-text text-lg text-slate-400"></i> Audit Logs</a>
+            <a href="/admin/audit_logs" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-file-text text-lg text-slate-400"></i> Audit Logs</a>
         <?php endif; ?>
         
         <?php if(AuthHelper::can('view_error_logs')): ?>
-            <a href="<?php echo $adminBaseUrl; ?>error_logs.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-warning-circle text-lg text-red-500"></i> Error Logs</a>
+            <a href="/admin/error_logs" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-warning-circle text-lg text-red-500"></i> Error Logs</a>
         <?php endif; ?>
         
-        <a href="<?php echo $adminBaseUrl; ?>api_docs.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-book text-lg text-slate-400"></i> API Docs</a>
+        <a href="/admin/api_docs" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-book text-lg text-slate-400"></i> API Docs</a>
         
         <div class="border-t border-slate-100 my-1"></div>
         <?php if (AuthHelper::isSuperAdmin()): ?>
             <p class="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest text-emerald-600">SaaS Controls</p>
-            <a href="/saas-admin/index.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50 transition-colors"><i class="ph ph-shield-check text-lg text-emerald-500"></i> Return to SaaS Panel</a>
+            <a href="/saas-admin" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50 transition-colors"><i class="ph ph-shield-check text-lg text-emerald-500"></i> Return to SaaS Panel</a>
             <div class="border-t border-slate-100 my-1"></div>
         <?php endif; ?>
-        <a href="<?php echo $adminBaseUrl; ?>logout.php" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-rose-600 hover:bg-rose-50 transition-colors"><i class="ph ph-sign-out text-lg text-rose-500"></i> Logout</a>
+        <a href="/admin/logout" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-rose-600 hover:bg-rose-50 transition-colors"><i class="ph ph-sign-out text-lg text-rose-500"></i> Logout</a>
     </div>
 </div>
 
@@ -239,9 +239,9 @@ $adminBaseUrl = '/admin/';
                     
                     const getNotificationLink = (nType) => {
                         if (nType === 'service_request' || nType === 'housekeeping') {
-                            return '<?php echo $adminBaseUrl; ?>modules/housekeeping/service_requests.php';
+                            return '/admin/modules/housekeeping/service_requests';
                         } else if (nType === 'booking') {
-                            return '<?php echo $adminBaseUrl; ?>index.php';
+                            return '/admin';
                         }
                         return '#';
                     };

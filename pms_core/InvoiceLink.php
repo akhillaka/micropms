@@ -75,13 +75,11 @@ class InvoiceLink {
      * Get the full invoice URL with secure token.
      * 
      * @param int $bookingId
-     * @return string Full URL like https://host/guest_invoice.php?id=123&token=xxx
+     * @return string Full URL like https://host/guest_invoice?id=123&token=xxx
      */
     public static function getUrl(int $bookingId): string {
-        $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        require_once __DIR__ . '/ModuleHost.php';
         $token = self::generate($bookingId);
-        
-        return "{$protocol}://{$host}/guest_invoice.php?id={$bookingId}&token={$token}";
+        return ModuleHost::url('guest', '/guest_invoice?id=' . $bookingId . '&token=' . $token);
     }
 }

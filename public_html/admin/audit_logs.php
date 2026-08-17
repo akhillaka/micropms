@@ -81,7 +81,7 @@ $uniqueEntities = $db->query("SELECT DISTINCT entity_type FROM audit_logs ORDER 
         <!-- App Bar -->
         <header class="bg-white px-5 py-4 flex items-center justify-between z-10 border-b border-slate-100 sticky top-0 mb-6">
             <div class="flex items-center gap-3">
-                <a href="index.php" class="p-2 -ml-2 rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors">
+                <a href="/admin" class="p-2 -ml-2 rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors">
                     <i class="ph ph-caret-left text-2xl text-slate-800"></i>
                 </a>
                 <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">System Logs</h1>
@@ -119,7 +119,7 @@ $uniqueEntities = $db->query("SELECT DISTINCT entity_type FROM audit_logs ORDER 
                     <button type="submit" class="bg-brand-900 text-white font-bold px-5 py-2.5 rounded-lg hover:-translate-y-0.5 hover:shadow-lg transition-all text-sm h-11">
                         Filter
                     </button>
-                    <a href="audit_logs.php" class="bg-brand-100 text-brand-900 font-bold px-4 py-2.5 rounded-lg hover:bg-brand-200 transition-all text-sm h-11 flex items-center justify-center">
+                    <a href="/admin/audit_logs" class="bg-brand-100 text-brand-900 font-bold px-4 py-2.5 rounded-lg hover:bg-brand-200 transition-all text-sm h-11 flex items-center justify-center">
                         Clear
                     </a>
                 </div>

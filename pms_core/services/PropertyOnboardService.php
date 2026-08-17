@@ -5,7 +5,7 @@ require_once __DIR__ . '/../saas_plans.php';
 require_once __DIR__ . '/../AuthHelper.php';
 
 /**
- * Creates a property + owner staff user. Shared by SaaS onboard and public register.
+ * Creates a property + owner staff user. Used by SaaS onboard and when converting a lead.
  */
 class PropertyOnboardService {
     /**

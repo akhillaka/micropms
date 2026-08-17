@@ -111,7 +111,7 @@ class ModuleHost {
     }
 
     public static function isSharedPath(string $request): bool {
-        foreach (['/api/', '/webhook', '/ical/', '/setup', '/css/', '/js/', '/uploads/', '/register'] as $prefix) {
+        foreach (['/api/', '/webhook', '/ical/', '/setup', '/css/', '/js/', '/uploads/', '/register', '/leads'] as $prefix) {
             if ($request === rtrim($prefix, '/') || str_starts_with($request, $prefix)) {
                 return true;
             }
@@ -182,6 +182,35 @@ class ModuleHost {
         }
         session_set_cookie_params($params);
         session_start();
+    }
+
+    public static function shouldKeepPhpInUrl(string $path): bool {
+        $path = '/' . ltrim(strtolower($path), '/');
+        if (str_starts_with($path, '/api/') || str_contains($path, '/api/')) {
+            return true;
+        }
+        if (str_starts_with($path, '/webhook') || str_contains($path, 'webhook')) {
+            return true;
+        }
+        if (str_starts_with($path, '/cron')) {
+            return true;
+        }
+        return basename($path) === 'router.php';
+    }
+
+    public static function canonicalPublicPath(string $path): string {
+        $path = '/' . trim($path, '/');
+        if (str_ends_with(strtolower($path), '.php')) {
+            $path = substr($path, 0, -4);
+        }
+        if ($path === '/index' || $path === '/') {
+            return '/';
+        }
+        if (str_ends_with($path, '/index')) {
+            $trimmed = substr($path, 0, -6);
+            return $trimmed === '' ? '/' : $trimmed;
+        }
+        return $path;
     }
 
     public static function requestScheme(): string {

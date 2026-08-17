@@ -197,7 +197,7 @@ elseif ($raw_phone && $message_id) {
             } elseif (preg_match('/checkout|check-out|check out|timing/i', $txtLower)) {
                 $aiReply = "⏰ *Standard Checkout:* Please refer to your booking summary. Need extra time? Reply *EXTEND* to receive a 1-click extension link.";
             } elseif (preg_match('/extend|extension|more hours/i', $txtLower)) {
-                $aiReply = "⏳ *Extend Stay:* You can extend your room directly! Front desk link: " . (defined('PROPERTY_URL') ? PROPERTY_URL : 'http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')) . "/index.php";
+                $aiReply = "⏳ *Extend Stay:* You can extend your room directly! Front desk link: " . (defined('PROPERTY_URL') ? PROPERTY_URL : 'http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')) . "/admin";
             } elseif (preg_match('/location|address|map|where/i', $txtLower)) {
                 $hotelName = defined('PROPERTY_NAME') ? PROPERTY_NAME : 'MicroPMS Hotel';
                 $hotelAddr = defined('PROPERTY_ADDRESS') ? PROPERTY_ADDRESS : 'Main Station Road, City Center';

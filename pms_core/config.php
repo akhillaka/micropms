@@ -189,7 +189,7 @@ if (!function_exists('booking_public_id')) {
 
 if (!function_exists('folio_href')) {
     function folio_href(array $booking, string $prefix = ''): string {
-        return $prefix . 'folio.php?id=' . rawurlencode(booking_public_id($booking));
+        return '/admin/folio?id=' . rawurlencode(booking_public_id($booking));
     }
 }
 

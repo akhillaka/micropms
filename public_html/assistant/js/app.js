@@ -2228,7 +2228,7 @@ class BookingAssistant {
 
               let actionHtml = '';
               if (isPosOrder) {
-                actionHtml = `<a href="/admin/modules/pos/pos.php?edit_order=${posMatch[1]}" target="_blank" class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-weight: bold; color: var(--color-brand); border: 1px solid var(--color-brand); gap: 4px;"><i class="ph ph-receipt" style="font-size:0.9rem;"></i> POS Order</a>`;
+                actionHtml = `<a href="/admin/modules/pos/pos?edit_order=${posMatch[1]}" target="_blank" class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-weight: bold; color: var(--color-brand); border: 1px solid var(--color-brand); gap: 4px;"><i class="ph ph-receipt" style="font-size:0.9rem;"></i> POS Order</a>`;
               } else if (!isRazorpay) {
                 actionHtml = `<button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center;" onclick="app.openEditChargeModal(${entry.id}, '${escapeHtml(entry.description || entry.transaction_type).replace(/'/g, "\\'")}', ${entry.amount}, ${isPayment})">✏️</button>`;
               }

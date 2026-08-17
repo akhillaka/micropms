@@ -226,7 +226,7 @@ ApiHandler::run(function(\PDO $db) {
             'guest_id' => $row['id'],
             'guest_name' => $row['name'],
             'guest_phone' => $row['phone'],
-            'action_url' => "guest_profile.php?id={$row['id']}",
+            'action_url' => "/admin/guest_profile?id={$row['id']}",
             'action_label' => 'Upload ID'
         ];
     }
@@ -258,7 +258,7 @@ ApiHandler::run(function(\PDO $db) {
             'guest_id' => $row['id'],
             'guest_name' => $row['name'],
             'guest_phone' => $row['phone'],
-            'action_url' => "guest_profile.php?id={$row['id']}",
+            'action_url' => "/admin/guest_profile?id={$row['id']}",
             'action_label' => 'Edit Profile'
         ];
     }

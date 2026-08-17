@@ -21,7 +21,7 @@ $baseUrl = $scheme . '://' . $host;
     <header class="bg-white border-b-4 border-brand-900 p-4 sticky top-0 z-40 shrink-0">
         <div class="max-w-7xl mx-auto flex justify-between items-center">
             <div class="flex items-center gap-4">
-                <a href="index.php" class="w-10 h-10 bg-brand-50 rounded-xl border border-brand-200 flex items-center justify-center text-brand-900 hover:bg-brand-100 transition-colors">
+                <a href="/admin" class="w-10 h-10 bg-brand-50 rounded-xl border border-brand-200 flex items-center justify-center text-brand-900 hover:bg-brand-100 transition-colors">
                     <i class="ph ph-arrow-left text-xl font-bold"></i>
                 </a>
                 <div>
@@ -29,7 +29,7 @@ $baseUrl = $scheme . '://' . $host;
                     <p class="text-sm font-medium text-brand-900/60 mt-1">Webhooks & External Integrations</p>
                 </div>
             </div>
-            <a href="modules/whatsapp/whatsapp_automations.php" class="bg-brutal-green text-brand-900 font-semibold px-4 py-2 rounded-xl border border-brand-200 shadow-minimal hover:translate-y-1 hover: transition-all flex items-center gap-2">
+            <a href="/admin/modules/whatsapp/whatsapp_automations" class="bg-brutal-green text-brand-900 font-semibold px-4 py-2 rounded-xl border border-brand-200 shadow-minimal hover:translate-y-1 hover: transition-all flex items-center gap-2">
                 <i class="ph ph-whatsapp-logo text-xl"></i> Back to CRM
             </a>
         </div>

@@ -20,7 +20,7 @@ CsrfToken::checkTimeout();
         <!-- App Bar -->
         <header class="bg-white px-5 py-4 flex items-center justify-between z-10 border-b border-slate-100 sticky top-0 mb-6">
             <div class="flex items-center gap-3">
-                <a href="index.php" class="p-2 -ml-2 rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors">
+                <a href="/admin" class="p-2 -ml-2 rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors">
                     <i class="ph ph-caret-left text-2xl text-slate-800"></i>
                 </a>
                 <div>

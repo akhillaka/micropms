@@ -496,10 +496,10 @@ if ($dbConnected) $step = 2;
                 <h2>Setup Complete!</h2>
                 <p>Your MicroPMS platform is ready. Log in to the superadmin panel to manage properties, or go straight to your property dashboard.</p>
                 <div style="display:flex;gap:1rem;justify-content:center;">
-                    <a href="/saas-admin/login.php" class="btn btn-primary">
+                    <a href="/saas-admin/login" class="btn btn-primary">
                         <i class="ph ph-shield-check"></i> Superadmin Panel
                     </a>
-                    <a href="/admin/login.php" class="btn" style="background:var(--slate-100);color:var(--slate-700);">
+                    <a href="/login" class="btn" style="background:var(--slate-100);color:var(--slate-700);">
                         <i class="ph ph-sign-in"></i> Property Login
                     </a>
                 </div>

@@ -213,7 +213,7 @@ ApiHandler::run(function(\PDO $db) {
         
         $proto = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
-        $inviteLink = "{$proto}://{$host}/admin/accept_invite.php?token={$token}";
+        $inviteLink = "{$proto}://{$host}/admin/accept_invite?token={$token}";
         
         AuditLogger::log($_SESSION['user_id'] ?? null, 'INVITE_USER', 'SYSTEM', null, [
             'email' => $email,

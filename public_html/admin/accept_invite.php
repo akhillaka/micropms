@@ -98,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $invitation) {
         <?php if ($success): ?>
             <div class="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-sm font-bold text-center space-y-3">
                 <p>🎉 Welcome aboard! Your account has been registered successfully.</p>
-                <a href="login.php" class="block w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black transition">
+                <a href="/login" class="block w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black transition">
                     Go to Login Portal
                 </a>
             </div>
