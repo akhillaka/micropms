@@ -272,78 +272,33 @@ try {
         }
 
         if ($action === 'create_property') {
-            $name = trim($_POST['name'] ?? '');
-            $city = trim($_POST['city'] ?? '');
-            $state = trim($_POST['state'] ?? '');
-            $phone = trim($_POST['phone'] ?? '');
-            $email = trim($_POST['email'] ?? '');
-            $gstin = trim($_POST['gstin'] ?? '');
-            $plan = trim($_POST['plan'] ?? 'starter');
-            
-            $plansConfig = SaaSPlans::get($db);
-            $planDefaults = $plansConfig[$plan] ?? $plansConfig['starter'];
-            $maxRooms = (int)($_POST['max_rooms'] ?? $planDefaults['max_rooms']);
-            $maxStaff = (int)($planDefaults['max_staff'] ?? 5);
-            
-            // Admin user inputs or auto-generations
-            $adminUser = trim($_POST['admin_username'] ?? '');
-            if (empty($adminUser)) {
-                $adminUser = 'admin_' . strtolower(preg_replace('/[^A-Za-z0-9]/', '', $name));
-            }
-            
-            $rawPass = trim($_POST['admin_password'] ?? '');
-            if (empty($rawPass)) {
-                $rawPass = 'Pass' . rand(1000, 9999);
-            }
-            
-            $rawPin = trim($_POST['admin_pin'] ?? '');
-            if (empty($rawPin) || !preg_match('/^\d{4}$/', $rawPin)) {
-                $rawPin = (string)rand(1000, 9999);
-            }
-
-            if ($name === '' || $adminUser === '') {
-                $error = 'Property name and Admin Username are required.';
-            } else {
-                try {
-                    $db->beginTransaction();
-
-                    $stmt = $db->prepare("INSERT INTO properties (name, city, state, phone, email, gstin, plan, max_rooms, max_staff, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)");
-                    $stmt->execute([$name, $city, $state, $phone, $email, $gstin, $plan, $maxRooms, $maxStaff]);
-                    $propId = $db->lastInsertId();
-
-                    // Create Admin Staff User for the new property
-                    $passHash = password_hash($rawPass, PASSWORD_BCRYPT);
-                    $pinHash = password_hash($rawPin, PASSWORD_BCRYPT);
-
-                    $userStmt = $db->prepare("INSERT INTO staff_users (username, password_hash, pin_hash, access_level, role, property_id, is_active) VALUES (?, ?, ?, 'owner', 'Property Admin', ?, 1)");
-                    $userStmt->execute([$adminUser, $passHash, $pinHash, $propId]);
-                    $userId = (int)$db->lastInsertId();
-
-                    require_once __DIR__ . '/../pms_core/AuthHelper.php';
-                    AuthHelper::seedRolesForProperty($db, $propId);
-
-                    // Grant Owner Role to the newly created owner staff user
-                    $roleStmt = $db->prepare("SELECT id FROM roles WHERE property_id = ? AND name = 'owner'");
-                    $roleStmt->execute([$propId]);
-                    $roleId = $roleStmt->fetchColumn();
-
-                    $spStmt = $db->prepare("INSERT INTO staff_properties (staff_id, property_id, role_id) VALUES (?, ?, ?)");
-                    $spStmt->execute([$userId, $propId, $roleId]);
-
-                    $db->commit();
-
-                    $message = "Property '{$name}' registered successfully under '{$plan}' plan!";
-                    $createdCredentials = [
-                        'property_name' => $name,
-                        'id' => $propId,
-                        'username' => $adminUser,
-                        'password' => $rawPass,
-                        'pin' => $rawPin
-                    ];
-                } catch (\Exception $e) {
-                    if ($db->inTransaction()) $db->rollBack();
-                    $error = 'Failed to create property: ' . $e->getMessage();
-                }
+            try {
+                require_once __DIR__ . '/../../pms_core/services/PropertyOnboardService.php';
+                $created = PropertyOnboardService::create($db, [
+                    'name' => $_POST['name'] ?? '',
+                    'city' => $_POST['city'] ?? '',
+                    'state' => $_POST['state'] ?? '',
+                    'phone' => $_POST['phone'] ?? '',
+                    'email' => $_POST['email'] ?? '',
+                    'gstin' => $_POST['gstin'] ?? '',
+                    'plan' => $_POST['plan'] ?? 'starter',
+                    'max_rooms' => $_POST['max_rooms'] ?? null,
+                    'admin_username' => $_POST['admin_username'] ?? '',
+                    'admin_password' => $_POST['admin_password'] ?? '',
+                    'admin_pin' => $_POST['admin_pin'] ?? '',
+                ]);
+                $message = "Property '{$created['property_name']}' registered successfully under '{$created['plan']}' plan!";
+                $createdCredentials = [
+                    'property_name' => $created['property_name'],
+                    'id' => $created['property_id'],
+                    'username' => $created['username'],
+                    'password' => $created['password'],
+                    'pin' => $created['pin'],
+                ];
+            } catch (\InvalidArgumentException $e) {
+                $error = $e->getMessage();
+            } catch (\Exception $e) {
+                $error = 'Failed to create property: ' . $e->getMessage();
             }
         } elseif ($action === 'edit_property') {
             $pId = (int)($_POST['property_id'] ?? 0);
@@ -535,6 +490,29 @@ try {
                 }
             } else {
                 $error = "Plan ID and Name are required.";
+            }
+        }
+
+        if ($action === 'download_deploy_zip') {
+            $script = realpath(__DIR__ . '/../../scripts/build_deployment_zip.sh');
+            $zipPath = realpath(__DIR__ . '/../../') . '/deployment.zip';
+            if ($script === false || !is_file($script)) {
+                $error = 'Zip script was not found. Run bash scripts/build_deployment_zip.sh on your computer.';
+                $openSaasTab = 'deploy';
+            } else {
+                $cmd = 'bash ' . escapeshellarg($script) . ' 2>&1';
+                exec($cmd, $outLines, $code);
+                if ($code !== 0 || !is_file($zipPath)) {
+                    $error = 'Could not build deployment.zip: ' . implode(' ', $outLines);
+                    $openSaasTab = 'deploy';
+                } else {
+                    header('Content-Type: application/zip');
+                    header('Content-Disposition: attachment; filename="micropms-hostinger.zip"');
+                    header('Content-Length: ' . (string)filesize($zipPath));
+                    header('Cache-Control: no-store');
+                    readfile($zipPath);
+                    exit;
+                }
             }
         }
 
@@ -1147,9 +1125,23 @@ try {
                     <h2 class="font-extrabold text-slate-900 flex items-center gap-2">
                         <i class="ph ph-rocket-launch text-blue-700"></i> Push update to Hostinger
                     </h2>
-                    <p class="text-xs text-slate-500 mt-1">Starts the GitHub Action that copies <code class="font-mono">public_html</code>, <code class="font-mono">pms_core</code>, and <code class="font-mono">db_migrations</code> to the live server. Does not overwrite <code class="font-mono">.env</code> or uploads.</p>
+                    <p class="text-xs text-slate-500 mt-1">No GitHub token is required. Download a zip and extract it in Hostinger File Manager so <code class="font-mono">pms_core</code> sits next to <code class="font-mono">public_html</code>. Do not replace <code class="font-mono">.env</code> or uploads.</p>
                 </div>
                 <div class="p-6 space-y-4">
+                    <ol class="text-sm text-slate-700 space-y-2 list-decimal pl-5">
+                        <li>Download the zip below.</li>
+                        <li>In hPanel → File Manager, open the domain folder (parent of <code class="font-mono">public_html</code>).</li>
+                        <li>Upload and extract so <code class="font-mono">public_html</code>, <code class="font-mono">pms_core</code>, and <code class="font-mono">db_migrations</code> are siblings.</li>
+                        <li>Keep the existing server <code class="font-mono">.env</code>.</li>
+                        <li>Open <a href="/admin/run_migration.php" class="font-bold text-blue-700 hover:underline">/admin/run_migration.php</a> as owner and click Run.</li>
+                    </ol>
+                    <form method="POST">
+                        <input type="hidden" name="action" value="download_deploy_zip">
+                        <?= CsrfToken::field() ?>
+                        <button type="submit" class="btn-primary-saas w-full py-3.5 text-sm justify-center">
+                            <i class="ph ph-download-simple text-base"></i> Download Hostinger zip
+                        </button>
+                    </form>
                     <?php
                     $runStatus = $deployLatestRun['status'] ?? '';
                     $runConclusion = $deployLatestRun['conclusion'] ?? '';
@@ -1164,35 +1156,20 @@ try {
                         $runLabel = $runStatus;
                     }
                     ?>
-                    <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 text-sm">
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Latest GitHub run</p>
-                        <p class="font-bold text-slate-800"><?= htmlspecialchars($runLabel) ?></p>
-                        <?php if (!empty($deployLatestRun['created_at'])): ?>
-                            <p class="text-xs text-slate-500 mt-1">
-                                <?= htmlspecialchars((string)date('d M Y, g:i A', strtotime($deployLatestRun['created_at']))) ?>
-                                <?php if (!empty($deployLatestRun['head_sha'])): ?>
-                                    · <?= htmlspecialchars($deployLatestRun['head_sha']) ?>
-                                <?php endif; ?>
-                            </p>
-                        <?php endif; ?>
-                        <?php if (!empty($deployLatestRun['html_url'])): ?>
-                            <a href="<?= htmlspecialchars($deployLatestRun['html_url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="text-xs font-bold text-blue-700 hover:underline mt-2 inline-block">Open log on GitHub</a>
-                        <?php endif; ?>
-                    </div>
-
                     <?php if ($deployConfigured): ?>
+                    <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 text-sm">
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Optional GitHub Action</p>
+                        <p class="font-bold text-slate-800"><?= htmlspecialchars($runLabel) ?></p>
+                    </div>
                     <form method="POST" onsubmit="return confirm('Push the current GitHub main branch to Hostinger now?');">
                         <input type="hidden" name="action" value="deploy_hostinger">
                         <?= CsrfToken::field() ?>
-                        <button type="submit" class="btn-primary-saas w-full py-3.5 text-sm justify-center">
-                            <i class="ph ph-rocket-launch text-base"></i> Deploy to Hostinger
+                        <button type="submit" class="w-full py-3 text-sm border border-slate-200 rounded-xl font-bold text-slate-700 hover:bg-slate-50">
+                            Deploy via GitHub Action
                         </button>
                     </form>
-                    <p class="text-[11px] text-slate-500">After a green run, open <a href="/admin/run_migration.php" class="font-bold text-blue-700 hover:underline">/admin/run_migration.php</a> as superadmin if this release added database files.</p>
                     <?php else: ?>
-                    <p class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-4">
-                        Add <code class="font-mono font-bold">GITHUB_DEPLOY_TOKEN</code> to the server <code class="font-mono">.env</code> (a GitHub personal access token with Actions write on this repo). Then reload this page.
-                    </p>
+                    <p class="text-[11px] text-slate-500">GitHub Action is optional and hidden until you add tokens. Zip upload works without them.</p>
                     <?php endif; ?>
                 </div>
             </div>

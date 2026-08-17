@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-if (session_status() === PHP_SESSION_NONE) session_start();
+require_once __DIR__ . '/../../pms_core/ModuleHost.php';
+ModuleHost::startSession();
 
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/ErrorTracker.php';
@@ -9,7 +10,7 @@ require_once __DIR__ . '/../../pms_core/ErrorTracker.php';
 $db = Database::getInstance()->getConnection();
 
 if (isset($_SESSION['saas_admin_id'])) {
-    header('Location: /saas-admin/index');
+    header('Location: ' . ModuleHost::url('saas', '/saas-admin/index'));
     exit;
 }
 
@@ -64,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['saas_admin_username']  = $user['username'];
             $_SESSION['saas_admin_role']      = 'superadmin';
 
-            header('Location: /saas-admin/index');
+            header('Location: ' . ModuleHost::url('saas', '/saas-admin/index'));
             exit;
         } else {
             $error = 'Invalid superadmin credentials.';
@@ -204,7 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <!-- Divider -->
         <div class="mt-7 pt-5 border-t border-slate-100 text-center relative">
             <p class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-3">Restricted Area — Authorized Personnel Only</p>
-            <a href="/admin/login" class="text-xs text-slate-400 hover:text-blue-700 transition-colors font-semibold flex items-center justify-center gap-1.5 group">
+            <a href="<?= htmlspecialchars(ModuleHost::url('admin', '/login'), ENT_QUOTES, 'UTF-8') ?>" class="text-xs text-slate-400 hover:text-blue-700 transition-colors font-semibold flex items-center justify-center gap-1.5 group">
                 <i class="ph ph-arrow-left text-xs"></i>
                 Property Staff Login
             </a>

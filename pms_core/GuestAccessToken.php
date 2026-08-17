@@ -8,10 +8,9 @@ declare(strict_types=1);
  */
 class GuestAccessToken {
     public static function getPortalUrl(string|int $bookingId): string {
-        $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        require_once __DIR__ . '/ModuleHost.php';
         $token = self::generate($bookingId);
-        return "{$protocol}://{$host}/guest-portal?id={$bookingId}&token={$token}";
+        return ModuleHost::url('guest', '/guest-portal?id=' . $bookingId . '&token=' . $token);
     }
 
     public static function generate(string|int $bookingId): string {

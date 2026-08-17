@@ -11,6 +11,9 @@ RewriteBase /
 # Block pms_core if it exists inside public_html (shared hosting deployments)
 RewriteRule ^pms_core(/.*)?$ - [F,L]
 
+# Module subdomains (guest/admin/assistant/saas) MUST use this same public_html
+# as document root. Do not point a subdomain at public_html/admin or a new folder.
+
 # Block debug/test scripts from being accessed directly
 RewriteRule ^(debug|test_|setup_audit|add_notifications).*\.php$ - [F,L]
 

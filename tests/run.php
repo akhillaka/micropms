@@ -87,5 +87,30 @@ $waJob = [
 $phone = $waJob['phoneNumber'] ?? $waJob['phone'] ?? '';
 assert_true($phone === '919999999999', 'whatsapp job accepts phone payload shape');
 
+require_once __DIR__ . '/../pms_core/ModuleHost.php';
+assert_true(ModuleHost::normalizeHost('Admin.Example.com:443') === 'admin.example.com', 'host strips port and www-style case');
+assert_true(ModuleHost::detectModule('localhost:8000') === 'path', 'localhost stays path-based');
+assert_true(ModuleHost::detectModule('127.0.0.1') === 'path', 'loopback stays path-based');
+assert_true(ModuleHost::detectModule('yourdomain.com', 'yourdomain.com') === 'apex', 'apex is the marketing host');
+assert_true(ModuleHost::detectModule('guest.yourdomain.com', 'yourdomain.com') === 'guest', 'guest subdomain maps to guest portal');
+assert_true(ModuleHost::detectModule('admin.yourdomain.com', 'yourdomain.com') === 'admin', 'admin subdomain maps to staff admin');
+assert_true(ModuleHost::detectModule('assistant.yourdomain.com', 'yourdomain.com') === 'assistant', 'assistant subdomain maps to Hotel Assistant');
+assert_true(ModuleHost::detectModule('saas.yourdomain.com', 'yourdomain.com') === 'saas', 'saas subdomain maps to platform');
+assert_true(ModuleHost::applyHostPrefix('/', 'guest') === '/guest-login', 'guest home is guest login not staff login');
+assert_true(ModuleHost::applyHostPrefix('/', 'admin') === '/admin', 'admin home prefixes to /admin');
+assert_true(ModuleHost::applyHostPrefix('/', 'assistant') === '/assistant', 'assistant home prefixes to /assistant');
+assert_true(ModuleHost::applyHostPrefix('/', 'saas') === '/saas-admin', 'saas home prefixes to /saas-admin');
+assert_true(ModuleHost::applyHostPrefix('/', 'apex') === '/', 'apex home stays landing');
+assert_true(ModuleHost::applyHostPrefix('/register', 'saas') === '/register', 'public register is not prefixed away');
+assert_true(ModuleHost::sessionCookieDomain('guest', 'yourdomain.com', 'guest.yourdomain.com') === '', 'guest cookie stays host-only');
+assert_true(ModuleHost::sessionCookieDomain('admin', 'yourdomain.com', 'admin.yourdomain.com') === '.yourdomain.com', 'staff cookie is shared on base domain');
+assert_true(ModuleHost::detectModule('admin.localhost') === 'admin', 'admin.localhost is a local module host');
+assert_true(ModuleHost::detectModule('guest.localhost') === 'guest', 'guest.localhost is a local module host');
+assert_true(ModuleHost::requestPortSuffix('admin.localhost:8000') === ':8000', 'local URLs keep the PHP server port');
+assert_true(ModuleHost::url('guest', '/guest-login', 'admin.localhost:8000') === 'http://guest.localhost:8000/guest-login', 'module URL keeps :8000');
+assert_true(is_file(__DIR__ . '/../public_html/landing/index.php'), 'apex landing page exists');
+assert_true(is_file(__DIR__ . '/../public_html/landing/register.php'), 'public register page exists');
+assert_true(is_file(__DIR__ . '/../pms_core/services/PropertyOnboardService.php'), 'property onboard service is shared');
+
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed > 0 ? 1 : 0);

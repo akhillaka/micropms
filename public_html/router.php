@@ -1,29 +1,37 @@
 <?php
 declare(strict_types=1);
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_set_cookie_params([
-        'lifetime' => 86400,
-        'path' => '/',
-        'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on',
-        'httponly' => true,
-        'samesite' => 'Lax'
-    ]);
-    session_start();
-}
+require_once __DIR__ . '/../pms_core/ModuleHost.php';
+ModuleHost::startSession();
 
 $requestPath = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-// Serve static assets directly if using PHP built-in development server
+// PHP built-in server: serve css/js/images as files. Never return false for .php —
+// index.php includes this router, and return false from an include is a blank page.
 if (php_sapi_name() === 'cli-server') {
-    $staticFile = __DIR__ . $requestPath;
-    if (is_file($staticFile)) {
+    $staticFile = __DIR__ . (string)$requestPath;
+    $isPhp = str_ends_with(strtolower((string)$requestPath), '.php');
+    if (!$isPhp && is_file($staticFile)) {
         return false;
     }
 }
 
-$request = '/' . trim($requestPath, '/');
+$request = '/' . trim((string)$requestPath, '/');
 if (str_ends_with(strtolower($request), '.php')) {
     $request = substr($request, 0, -4);
+}
+if ($request === '/index') {
+    $request = '/';
+}
+$request = ModuleHost::applyHostPrefix($request);
+// Legacy bookmark: /index.php?hotelId=1000 opened the staff dashboard for that property.
+if (($request === '/' || $request === '') && isset($_GET['hotelId']) && (int)$_GET['hotelId'] > 0) {
+    $request = '/admin';
+}
+
+$module = ModuleHost::currentModule();
+if ($module === 'apex' && ($request === '/login' || $request === '/admin' || $request === '/admin/index')) {
+    header('Location: ' . ModuleHost::url('admin', $request === '/login' ? '/login' : '/admin'));
+    exit;
 }
 
 // ── API Router Interceptor ───────────────────────────────────────────────────
@@ -93,8 +101,12 @@ if (isset($_GET['hotelId'])) {
 switch ($request) {
     case '':
     case '/':
-        header('Location: /login');
-        exit;
+        require __DIR__ . '/landing/index.php';
+        break;
+
+    case '/register':
+        require __DIR__ . '/landing/register.php';
+        break;
 
     case '/login':
         require __DIR__ . '/admin/login.php';

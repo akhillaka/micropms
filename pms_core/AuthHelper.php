@@ -444,7 +444,8 @@ class AuthHelper {
         }
         
         if (!isset($_SESSION['user_id'])) {
-            header('Location: /login');
+            require_once __DIR__ . '/ModuleHost.php';
+            header('Location: ' . ModuleHost::url('admin', '/login'));
             exit;
         }
     }

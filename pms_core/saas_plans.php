@@ -69,11 +69,26 @@ class SaaSPlans {
         ]
     ];
 
+    /** @return array<string, string> */
+    public static function featureLabels(): array {
+        return [
+            'ocr_google_vision' => 'ID document OCR',
+            'whatsapp_automations' => 'WhatsApp automations',
+            'custom_domain_mapping' => 'Custom domain mapping',
+            'pos_module' => 'POS / F&B',
+            'whatsapp_module' => 'WhatsApp inbox',
+            'housekeeping_module' => 'Housekeeping',
+        ];
+    }
+
     /**
      * Retrieves the active SaaS plans configuration.
      * Checks database system settings, falling back to defaults.
      */
-    public static function get(\PDO $db): array {
+    public static function get(?\PDO $db = null): array {
+        if ($db === null) {
+            return self::DEFAULTS;
+        }
         try {
             $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'SAAS_PLANS_CONFIG'");
             $stmt->execute();

@@ -1,7 +1,6 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+require_once __DIR__ . '/../../pms_core/ModuleHost.php';
+ModuleHost::startSession();
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/ErrorTracker.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
@@ -276,7 +275,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </form>
 
         <div class="mt-8 border-t border-slate-200 pt-5 text-center">
-            <a href="/saas-admin/login" class="text-xs text-slate-400 hover:text-blue-600 transition-colors font-bold flex items-center justify-center gap-1.5">
+            <a href="<?= htmlspecialchars(ModuleHost::url('saas', '/saas-admin/login'), ENT_QUOTES, 'UTF-8') ?>" class="text-xs text-slate-400 hover:text-blue-600 transition-colors font-bold flex items-center justify-center gap-1.5">
                 <i class="ph ph-arrow-left"></i> SaaS Control Panel Login
             </a>
         </div>

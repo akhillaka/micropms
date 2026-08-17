@@ -11,6 +11,7 @@ zip -r "$OUT" \
   tests \
   scripts \
   .env.example \
+  DEPLOY.md \
   -x "*.git*" \
   -x "*.env" \
   -x "*node_modules*" \
