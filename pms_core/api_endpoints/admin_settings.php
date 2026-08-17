@@ -8,7 +8,7 @@ require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('manage_settings');
 
-    $data = json_decode(file_get_contents('php://input'), true);
+    $data = ApiHandler::getJsonInput();
     if (!isset($data['action'])) throw new Exception("Action required");
     
     $propertyId = AuthHelper::getPropertyId();
@@ -182,6 +182,45 @@ ApiHandler::run(function(\PDO $db) {
         }
         AuditLogger::log($_SESSION['user_id'], 'DELETE_RATE', 'SYSTEM', $catId, $data);
         ApiResponse::success();
+
+    } elseif (in_array($data['action'], ['get_ical_feed', 'save_ical_feed', 'sync_ical'], true)) {
+        require_once __DIR__ . '/../../pms_core/services/IcalService.php';
+        $roomId = (int)($data['room_id'] ?? 0);
+        if ($roomId <= 0) {
+            throw new Exception("Room ID required");
+        }
+        $own = $db->prepare("SELECT id FROM rooms WHERE id = ? AND property_id = ?");
+        $own->execute([$roomId, $propertyId]);
+        if (!$own->fetchColumn()) {
+            throw new Exception("Room not found");
+        }
+
+        if ($data['action'] === 'save_ical_feed') {
+            $feed = IcalService::saveImportUrl($db, $propertyId, $roomId, (string)($data['import_url'] ?? ''));
+            AuditLogger::log($_SESSION['user_id'], 'SAVE_ICAL_FEED', 'ROOM', $roomId, ['import_url' => $feed['import_url'] ?? ''], $propertyId);
+        } elseif ($data['action'] === 'sync_ical') {
+            $feed = IcalService::ensureFeed($db, $propertyId, $roomId);
+            $imported = 0;
+            if (!empty($feed['import_url'])) {
+                $imported = IcalService::importFeed($db, $feed);
+                $db->prepare("UPDATE room_ical_feeds SET last_synced_at = NOW(), last_error = NULL WHERE id = ? AND property_id = ?")
+                    ->execute([(int)$feed['id'], $propertyId]);
+            }
+            $feed = IcalService::ensureFeed($db, $propertyId, $roomId);
+            AuditLogger::log($_SESSION['user_id'], 'SYNC_ICAL', 'ROOM', $roomId, ['imported' => $imported], $propertyId);
+            ApiResponse::success([
+                'feed' => $feed,
+                'export_url' => IcalService::publicExportUrl((string)$feed['export_token']),
+                'imported' => $imported,
+            ]);
+        } else {
+            $feed = IcalService::ensureFeed($db, $propertyId, $roomId);
+        }
+
+        ApiResponse::success([
+            'feed' => $feed,
+            'export_url' => IcalService::publicExportUrl((string)$feed['export_token']),
+        ]);
         
     } else {
         throw new Exception("Unknown action");

@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requirePermission('export_finance');
 
 require_once __DIR__ . '/../../pms_core/Database.php';
+require_once __DIR__ . '/../../pms_core/services/SaaSBillingEngine.php';
 $db = Database::getInstance()->getConnection();
 
 $start = $_GET['start'] ?? date('Y-m-d 00:00:00');
@@ -54,6 +55,8 @@ $stmt->execute([
     'start2' => $start, 'end2' => $end
 ]);
 $transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$exportLimit = SaaSBillingEngine::exportRowLimit($db, $propertyId);
+$transactions = SaaSBillingEngine::applyExportLimit($transactions, $exportLimit);
 
 $filename = "MicroPMS_Finance_" . date('Y-m-d', strtotime($start)) . "_to_" . date('Y-m-d', strtotime($end)) . ".csv";
 

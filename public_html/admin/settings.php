@@ -22,9 +22,40 @@ $categories = $db->prepare("SELECT * FROM room_categories WHERE property_id = ?"
 $categories->execute([$propId]);
 $categories = $categories->fetchAll();
 
-$rooms = $db->prepare("SELECT r.*, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.property_id = ?");
-$rooms->execute([$propId]);
-$rooms = $rooms->fetchAll();
+$rooms = [];
+try {
+    $roomsStmt = $db->prepare("
+        SELECT r.*, c.name as category_name, f.export_token, f.import_url, f.last_synced_at, f.last_error
+        FROM rooms r
+        JOIN room_categories c ON r.category_id = c.id
+        LEFT JOIN room_ical_feeds f ON f.room_id = r.id
+        WHERE r.property_id = ?
+        ORDER BY CAST(r.room_number AS UNSIGNED), r.room_number
+    ");
+    $roomsStmt->execute([$propId]);
+    $rooms = $roomsStmt->fetchAll();
+} catch (\PDOException $e) {
+    $roomsStmt = $db->prepare("SELECT r.*, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.property_id = ? ORDER BY CAST(r.room_number AS UNSIGNED), r.room_number");
+    $roomsStmt->execute([$propId]);
+    $rooms = $roomsStmt->fetchAll();
+}
+try {
+    require_once __DIR__ . '/../../pms_core/services/IcalService.php';
+    foreach ($rooms as &$roomRow) {
+        if (empty($roomRow['export_token'])) {
+            $feed = IcalService::ensureFeed($db, $propId, (int)$roomRow['id']);
+            $roomRow['export_token'] = $feed['export_token'] ?? '';
+            $roomRow['import_url'] = $feed['import_url'] ?? ($roomRow['import_url'] ?? null);
+            $roomRow['last_synced_at'] = $feed['last_synced_at'] ?? ($roomRow['last_synced_at'] ?? null);
+            $roomRow['last_error'] = $feed['last_error'] ?? ($roomRow['last_error'] ?? null);
+        }
+    }
+    unset($roomRow);
+} catch (\Throwable $e) {
+    // Migration 027 may not have run yet
+}
+$httpsOn = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+$icalHost = ($httpsOn ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
 
 $rates = $db->prepare("SELECT s.*, c.name as category_name FROM sliding_rates s JOIN room_categories c ON s.category_id = c.id WHERE s.property_id = ? ORDER BY s.category_id, s.hours");
 $rates->execute([$propId]);
@@ -227,6 +258,9 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                 background-color: #F1F5F9;
                 color: #0F172A !important;
             }
+            #content-rooms .room-settings-card:hover {
+                transform: none;
+            }
             body.na-only .settings-tab-btn:not(#tab-night-audit) {
                 display: none;
             }
@@ -344,35 +378,87 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
             </div>
 
             <!-- 2. Rooms Tab -->
-            <div id="content-rooms" class="pb-24 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" style="display:none">
+            <div id="content-rooms" class="pb-24 space-y-5" style="display:none">
+                <div class="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 md:p-5">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-white text-emerald-700 flex items-center justify-center shrink-0 border border-emerald-100">
+                            <i class="ph ph-calendar-plus text-xl"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <h3 class="text-sm font-bold text-slate-900">OTA calendars (Airbnb / Booking.com)</h3>
+                            <p class="text-xs text-slate-600 mt-1 leading-relaxed">Each room has two links. Copy <span class="font-semibold">Export</span> into the OTA listing so they see your booked dates. Paste their calendar URL into <span class="font-semibold">Import</span> and save — MicroPMS blocks those dates so you cannot double-book. Cron refreshes imports about every 15 minutes.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
                 <?php foreach($rooms as $r): ?>
-                    <div class="card-minimal p-4  flex justify-between items-center active:scale-[0.98] transition-transform">
-                        <div class="flex items-center gap-4">
-                            <div class="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-700 font-semibold text-lg border border-indigo-100">
+                    <?php
+                        $exportUrl = !empty($r['export_token']) ? ($icalHost . '/ical/' . $r['export_token'] . '.ics') : '';
+                        $hasImport = !empty($r['import_url']);
+                    ?>
+                    <div class="room-settings-card card-minimal p-4 min-w-0 overflow-hidden">
+                        <div class="flex items-start gap-3 min-w-0">
+                            <div class="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-700 font-semibold text-base border border-indigo-100 shrink-0">
                                 <?= htmlspecialchars((string)($r['room_number'])) ?>
                             </div>
-                            <div>
-                                <span class="text-sm font-bold text-brand-900 block">Room <?= htmlspecialchars((string)($r['room_number'])) ?></span>
-                                <span class="text-xs font-medium text-brand-900/70 bg-brand-100 px-2 py-0.5 rounded mt-1 inline-block"><?= htmlspecialchars((string)($r['category_name'])) ?></span>
-                                <div class="mt-2.5">
-                                    <label class="relative inline-flex items-center cursor-pointer select-none">
-                                        <input type="checkbox" class="sr-only peer" <?= htmlspecialchars((string)($r['state'] === 'out_of_order' ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?> onchange="toggleRoomOOO(<?= htmlspecialchars((string)($r['id']), ENT_QUOTES, 'UTF-8') ?>, this.checked)">
-                                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-500"></div>
-                                        <span class="ml-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Out of Order</span>
-                                    </label>
-                                </div>
+                            <div class="min-w-0 flex-1">
+                                <span class="text-sm font-bold text-brand-900 block truncate">Room <?= htmlspecialchars((string)($r['room_number'])) ?></span>
+                                <span class="text-[11px] font-medium text-brand-900/70 bg-brand-100 px-2 py-0.5 rounded mt-1 inline-block"><?= htmlspecialchars((string)($r['category_name'])) ?></span>
+                            </div>
+                            <div class="flex gap-1.5 shrink-0">
+                                <button type="button" onclick="openModal('roomModal', {id: <?= (int)$r['id'] ?>, num: '<?= htmlspecialchars((string)(addslashes($r['room_number'])), ENT_QUOTES, 'UTF-8') ?>', cat: <?= (int)$r['category_id'] ?>})" class="w-10 h-10 rounded-full bg-brand-50 text-brand-900 flex items-center justify-center hover:bg-brand-100" title="Edit room">
+                                    <i class="ph ph-pencil-simple text-lg"></i>
+                                </button>
+                                <button type="button" onclick="deleteItem('room', <?= (int)$r['id'] ?>, '<?= htmlspecialchars((string)(addslashes($r['room_number'])), ENT_QUOTES, 'UTF-8') ?>')" class="w-10 h-10 rounded-full bg-error-50 text-error-600 flex items-center justify-center hover:bg-error-100" title="Delete room">
+                                    <i class="ph ph-trash text-lg"></i>
+                                </button>
                             </div>
                         </div>
-                        <div class="flex gap-2">
-                            <button onclick="openModal('roomModal', {id: <?= htmlspecialchars((string)($r['id']), ENT_QUOTES, 'UTF-8') ?>, num: '<?= htmlspecialchars((string)(addslashes($r['room_number'])), ENT_QUOTES, 'UTF-8') ?>', cat: <?= htmlspecialchars((string)($r['category_id']), ENT_QUOTES, 'UTF-8') ?>})" class="w-12 h-12 rounded-full bg-brand-50 text-brand-900 flex items-center justify-center hover:bg-brand-100">
-                                <i class="ph ph-pencil-simple text-lg"></i>
-                            </button>
-                            <button onclick="deleteItem('room', <?= htmlspecialchars((string)($r['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($r['room_number'])), ENT_QUOTES, 'UTF-8') ?>')" class="w-12 h-12 rounded-full bg-error-50 text-error-600 flex items-center justify-center hover:bg-error-100">
-                                <i class="ph ph-trash text-lg"></i>
-                            </button>
+                        <label class="relative inline-flex items-center cursor-pointer select-none mt-3">
+                            <input type="checkbox" class="sr-only peer" <?= $r['state'] === 'out_of_order' ? 'checked' : '' ?> onchange="toggleRoomOOO(<?= (int)$r['id'] ?>, this.checked)">
+                            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-500"></div>
+                            <span class="ml-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Out of Order</span>
+                        </label>
+
+                        <div class="mt-4 pt-3 border-t border-slate-100 space-y-2.5">
+                            <div class="flex items-center justify-between gap-2">
+                                <p class="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Channel calendar</p>
+                                <?php if ($hasImport): ?>
+                                    <span class="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">Import on</span>
+                                <?php else: ?>
+                                    <span class="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-200">Export only</span>
+                                <?php endif; ?>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-semibold text-slate-500 mb-1">Export URL — paste this into Airbnb / Booking.com</label>
+                                <div class="flex gap-2 min-w-0">
+                                    <input type="text" readonly id="ical-export-<?= (int)$r['id'] ?>"
+                                        value="<?= htmlspecialchars($exportUrl) ?>"
+                                        class="min-w-0 flex-1 text-[11px] font-mono bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2">
+                                    <button type="button" onclick="copyIcalUrl(<?= (int)$r['id'] ?>)" class="shrink-0 text-[11px] font-bold text-brand-800 bg-white border border-slate-200 rounded-lg px-3 py-2 hover:bg-slate-50">Copy</button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-semibold text-slate-500 mb-1">Import URL — paste the OTA calendar link</label>
+                                <input type="url" id="ical-import-<?= (int)$r['id'] ?>" placeholder="https://www.airbnb.com/calendar/ical/..."
+                                    value="<?= htmlspecialchars((string)($r['import_url'] ?? '')) ?>"
+                                    class="w-full text-[11px] font-mono bg-white border border-slate-200 rounded-lg px-2.5 py-2">
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" onclick="saveIcalFeed(<?= (int)$r['id'] ?>)" class="text-[11px] font-bold bg-brand-900 text-white rounded-lg px-3.5 py-2">Save import URL</button>
+                                <button type="button" onclick="syncIcalFeed(<?= (int)$r['id'] ?>)" class="text-[11px] font-bold bg-slate-100 text-slate-700 rounded-lg px-3.5 py-2">Sync now</button>
+                            </div>
+                            <?php if (!empty($r['last_error'])): ?>
+                                <p class="text-[11px] text-rose-600">Last sync failed: <?= htmlspecialchars((string)$r['last_error']) ?></p>
+                            <?php elseif (!empty($r['last_synced_at'])): ?>
+                                <p class="text-[11px] text-slate-400">Last sync <?= htmlspecialchars((string)$r['last_synced_at']) ?></p>
+                            <?php else: ?>
+                                <p class="text-[11px] text-slate-400">No import sync yet. Save an OTA URL, then Sync now.</p>
+                            <?php endif; ?>
                         </div>
                     </div>
                 <?php endforeach; ?>
+                </div>
             </div>
 
             <!-- 3. Rates Tab -->
@@ -1975,6 +2061,20 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                                 <div>
                                     <span class="font-bold text-brand-800">Custom Domain Mapping</span>
                                     <p class="text-[10px] text-slate-500">Map a private domain name to your workspace</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 p-3 bg-brand-50 rounded-xl border border-brand-200/50">
+                                <i class="ph ph-check-circle text-emerald-500 text-lg"></i>
+                                <div>
+                                    <span class="font-bold text-brand-800">OTA iCal calendars</span>
+                                    <p class="text-[10px] text-slate-500">Airbnb / Booking.com export + import on Settings → Physical Rooms</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 p-3 bg-brand-50 rounded-xl border border-brand-200/50">
+                                <i class="ph ph-check-circle text-emerald-500 text-lg"></i>
+                                <div>
+                                    <span class="font-bold text-brand-800">Report CSV export cap</span>
+                                    <p class="text-[10px] text-slate-500"><?= ((int)($planLimits['max_export_rows'] ?? 0) === 0) ? 'Unlimited rows' : ((int)$planLimits['max_export_rows'] . ' rows per export') ?></p>
                                 </div>
                             </div>
                         </div>

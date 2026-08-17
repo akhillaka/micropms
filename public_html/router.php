@@ -164,6 +164,12 @@ switch ($request) {
             break;
         }
 
+        if (preg_match('#^/ical/([a-f0-9]{32})\.ics$#i', $request, $matches)) {
+            $_GET['token'] = $matches[1];
+            require __DIR__ . '/ical.php';
+            break;
+        }
+
         // Check if there is a matching file in root public_html (e.g. webhooks)
         $rootFile = __DIR__ . $request . '.php';
         if (file_exists($rootFile)) {

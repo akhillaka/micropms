@@ -6,12 +6,47 @@ declare(strict_types=1);
  */
 class SaaSBillingEngine {
 
+    public static function resolvePlanCap(\PDO $db, int $propertyId, string $capKey, int $fallback): int {
+        require_once __DIR__ . '/../saas_plans.php';
+        $stmt = $db->prepare("SELECT plan, max_rooms, max_staff FROM properties WHERE id = ?");
+        $stmt->execute([$propertyId]);
+        $prop = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$prop) {
+            return $fallback;
+        }
+        $plans = SaaSPlans::get($db);
+        $planKey = $prop['plan'] ?? 'starter';
+        $planCap = (int)($plans[$planKey][$capKey] ?? $fallback);
+        $propertyCap = (int)($prop[$capKey] ?? $fallback);
+        $cap = $propertyCap > 0 ? $propertyCap : $planCap;
+        if ($planCap > 0) {
+            $cap = min($cap, $planCap);
+        }
+        return max(0, $cap);
+    }
+
+    public static function exportRowLimit(\PDO $db, int $propertyId): int {
+        require_once __DIR__ . '/../saas_plans.php';
+        $stmt = $db->prepare("SELECT plan FROM properties WHERE id = ?");
+        $stmt->execute([$propertyId]);
+        $planKey = (string)($stmt->fetchColumn() ?: 'starter');
+        $plans = SaaSPlans::get($db);
+        return (int)($plans[$planKey]['max_export_rows'] ?? 500);
+    }
+
+    /** @param array<int, array> $rows */
+    public static function applyExportLimit(array $rows, int $limit): array {
+        if ($limit <= 0 || count($rows) <= $limit) {
+            return $rows;
+        }
+        return array_slice($rows, 0, $limit);
+    }
+
     /**
      * Verifies if a property is allowed to add more rooms based on their active SaaS plan.
      */
     public static function checkRoomLimit(\PDO $db, int $propertyId): void {
-        // Fetch plan limits
-        $stmt = $db->prepare("SELECT plan, max_rooms FROM properties WHERE id = ?");
+        $stmt = $db->prepare("SELECT plan FROM properties WHERE id = ?");
         $stmt->execute([$propertyId]);
         $prop = $stmt->fetch();
 
@@ -19,10 +54,10 @@ class SaaSBillingEngine {
             throw new \Exception("Property tenant account not found.");
         }
 
-        $maxRooms = (int)$prop['max_rooms'];
+        $maxRooms = self::resolvePlanCap($db, $propertyId, 'max_rooms', 15);
         
         // Count active rooms for this property
-        $roomStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ?");
+        $roomStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ? AND deleted_at IS NULL");
         $roomStmt->execute([$propertyId]);
         $currentRooms = (int)$roomStmt->fetchColumn();
 

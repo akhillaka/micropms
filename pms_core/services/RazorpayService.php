@@ -232,7 +232,8 @@ class RazorpayService {
             CURLOPT_POSTFIELDS     => json_encode($body, JSON_THROW_ON_ERROR),
             CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
             CURLOPT_USERPWD        => $this->keyId . ':' . $this->keySecret,
-            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_CONNECTTIMEOUT => 8,
             CURLOPT_SSL_VERIFYPEER => true,
         ]);
         $resp = curl_exec($ch);
@@ -248,7 +249,8 @@ class RazorpayService {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
             CURLOPT_USERPWD        => $this->keyId . ':' . $this->keySecret,
-            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_CONNECTTIMEOUT => 8,
             CURLOPT_SSL_VERIFYPEER => true,
         ]);
         $resp = curl_exec($ch);

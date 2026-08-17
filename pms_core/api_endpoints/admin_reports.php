@@ -475,6 +475,18 @@ ApiHandler::run(function(\PDO $db) {
             break;
             
         case 'revpar':
+            require_once __DIR__ . '/../../pms_core/services/ReportingCacheService.php';
+            $cacheStart = substr($start_date, 0, 10);
+            $cacheEnd = substr($end_date, 0, 10);
+            $today = date('Y-m-d');
+            if ($cacheEnd < $today) {
+                $cached = ReportingCacheService::getRange($db, $propertyId, $cacheStart, $cacheEnd);
+                if ($cached !== null) {
+                    ApiResponse::success(['data' => $cached, 'source' => 'cache']);
+                    break;
+                }
+            }
+
             // Total Rooms count
             $roomsStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ?");
             $roomsStmt->execute([$propertyId]);

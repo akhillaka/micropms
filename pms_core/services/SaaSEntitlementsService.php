@@ -16,10 +16,6 @@ class SaaSEntitlementsService {
      * @throws Exception if staff count exceeds plan entitlement limits
      */
     public static function checkStaffLimit(\PDO $db, int $propertyId): void {
-        if ($propertyId === 1) {
-            return; // Primary property is bypass-exempted
-        }
-
         $stmt = $db->prepare("SELECT plan, max_staff FROM properties WHERE id = ?");
         $stmt->execute([$propertyId]);
         $prop = $stmt->fetch();
@@ -31,7 +27,12 @@ class SaaSEntitlementsService {
         // Load limits dynamically from plans config if not customized
         $plansConfig = SaaSPlans::get($db);
         $planKey = $prop['plan'] ?? 'starter';
-        $maxStaff = isset($plansConfig[$planKey]['max_staff']) ? (int)$plansConfig[$planKey]['max_staff'] : (int)$prop['max_staff'];
+        $planCap = isset($plansConfig[$planKey]['max_staff']) ? (int)$plansConfig[$planKey]['max_staff'] : 0;
+        $propertyCap = (int)$prop['max_staff'];
+        $maxStaff = $propertyCap > 0 ? $propertyCap : $planCap;
+        if ($planCap > 0) {
+            $maxStaff = min($maxStaff, $planCap);
+        }
 
         // Count current staff active on the tenant workspace
         $countStmt = $db->prepare("SELECT COUNT(*) FROM staff_users WHERE property_id = ? AND is_active = 1");

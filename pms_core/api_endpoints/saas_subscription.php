@@ -11,7 +11,10 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::error("Only property owners can manage SaaS subscriptions", 403);
     }
 
-    $data = json_decode(file_get_contents('php://input'), true) ?? $_POST ?? [];
+    $data = ApiHandler::getJsonInput();
+    if (!$data) {
+        $data = $_POST ?? [];
+    }
     $propertyId = AuthHelper::getPropertyId();
     $action = $data['action'] ?? $_GET['action'] ?? '';
 
@@ -30,7 +33,7 @@ ApiHandler::run(function(\PDO $db) {
         $planId = trim($data['plan_id'] ?? '');
         if (!$planId) ApiResponse::error("Plan ID required");
 
-        $notes = ['property_id' => $propertyId];
+        $notes = ['property_id' => (string)$propertyId, 'plan' => $planId];
         $result = $rz->createSubscription($planId, 12, $notes);
         
         if ($result['success']) {

@@ -4,8 +4,17 @@ require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
 AuthHelper::requirePermission('view_reports');
 CsrfToken::checkTimeout();
+require_once __DIR__ . '/../../pms_core/Database.php';
+require_once __DIR__ . '/../../pms_core/services/SaaSBillingEngine.php';
 $monthStart = date('Y-m-01');
 $monthEnd = date('Y-m-t');
+$exportRowLimit = 500;
+try {
+    $db = Database::getInstance()->getConnection();
+    $exportRowLimit = SaaSBillingEngine::exportRowLimit($db, AuthHelper::getPropertyId());
+} catch (\Throwable $e) {
+    $exportRowLimit = 500;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -255,6 +264,7 @@ $monthEnd = date('Y-m-t');
         let currentData = null;
         let reportChart = null;
         let insightsCharts = [];
+        const EXPORT_ROW_LIMIT = <?= (int)$exportRowLimit ?>;
 
         // Formatting utilities
         const formatMoney = (val) => {
@@ -812,11 +822,17 @@ $monthEnd = date('Y-m-t');
                 return showToast("Export not available for Business Intelligence view. Please use Print to PDF.");
             }
             if(!currentData || currentData.length === 0) return showToast("No data to export");
+
+            let rows = currentData;
+            if (EXPORT_ROW_LIMIT > 0 && rows.length > EXPORT_ROW_LIMIT) {
+                rows = rows.slice(0, EXPORT_ROW_LIMIT);
+                showToast(`Export limited to ${EXPORT_ROW_LIMIT} rows on your plan.`);
+            }
             
-            const keys = Object.keys(currentData[0]);
+            const keys = Object.keys(rows[0]);
             let csv = keys.join(',') + '\n';
             
-            currentData.forEach(row => {
+            rows.forEach(row => {
                 let r = keys.map(k => {
                     let val = row[k] === null ? '' : row[k].toString();
                     val = val.replace(/"/g, '""');

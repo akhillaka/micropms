@@ -66,6 +66,32 @@ foreach ($properties as $prop) {
 
 echo "\n";
 
+require_once __DIR__ . '/../pms_core/services/IcalService.php';
+require_once __DIR__ . '/../pms_core/services/ReportingCacheService.php';
+
+$minute = (int)date('i');
+echo "[CHANNELS] Syncing iCal feeds and report cache...\n";
+foreach ($properties as $prop) {
+    $propId = (int)$prop['id'];
+    $propName = $prop['name'];
+    if ($minute % 15 === 0) {
+        try {
+            $sync = IcalService::syncProperty($db, $propId);
+            echo "[ICAL][$propName] feeds={$sync['feeds']} imported={$sync['imported']} errors={$sync['errors']}\n";
+        } catch (\Throwable $e) {
+            echo "[ICAL][$propName] Failed: " . $e->getMessage() . "\n";
+        }
+    }
+    try {
+        $days = ReportingCacheService::refreshProperty($db, $propId, 2);
+        echo "[REPORTS][$propName] Cached {$days} day(s).\n";
+    } catch (\Throwable $e) {
+        echo "[REPORTS][$propName] Failed: " . $e->getMessage() . "\n";
+    }
+}
+
+echo "\n";
+
 // ═══════════════════════════════════════════════════════════════
 // 1. DAILY SUMMARY — send at 11 PM IST
 // ═══════════════════════════════════════════════════════════════

@@ -465,6 +465,9 @@ CREATE TABLE `properties` (
   `email` varchar(255) DEFAULT NULL,
   `gstin` varchar(20) DEFAULT NULL,
   `custom_domain` varchar(255) DEFAULT NULL,
+  `dns_txt_token` varchar(64) DEFAULT NULL,
+  `dns_verified_at` datetime DEFAULT NULL,
+  `dns_status` varchar(40) NOT NULL DEFAULT 'unverified',
   `plan` varchar(50) NOT NULL DEFAULT 'starter',
   `max_rooms` int(11) NOT NULL DEFAULT 15,
   `max_staff` int(11) NOT NULL DEFAULT 5,
@@ -517,12 +520,16 @@ CREATE TABLE `room_categories` (
 CREATE TABLE `room_maintenance` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `room_id` int(11) NOT NULL,
+  `property_id` int(11) DEFAULT NULL,
   `start_date` date NOT NULL,
   `end_date` date NOT NULL,
   `reason` varchar(255) NOT NULL,
+  `external_uid` varchar(190) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_maint_dates` (`room_id`,`start_date`,`end_date`),
+  KEY `idx_maint_property` (`property_id`),
+  UNIQUE KEY `uq_maint_external` (`room_id`, `external_uid`),
   CONSTRAINT `room_maintenance_ibfk_1` FOREIGN KEY (`room_id`) REFERENCES `rooms` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -582,6 +589,7 @@ CREATE TABLE `saas_subscriptions` (
   `ends_at` datetime NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_saas_sub_gateway` (`gateway_sub_id`),
   KEY `idx_saas_sub_property` (`property_id`),
   KEY `idx_saas_sub_status` (`status`),
   CONSTRAINT `fk_saas_sub_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
@@ -857,6 +865,34 @@ CREATE TABLE IF NOT EXISTS `processed_webhook_events` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_webhook_provider_event` (`provider`,`event_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `room_ical_feeds` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `export_token` char(32) NOT NULL,
+  `import_url` varchar(500) DEFAULT NULL,
+  `last_synced_at` datetime DEFAULT NULL,
+  `last_error` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_ical_room` (`room_id`),
+  UNIQUE KEY `uq_ical_token` (`export_token`),
+  KEY `idx_ical_property` (`property_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `report_daily_stats` (
+  `property_id` int(11) NOT NULL,
+  `stat_date` date NOT NULL,
+  `total_rooms` int(11) NOT NULL DEFAULT 0,
+  `occupied_rooms` int(11) NOT NULL DEFAULT 0,
+  `occupancy_percent` decimal(6,2) NOT NULL DEFAULT 0.00,
+  `room_revenue` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `adr` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `revpar` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`property_id`, `stat_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `night_audit_actions` (
   `id` int(11) NOT NULL AUTO_INCREMENT,

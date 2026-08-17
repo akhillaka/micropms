@@ -106,6 +106,9 @@ class MigrationRunner {
                 $statements = preg_split('/;\s*(?=(?:[^\'"]*[\'"][^\'"]*[\'"])*[^\'"]*$)/', $sql) ?: [];
                 foreach ($statements as $statement) {
                     $statement = trim($statement);
+                    // Strip leading -- comments so the real SQL still runs
+                    $statement = preg_replace('/^(?:\s*--[^\n]*\n)+/', '', $statement) ?? $statement;
+                    $statement = trim($statement);
                     if ($statement === '' || str_starts_with($statement, '--')) {
                         continue;
                     }

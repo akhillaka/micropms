@@ -162,6 +162,74 @@ try {
                 ], (int)$booking['property_id']);
             }
         }
+    } elseif (str_starts_with((string)$data['event'], 'subscription.')) {
+        $sub = $data['payload']['subscription']['entity'] ?? [];
+        $subId = (string)($sub['id'] ?? '');
+        $eventId = (string)$data['event'] . ':' . $subId . ':' . (string)($data['created_at'] ?? time());
+        if ($subId !== '') {
+            try {
+                $db->prepare("INSERT INTO processed_webhook_events (provider, event_id) VALUES ('razorpay', ?)")->execute([$eventId]);
+            } catch (\PDOException $e) {
+                http_response_code(200);
+                echo "OK: Already processed";
+                exit;
+            }
+
+            $propertyId = (int)($sub['notes']['property_id'] ?? 0);
+            if ($propertyId <= 0) {
+                $find = $db->prepare("SELECT property_id FROM saas_subscriptions WHERE gateway_sub_id = ? LIMIT 1");
+                $find->execute([$subId]);
+                $propertyId = (int)$find->fetchColumn();
+            }
+            if ($propertyId > 0) {
+                $statusMap = [
+                    'subscription.activated' => 'active',
+                    'subscription.charged' => 'active',
+                    'subscription.authenticated' => 'active',
+                    'subscription.updated' => 'active',
+                    'subscription.pending' => 'past_due',
+                    'subscription.halted' => 'past_due',
+                    'subscription.cancelled' => 'cancelled',
+                    'subscription.completed' => 'cancelled',
+                ];
+                $status = $statusMap[$data['event']] ?? 'manual';
+                $endsAt = !empty($sub['current_end'])
+                    ? date('Y-m-d H:i:s', (int)$sub['current_end'])
+                    : date('Y-m-d H:i:s', strtotime('+30 days'));
+                $plan = (string)($sub['notes']['plan'] ?? $sub['plan_id'] ?? 'starter');
+                $amountPaise = (int)($data['payload']['payment']['entity']['amount'] ?? 0);
+                $amount = $amountPaise > 0 ? round($amountPaise / 100, 2) : 0.0;
+
+                $exists = $db->prepare("SELECT id FROM saas_subscriptions WHERE gateway_sub_id = ? LIMIT 1");
+                $exists->execute([$subId]);
+                $subRowId = $exists->fetchColumn();
+                if ($subRowId) {
+                    $db->prepare("
+                        UPDATE saas_subscriptions
+                        SET status = ?, ends_at = ?, plan = ?, amount = IF(? > 0, ?, amount)
+                        WHERE id = ?
+                    ")->execute([$status, $endsAt, $plan, $amount, $amount, $subRowId]);
+                } else {
+                    $db->prepare("
+                        INSERT INTO saas_subscriptions
+                            (property_id, gateway, gateway_sub_id, plan, amount, currency, status, starts_at, ends_at)
+                        VALUES (?, 'razorpay', ?, ?, ?, 'INR', ?, NOW(), ?)
+                    ")->execute([$propertyId, $subId, $plan, $amount, $status, $endsAt]);
+                }
+
+                $db->prepare("
+                    UPDATE properties
+                    SET subscription_status = ?, valid_until = ?, is_active = IF(? = 'cancelled', is_active, 1)
+                    WHERE id = ?
+                ")->execute([$status, $endsAt, $status, $propertyId]);
+
+                AuditLogger::log(null, 'SAAS_SUBSCRIPTION_' . strtoupper((string)$data['event']), 'PROPERTY', $propertyId, [
+                    'gateway_sub_id' => $subId,
+                    'status' => $status,
+                    'valid_until' => $endsAt,
+                ], $propertyId);
+            }
+        }
     }
 } catch (\Throwable $e) {
     if (isset($db) && $db->inTransaction()) {

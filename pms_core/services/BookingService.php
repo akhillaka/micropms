@@ -332,6 +332,24 @@ class BookingService {
         }
 
         try {
+            $maintSql = "SELECT COUNT(*) FROM room_maintenance
+                         WHERE room_id = :room_id
+                           AND start_date < DATE(:check_out)
+                           AND end_date > DATE(:check_in)";
+            $maintStmt = $db->prepare($maintSql);
+            $maintStmt->execute([
+                'room_id' => $roomId,
+                'check_in' => $checkIn,
+                'check_out' => $checkOut,
+            ]);
+            if ((int)$maintStmt->fetchColumn() > 0) {
+                return false;
+            }
+        } catch (\PDOException $e) {
+            // room_maintenance may be missing on older schemas
+        }
+
+        try {
             $holdSql = "SELECT COUNT(*) FROM room_holds
                         WHERE room_id = :room_id
                           AND property_id = :property_id

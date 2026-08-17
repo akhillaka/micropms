@@ -970,6 +970,85 @@ async function toggleRoomOOO(roomId, isOOO) {
     }
 }
 
+async function toggleIcalPanel(roomId) {
+    const panel = document.getElementById('ical-panel-' + roomId);
+    if (!panel) return;
+    panel.classList.toggle('hidden');
+    if (panel.classList.contains('hidden')) return;
+    const exportInput = document.getElementById('ical-export-' + roomId);
+    if (exportInput && exportInput.value) return;
+    try {
+        const res = await fetch('/api/admin/settings', {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ action: 'get_ical_feed', room_id: roomId })
+        });
+        const data = await res.json();
+        if (data.success && data.export_url && exportInput) {
+            exportInput.value = data.export_url;
+        } else if (!data.success) {
+            showToast(data.message || 'Could not create calendar URL', 'error');
+        }
+    } catch (err) {
+        showToast('Connection error', 'error');
+    }
+}
+
+function copyIcalUrl(roomId) {
+    const input = document.getElementById('ical-export-' + roomId);
+    if (!input || !input.value) {
+        showToast('Generate the calendar URL first', 'error');
+        return;
+    }
+    navigator.clipboard.writeText(input.value).then(() => showToast('Calendar URL copied', 'success'))
+        .catch(() => showToast('Copy failed', 'error'));
+}
+
+async function saveIcalFeed(roomId) {
+    const importInput = document.getElementById('ical-import-' + roomId);
+    try {
+        const res = await fetch('/api/admin/settings', {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({
+                action: 'save_ical_feed',
+                room_id: roomId,
+                import_url: importInput ? importInput.value : ''
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (data.export_url) {
+                const exportInput = document.getElementById('ical-export-' + roomId);
+                if (exportInput) exportInput.value = data.export_url;
+            }
+            showToast('iCal feed saved', 'success');
+        } else {
+            showToast(data.message || 'Could not save feed', 'error');
+        }
+    } catch (err) {
+        showToast('Connection error', 'error');
+    }
+}
+
+async function syncIcalFeed(roomId) {
+    try {
+        const res = await fetch('/api/admin/settings', {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ action: 'sync_ical', room_id: roomId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Imported ' + (data.imported || 0) + ' OTA blocks', 'success');
+        } else {
+            showToast(data.message || 'Sync failed', 'error');
+        }
+    } catch (err) {
+        showToast('Connection error', 'error');
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('wa_quick_replies_json')) {
         renderQuickReplies();

@@ -12,6 +12,7 @@ class SaaSPlans {
             'price' => 0,
             'max_rooms' => 5,
             'max_staff' => 2,
+            'max_export_rows' => 200,
             'features' => [
                 'ocr_google_vision' => true,
                 'whatsapp_automations' => true,
@@ -26,6 +27,7 @@ class SaaSPlans {
             'price' => 1999,
             'max_rooms' => 15,
             'max_staff' => 5,
+            'max_export_rows' => 500,
             'features' => [
                 'ocr_google_vision' => false,
                 'whatsapp_automations' => false,
@@ -40,6 +42,7 @@ class SaaSPlans {
             'price' => 4999,
             'max_rooms' => 50,
             'max_staff' => 15,
+            'max_export_rows' => 5000,
             'features' => [
                 'ocr_google_vision' => true,
                 'whatsapp_automations' => false,
@@ -54,6 +57,7 @@ class SaaSPlans {
             'price' => 9999,
             'max_rooms' => 999,
             'max_staff' => 50,
+            'max_export_rows' => 0,
             'features' => [
                 'ocr_google_vision' => true,
                 'whatsapp_automations' => true,

@@ -356,17 +356,35 @@ try {
             $gstin = trim($_POST['gstin'] ?? '');
             $plan = trim($_POST['plan'] ?? 'starter');
             $maxRooms = (int)($_POST['max_rooms'] ?? 25);
+            $customDomain = strtolower(trim($_POST['custom_domain'] ?? ''));
+            $customDomain = $customDomain === '' ? null : $customDomain;
 
             if ($pId > 0 && !empty($name)) {
                 try {
+                    $prevStmt = $db->prepare("SELECT custom_domain, dns_txt_token FROM properties WHERE id = ?");
+                    $prevStmt->execute([$pId]);
+                    $prev = $prevStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                    $domainChanged = strtolower(trim((string)($prev['custom_domain'] ?? ''))) !== (string)($customDomain ?? '');
+
                     $features = [
                         'ocr_google_vision' => isset($_POST['feat_ocr_google_vision']) && $_POST['feat_ocr_google_vision'] === '1',
                         'whatsapp_automations' => isset($_POST['feat_whatsapp_automations']) && $_POST['feat_whatsapp_automations'] === '1'
                     ];
                     $featuresJson = json_encode($features);
 
-                    $stmt = $db->prepare("UPDATE properties SET name = ?, address = ?, city = ?, state = ?, phone = ?, email = ?, gstin = ?, plan = ?, max_rooms = ?, features_json = ? WHERE id = ?");
-                    $stmt->execute([$name, $address, $city, $state, $phone, $email, $gstin, $plan, $maxRooms, $featuresJson, $pId]);
+                    $stmt = $db->prepare("UPDATE properties SET name = ?, address = ?, city = ?, state = ?, phone = ?, email = ?, gstin = ?, plan = ?, max_rooms = ?, features_json = ?, custom_domain = ? WHERE id = ?");
+                    $stmt->execute([$name, $address, $city, $state, $phone, $email, $gstin, $plan, $maxRooms, $featuresJson, $customDomain, $pId]);
+
+                    if ($customDomain !== null) {
+                        $needToken = $domainChanged || empty($prev['dns_txt_token']);
+                        if ($needToken) {
+                            $db->prepare("UPDATE properties SET dns_txt_token = ?, dns_status = 'unverified', dns_verified_at = NULL WHERE id = ?")
+                                ->execute([bin2hex(random_bytes(16)), $pId]);
+                        }
+                    } else {
+                        $db->prepare("UPDATE properties SET dns_status = 'unverified', dns_verified_at = NULL, dns_txt_token = NULL WHERE id = ?")->execute([$pId]);
+                    }
+
                     $message = "Property '{$name}' updated successfully!";
                 } catch (\Exception $e) {
                     $error = 'Failed to update property: ' . $e->getMessage();
@@ -430,14 +448,40 @@ try {
                 $error = "Failed to update SaaS Settings: " . $e->getMessage();
             }
         } elseif ($action === 'verify_dns') {
-            $customDomain = trim($_POST['custom_domain'] ?? '');
-            
+            $pId = (int)($_POST['property_id'] ?? 0);
             require_once __DIR__ . '/../../pms_core/services/DNSValidator.php';
-            
-            // Get target SaaS subdomain settings
+
             $saasTarget = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'SAAS_PORTAL_SUBDOMAIN'")->fetchColumn() ?: ($_SERVER['HTTP_HOST'] ?? 'saas.micropms.com');
-            
-            $res = DNSValidator::verifyDomain($customDomain, $saasTarget);
+
+            if ($pId <= 0) {
+                $error = 'Property is required to verify DNS.';
+            } else {
+                try {
+                    $rowStmt = $db->prepare("SELECT custom_domain, dns_txt_token FROM properties WHERE id = ?");
+                    $rowStmt->execute([$pId]);
+                    $propRow = $rowStmt->fetch(PDO::FETCH_ASSOC);
+                    $customDomain = strtolower(trim((string)($propRow['custom_domain'] ?? $_POST['custom_domain'] ?? '')));
+                    $txtToken = (string)($propRow['dns_txt_token'] ?? '');
+                    if ($customDomain === '') {
+                        $error = 'No custom domain is set for this property.';
+                    } else {
+                        if ($txtToken === '') {
+                            $txtToken = bin2hex(random_bytes(16));
+                            $db->prepare("UPDATE properties SET dns_txt_token = ? WHERE id = ?")->execute([$txtToken, $pId]);
+                        }
+                        $res = DNSValidator::verifyForProperty($customDomain, (string)$saasTarget, $txtToken);
+                        if ($res['ok']) {
+                            $db->prepare("UPDATE properties SET dns_status = 'verified', dns_verified_at = NOW() WHERE id = ?")->execute([$pId]);
+                            $message = $res['message'];
+                        } else {
+                            $db->prepare("UPDATE properties SET dns_status = 'failed', dns_verified_at = NULL WHERE id = ?")->execute([$pId]);
+                            $error = $res['message'];
+                        }
+                    }
+                } catch (\Exception $e) {
+                    $error = 'DNS verification failed: ' . $e->getMessage();
+                }
+            }
         } elseif ($action === 'save_plans_config') {
             $plans = SaaSPlans::get($db);
             foreach ($plans as $key => &$planData) {
@@ -906,13 +950,24 @@ try {
                                     </td>
                                     <td>
                                         <?php if (!empty($p['custom_domain'])): ?>
+                                            <?php
+                                                $dnsVerified = (($p['dns_status'] ?? '') === 'verified');
+                                                $txtToken = (string)($p['dns_txt_token'] ?? '');
+                                            ?>
                                             <div class="space-y-1">
-                                                <div class="text-xs font-mono text-emerald-700 flex items-center gap-1.5">
-                                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
+                                                <div class="text-xs font-mono <?= $dnsVerified ? 'text-emerald-700' : 'text-amber-700' ?> flex items-center gap-1.5">
+                                                    <span class="w-1.5 h-1.5 rounded-full <?= $dnsVerified ? 'bg-emerald-500' : 'bg-amber-500' ?> flex-shrink-0"></span>
                                                     <?= htmlspecialchars((string)($p['custom_domain'])) ?>
+                                                    <span class="text-[9px] uppercase tracking-wider font-bold <?= $dnsVerified ? 'text-emerald-600' : 'text-amber-600' ?>">
+                                                        <?= $dnsVerified ? 'Verified' : 'Unverified' ?>
+                                                    </span>
                                                 </div>
+                                                <?php if ($txtToken !== ''): ?>
+                                                    <div class="text-[10px] text-slate-500 font-mono break-all">TXT: micropms-verify=<?= htmlspecialchars($txtToken) ?></div>
+                                                <?php endif; ?>
                                                 <form method="POST" class="inline">
                                                     <input type="hidden" name="action" value="verify_dns">
+                                                    <input type="hidden" name="property_id" value="<?= (int)$p['id'] ?>">
                                                     <input type="hidden" name="custom_domain" value="<?= htmlspecialchars((string)($p['custom_domain'])) ?>">
                                                     <button type="submit" class="text-[10px] text-slate-400 hover:text-blue-700 flex items-center gap-1 font-semibold transition">
                                                         <i class="ph ph-magnifying-glass"></i> Check DNS
