@@ -7,10 +7,11 @@ require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/GoogleSheetService.php';
+require_once __DIR__ . '/../../pms_core/services/CheckoutService.php';
 
 ApiHandler::run(function(\PDO $db) {
 
-    $data = json_decode(file_get_contents('php://input'), true);
+    $data = ApiHandler::getJsonInput();
     $action = $data['action'] ?? null;
     $bookingId = isset($data['booking_id']) ? (string)$data['booking_id'] : null;
     $reason = $data['reason'] ?? '';
@@ -89,80 +90,11 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::success(['message' => 'Guest checked in successfully']);
 
     } elseif ($action === 'check_out') {
-        if ($currentStatus !== 'checked_in') {
-            throw new Exception("Can only check-out from 'checked_in' status");
-        }
-        
-        $balStmt = $db->prepare("SELECT COALESCE(SUM(amount), 0) FROM folio_ledger WHERE booking_id = :id");
-        $balStmt->execute(['id' => $bookingId]);
-        $balance = round((float)$balStmt->fetchColumn(), 2);
-        
-        if ($balance > 0) {
-            throw new Exception("Cannot check-out: Guest has pending dues of ₹" . number_format($balance, 2) . ". Please settle the folio first.");
-        } elseif ($balance < 0) {
-            throw new Exception("Cannot check-out: Guest is owed a refund of ₹" . number_format(abs($balance), 2) . ". Please process the refund first.");
-        }
-
-        // BUG-2 fix: scope UPDATE to property
-        $stmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = :id AND property_id = :pid");
-        $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
-        
-        $stmt2 = $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = :rid AND property_id = :pid");
-        $stmt2->execute(['rid' => $booking['room_id'], 'pid' => $propertyId]);
-        
-        // Auto-clear active service requests for this booking
-        $clearReqStmt = $db->prepare("UPDATE guest_service_requests SET status = 'completed', resolved_at = NOW() WHERE booking_id = :id AND status != 'completed'");
-        $clearReqStmt->execute(['id' => $bookingId]);
-        
-        // Auto-resolve pending Night Audit actions
-        try {
-            $clearAuditStmt = $db->prepare("UPDATE night_audit_actions SET status = 'resolved', resolved_at = NOW() WHERE booking_id = :id AND status = 'pending'");
-            $clearAuditStmt->execute(['id' => $bookingId]);
-        } catch (\PDOException $e) {}
-
-        AuditLogger::log($_SESSION['user_id'] ?? null, 'CHECK_OUT', 'BOOKING', $bookingId, [
-            'action' => 'check_out',
-            'from_status' => $currentStatus,
-            'to_status' => 'checked_out',
+        CheckoutService::performCheckout($db, (int)$bookingId, $propertyId, [
+            'source' => 'admin',
             'reason' => $reason,
-            'check_out_time' => date('Y-m-d H:i:s')
+            'staff_id' => $_SESSION['user_id'] ?? null,
         ]);
-
-        // Telegram notification
-        $roomStmt = $db->prepare("SELECT room_number FROM rooms WHERE id = :id");
-        $roomStmt->execute(['id' => $booking['room_id']]);
-        $room = $roomStmt->fetch();
-        $guestStmt = $db->prepare("SELECT name FROM guests WHERE id = :id");
-        $guestStmt->execute(['id' => $booking['guest_id']]);
-        $guest = $guestStmt->fetch();
-        
-        $roomNum = $room ? $room['room_number'] : $booking['room_id'];
-        $guestName = $guest ? $guest['name'] : 'N/A';
-        
-        $paidStmt = $db->prepare("SELECT IFNULL(SUM(amount), 0) FROM folio_ledger WHERE booking_id = ? AND amount < 0");
-        $paidStmt->execute([$bookingId]);
-        $paidAmount = abs((float)$paidStmt->fetchColumn());
-        
-        $tgMsg = "🚪 <b>Guest Checked Out</b>\n\nRoom: {$roomNum}\nGuest: " . htmlspecialchars($guestName) . "\nRoom is now dirty — needs cleaning.";
-        
-        $context = [
-            'guest_name' => $guestName,
-            'room_number' => $roomNum,
-            'paid_amount' => number_format($paidAmount, 2),
-            'balance_amount' => number_format((float)$booking['total_amount'] - $paidAmount, 2),
-            'total_amount' => number_format((float)$booking['total_amount'], 2)
-        ];
-        NotificationRelay::sendTelegram($tgMsg, 'check_out', $context);
-
-        // Trigger WhatsApp automation
-        NotificationRelay::triggerAutomation('guest_check_out', null, (int)$bookingId);
-
-        try {
-            GoogleSheetService::syncBooking($db, (int)$bookingId);
-        } catch (\Throwable $t) {
-            error_log("Google Sheets sync error in booking_status: " . $t->getMessage());
-        }
-
         ApiResponse::success(['message' => 'Guest checked out successfully']);
 
     } elseif ($action === 'rollback_to_booked') {

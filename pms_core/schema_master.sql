@@ -542,6 +542,22 @@ CREATE TABLE `rooms` (
   CONSTRAINT `rooms_ibfk_2` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+CREATE TABLE `room_holds` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `token` char(64) NOT NULL,
+  `staff_id` int(11) DEFAULT NULL,
+  `check_in` datetime NOT NULL,
+  `check_out` datetime NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_room_holds_token` (`token`),
+  KEY `idx_room_holds_overlap` (`property_id`,`room_id`,`check_in`,`check_out`,`expires_at`),
+  KEY `idx_room_holds_expires` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE `saas_feature_flags` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `property_id` int(11) DEFAULT NULL,

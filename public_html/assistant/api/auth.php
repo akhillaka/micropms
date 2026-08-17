@@ -98,8 +98,12 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('Too many failed attempts. Please wait 15 minutes or contact your manager.');
         }
 
-        $stmt = $db->prepare("SELECT * FROM staff_users WHERE id = :id AND is_active = 1 AND assistant_access = 1");
-        $stmt->execute(['id' => $userId]);
+        if ($propertyId <= 0) {
+            ApiResponse::error('No property context. Reload the assistant from your hotel link.');
+        }
+
+        $stmt = $db->prepare("SELECT * FROM staff_users WHERE id = :id AND is_active = 1 AND assistant_access = 1 AND property_id = :pid");
+        $stmt->execute(['id' => $userId, 'pid' => $propertyId]);
         $user = $stmt->fetch();
 
         if (!$user) {

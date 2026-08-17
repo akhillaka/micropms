@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/services/NightAudit.php';
 require_once __DIR__ . '/../../pms_core/services/FolioService.php';
+require_once __DIR__ . '/../../pms_core/services/CheckoutService.php';
 
 ApiHandler::run(function(\PDO $db) {
     $data = json_decode(file_get_contents('php://input'), true) ?? [];
@@ -82,9 +83,17 @@ ApiHandler::run(function(\PDO $db) {
                 continue;
             }
 
-            $db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = ? AND property_id = ?")->execute([$bid, $propertyId]);
-            $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ? AND property_id = ?")->execute([$roomId, $propertyId]);
-            $count++;
+            try {
+                CheckoutService::performCheckout($db, $bid, $propertyId, [
+                    'source' => 'night_audit',
+                    'notify' => false,
+                    'sync_sheets' => false,
+                ]);
+                $count++;
+            } catch (\Throwable $e) {
+                $skipped++;
+                continue;
+            }
         }
 
         $msg = "$count exceptions resolved successfully.";

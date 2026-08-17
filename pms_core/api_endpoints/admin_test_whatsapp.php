@@ -1,31 +1,23 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../pms_core/AuthHelper.php';
-AuthHelper::requirePermission('send_whatsapp');
-header('Content-Type: application/json');
-
-require_once __DIR__ . '/../../pms_core/CsrfToken.php';
+require_once __DIR__ . '/../../pms_core/ApiHandler.php';
+require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 
-CsrfToken::requireValid();
+ApiHandler::run(function (\PDO $db) {
+    AuthHelper::requirePermission('send_whatsapp');
+    $data = ApiHandler::getJsonInput();
+    $phone = $data['phone'] ?? '';
+    if ($phone === '') {
+        ApiResponse::error('Phone number required');
+    }
 
-$json = file_get_contents('php://input');
-$data = json_decode($json, true);
+    $message = "✅ *MicroPMS WhatsApp Test*\n\nYour integration is fully functional!\nTime: " . date('Y-m-d H:i:s');
+    $result = NotificationRelay::sendWhatsApp($phone, $message, false);
 
-if (!isset($data['phone'])) {
-    echo json_encode(['success' => false, 'message' => 'Phone number required']);
-    exit;
-}
-
-$phone = $data['phone'];
-$message = "✅ *MicroPMS WhatsApp Test*\n\nYour integration is fully functional!\nTime: " . date('Y-m-d H:i:s');
-
-$result = NotificationRelay::sendWhatsApp($phone, $message, false);
-
-if (isset($result['ok']) && $result['ok']) {
-    echo json_encode(['success' => true, 'message' => 'Test message sent successfully']);
-} else {
-    $error = $result['error_message'] ?? 'Unknown error';
-    echo json_encode(['success' => false, 'message' => "Failed to send test message: {$error}"]);
-}
+    if (!empty($result['ok'])) {
+        ApiResponse::success(['message' => 'Test message sent successfully']);
+    }
+    ApiResponse::error('Failed to send test message: ' . ($result['error_message'] ?? 'Unknown error'));
+}, true, true, false);

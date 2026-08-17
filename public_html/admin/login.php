@@ -107,9 +107,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['username'] = $user['username'];
                 $_SESSION['primary_property_id'] = (int)($user['property_id'] ?? 0);
                 $_SESSION['property_id'] = (int)($user['property_id'] ?? 0);
-                if ($_SESSION['property_id'] <= 0) {
-                    $_SESSION['property_id'] = 1000; // default to first 4-digit property
-                }
+                $isSuperadmin = ($user['access_level'] === 'superadmin' || ($user['role'] ?? '') === 'superadmin');
+                if ($_SESSION['property_id'] <= 0 && !$isSuperadmin) {
+                    session_unset();
+                    session_destroy();
+                    $error = "No property assigned. Contact the owner to activate your account.";
+                } else {
                 
                 // Automatically log them into the SaaS control panel if they are a superadmin
                 if ($user['access_level'] === 'superadmin' || $user['role'] === 'superadmin') {
@@ -134,6 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 header("Location: /group-dashboard");
                 exit;
+                }
             }
         } else {
             $error = "Invalid credentials";

@@ -5,6 +5,7 @@ require_once __DIR__ . '/Database.php';
 require_once __DIR__ . '/ApiResponse.php';
 require_once __DIR__ . '/AuthHelper.php';
 require_once __DIR__ . '/CsrfToken.php';
+require_once __DIR__ . '/TenantScope.php';
 require_once __DIR__ . '/ErrorTracker.php';
 require_once __DIR__ . '/SaaSMiddleware.php';
 require_once __DIR__ . '/ApiSuccessException.php';
@@ -12,12 +13,8 @@ require_once __DIR__ . '/ApiSuccessException.php';
 class ApiHandler {
     
     public static function getJsonInput(): array {
-        $body = file_get_contents('php://input');
-        if (empty($body)) {
-            return [];
-        }
-        $data = json_decode($body, true);
-        return is_array($data) ? $data : [];
+        // php://input can only be read once; CsrfToken already cached it during requireValid().
+        return CsrfToken::getJsonPayload();
     }
 
     public static function getInt(array $data, string $key, int $default = 0): int {

@@ -6,11 +6,12 @@ require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/PhoneHelper.php';
+require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('generate_payment_link');
 
-    $data = json_decode(file_get_contents('php://input'), true);
+    $data = ApiHandler::getJsonInput();
     
     if (!isset($data['booking_id'])) {
         throw new Exception("Missing booking ID");
@@ -29,23 +30,13 @@ ApiHandler::run(function(\PDO $db) {
     
     if ($balance <= 0) throw new Exception("Balance is fully paid or in credit");
     
-    $keyId = defined('RAZORPAY_KEY_ID') ? RAZORPAY_KEY_ID : '';
-    $keySecret = defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : '';
-    
     $paymentLink = '';
-    if (!empty($keyId) && !empty($keySecret) && $keyId !== 'rzp_test_placeholder') {
-        $ch = curl_init('https://api.razorpay.com/v1/payment_links');
-        curl_setopt($ch, CURLOPT_USERPWD, $keyId . ':' . $keySecret);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        
+    $rz = RazorpayService::forProperty($db, $propertyId);
+    if ($rz) {
         $callbackUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'yourdomain.com') . '/index.php?booking_id=' . $booking['id'];
-        
-        // Razorpay expects contact with country code (E.164 without +)
         $razorpayPhone = PhoneHelper::toE164($booking['guest_phone'] ?? '') ?? $booking['guest_phone'];
-
-        $payload = [
-            'amount'         => round($balance * 100),
+        $linkRes = $rz->createPaymentLink([
+            'amount'         => (int)round($balance * 100),
             'currency'       => 'INR',
             'accept_partial' => false,
             'description'    => 'Payment for Booking #' . $booking['id'] . ' at ' . (defined('PROPERTY_NAME') ? PROPERTY_NAME : 'MicroPMS Hotel'),
@@ -60,18 +51,9 @@ ApiHandler::run(function(\PDO $db) {
             'reminder_enable' => false,
             'callback_url' => $callbackUrl,
             'callback_method' => 'get'
-        ];
-        
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        
-        $response = curl_exec($ch);
-        $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        
-        if ($httpcode >= 200 && $httpcode < 300) {
-            $res = json_decode($response, true);
-            $paymentLink = $res['short_url'] ?? '';
+        ]);
+        if (!empty($linkRes['success'])) {
+            $paymentLink = $linkRes['short_url'] ?? '';
         }
     }
     
@@ -98,17 +80,17 @@ ApiHandler::run(function(\PDO $db) {
             $realWaMsgId = $waRes['messageId'] ?? null;
             
             // Find or create conversation
-            $convStmt = $db->prepare("SELECT id FROM wa_conversations WHERE phone_number = ?");
-            $convStmt->execute([$waPhone]);
+            $convStmt = $db->prepare("SELECT id FROM wa_conversations WHERE phone_number = ? AND property_id = ?");
+            $convStmt->execute([$waPhone, $propertyId]);
             $convId = $convStmt->fetchColumn();
             
             if (!$convId) {
                 $guestId = !empty($booking['guest_id']) ? (int)$booking['guest_id'] : null;
-                $insConv = $db->prepare("INSERT INTO wa_conversations (guest_id, phone_number, last_message_at, status) VALUES (?, ?, NOW(), 'open')");
-                $insConv->execute([$guestId, $waPhone]);
+                $insConv = $db->prepare("INSERT INTO wa_conversations (guest_id, phone_number, last_message_at, status, property_id) VALUES (?, ?, NOW(), 'open', ?)");
+                $insConv->execute([$guestId, $waPhone, $propertyId]);
                 $convId = (int)$db->lastInsertId();
             } else {
-                $db->prepare("UPDATE wa_conversations SET last_message_at = NOW(), status = 'open' WHERE id = ?")->execute([$convId]);
+                $db->prepare("UPDATE wa_conversations SET last_message_at = NOW(), status = 'open' WHERE id = ? AND property_id = ?")->execute([$convId, $propertyId]);
             }
             
             // Log the free-text message to conversations

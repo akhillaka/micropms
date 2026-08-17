@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/services/BookingService.php';
 require_once __DIR__ . '/../../pms_core/services/GuestService.php';
+require_once __DIR__ . '/../../pms_core/services/RoomHoldService.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('create_booking');
@@ -13,7 +14,7 @@ ApiHandler::run(function(\PDO $db) {
     if (!empty($_POST)) {
         $data = $_POST;
     } else {
-        $data = json_decode(file_get_contents('php://input'), true) ?? [];
+        $data = ApiHandler::getJsonInput();
     }
     
     // Support both single room_id (legacy) and room_ids array (multi-room)
@@ -97,6 +98,8 @@ ApiHandler::run(function(\PDO $db) {
     // Sort roomIds ascending to avoid cross-locking deadlocks
     sort($roomIds);
 
+    $baseIdempotencyKey = trim((string)($data['idempotency_key'] ?? ''));
+
     foreach ($roomIds as $roomId) {
         // Use individual room override if present, otherwise fallback to divided override
         $specificOverride = isset($roomOverrides[$roomId]) ? (float)$roomOverrides[$roomId] : $perRoomOverride;
@@ -112,6 +115,8 @@ ApiHandler::run(function(\PDO $db) {
             'price_override'    => $specificOverride,
             'payment_collected' => $data['payment_collected'] ?? 0,
             'payment_method'    => $data['payment_method'] ?? 'Cash',
+            'idempotency_key'   => $baseIdempotencyKey !== '' ? ($baseIdempotencyKey . ':room:' . (int)$roomId) : null,
+            'hold_token'        => trim((string)($data['hold_token'] ?? '')) ?: null,
         ];
 
         $result = BookingService::createBooking($db, $bookingParams);
@@ -119,6 +124,9 @@ ApiHandler::run(function(\PDO $db) {
         $displayIds[] = (string)($result['display_id'] ?? $result['booking_id']);
         $totalAmount += $result['total_amount'];
     }
+
+    $holdToken = trim((string)($data['hold_token'] ?? ''));
+    RoomHoldService::consume($db, $holdToken !== '' ? $holdToken : null, AuthHelper::getPropertyId(), $roomIds);
 
     $response = [
         'success' => true,

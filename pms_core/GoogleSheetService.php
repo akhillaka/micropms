@@ -256,7 +256,8 @@ class GoogleSheetService {
     }
 
     private static function buildPaymentData($pdo, $ledgerId) {
-        $sql = "SELECT l.*, b.display_id, b.offline_folio_id,
+        $sql = "SELECT l.*, l.display_id AS ledger_display_id, l.id AS ledger_id,
+                       b.display_id AS booking_display_id, b.offline_folio_id,
                        g.name as guest_name, r.room_number, c.name as category_name
                 FROM folio_ledger l
                 LEFT JOIN bookings b ON l.booking_id = b.id
@@ -275,7 +276,8 @@ class GoogleSheetService {
         $staffUser = self::getLedgerStaffUser($pdo, $ledgerId);
 
         return self::applyFieldFilter($pdo, (int)($l['property_id'] ?? 0), 'payment', [
-            "Booking ID"   => $l['display_id'] ?: ("BKG-" . $l['booking_id']),
+            "Payment ID"   => $l['ledger_display_id'] ?: ("LED-" . $l['ledger_id']),
+            "Booking ID"   => $l['booking_display_id'] ?: ("BKG-" . $l['booking_id']),
             "Folio No"      => $l['offline_folio_id'] ?: ("FOL-" . $l['booking_id']),
             "Room No"      => $l['room_number'] ?: "-",
             "Room Type"    => $l['category_name'] ?: "-",
@@ -327,7 +329,7 @@ class GoogleSheetService {
                 'Check-in/Check-Out', 'user',
             ],
             'payment' => [
-                'Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Amount Paid',
+                'Payment ID', 'Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Amount Paid',
                 'Payment Type', 'Month', 'Payment Date', 'Category', 'user',
             ],
             'expense' => [

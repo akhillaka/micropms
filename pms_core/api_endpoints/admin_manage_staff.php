@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
+require_once __DIR__ . '/../../pms_core/TenantScope.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('manage_staff');
@@ -94,13 +95,7 @@ ApiHandler::run(function(\PDO $db) {
             throw new Exception("User ID and username are required");
         }
 
-        // Get target user details
-        $stmt = $db->prepare("SELECT access_level, username FROM staff_users WHERE id = :id");
-        $stmt->execute(['id' => $userId]);
-        $targetUser = $stmt->fetch();
-        if (!$targetUser) {
-            throw new Exception("User not found");
-        }
+        $targetUser = TenantScope::staff($db, (int)$userId, $propertyId);
 
         // Prevent modifying own active status or role
         if ((int)$userId === (int)$_SESSION['user_id'] && ($isActive === 0 || $resolvedRole['access_level'] !== $targetUser['access_level'])) {
@@ -155,7 +150,8 @@ ApiHandler::run(function(\PDO $db) {
             $params['pin'] = password_hash($pin, PASSWORD_DEFAULT);
         }
 
-        $sql = "UPDATE staff_users SET " . implode(", ", $updateFields) . " WHERE id = :id";
+        $params['pid'] = $propertyId;
+        $sql = "UPDATE staff_users SET " . implode(", ", $updateFields) . " WHERE id = :id AND property_id = :pid";
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
 
@@ -178,12 +174,7 @@ ApiHandler::run(function(\PDO $db) {
             throw new Exception("Cannot delete your own account");
         }
 
-        $stmt = $db->prepare("SELECT username, access_level FROM staff_users WHERE id = :id");
-        $stmt->execute(['id' => $userId]);
-        $user = $stmt->fetch();
-        if (!$user) {
-            throw new Exception("User not found");
-        }
+        $user = TenantScope::staff($db, (int)$userId, $propertyId);
 
         // Prevent non-superadmins from deleting a superadmin account
         if ($user['access_level'] === 'superadmin' && !AuthHelper::isSuperAdmin()) {
@@ -191,8 +182,8 @@ ApiHandler::run(function(\PDO $db) {
         }
 
         // Soft delete: deactivate the user instead of hard delete to preserve historical integrity
-        $stmt = $db->prepare("UPDATE staff_users SET is_active = 0 WHERE id = :id");
-        $stmt->execute(['id' => $userId]);
+        $stmt = $db->prepare("UPDATE staff_users SET is_active = 0 WHERE id = :id AND property_id = :pid");
+        $stmt->execute(['id' => $userId, 'pid' => $propertyId]);
 
         AuditLogger::log($_SESSION['user_id'] ?? null, 'DELETE_USER', 'SYSTEM', $userId, [
             'username' => $user['username'],

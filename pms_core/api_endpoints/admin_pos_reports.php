@@ -1,46 +1,10 @@
 <?php
 declare(strict_types=1);
 
-header('Content-Type: application/json');
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-require_once __DIR__ . '/../../pms_core/Database.php';
-require_once __DIR__ . '/../../pms_core/AuthHelper.php';
-require_once __DIR__ . '/../../pms_core/CsrfToken.php';
-
-AuthHelper::requirePermission('view_pos_reports');
-
-$headers = getallheaders();
-$csrfToken = $headers['X-CSRF-Token'] ?? $headers['x-csrf-token'] ?? '';
-if (!CsrfToken::validate($csrfToken)) {
-    echo json_encode(['success' => false, 'message' => 'CSRF verification failed.']);
-    exit;
-}
-
-$db = Database::getInstance()->getConnection();
-$propertyId = AuthHelper::getPropertyId();
-
+require_once __DIR__ . '/../../pms_core/ApiHandler.php';
+require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
-if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'pos_module')) {
-    echo json_encode(['success' => false, 'message' => 'POS module is not enabled for your subscription.']);
-    exit;
-}
 
-if ($propertyId <= 0) {
-    echo json_encode(['success' => false, 'message' => 'Invalid property context.']);
-    exit;
-}
-
-$data = json_decode(file_get_contents('php://input'), true);
-if (!$data && !empty($_POST)) {
-    $data = $_POST;
-}
-$action = $data['action'] ?? $_GET['action'] ?? '';
-
-// Generate date ranges based on filter
 function getDateRange($filter, $customStart = null, $customEnd = null) {
     $now = new DateTime();
     $start = null;
@@ -81,6 +45,19 @@ function getDateRange($filter, $customStart = null, $customEnd = null) {
     
     return [$start->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')];
 }
+
+ApiHandler::run(function (\PDO $db) {
+    AuthHelper::requirePermission('view_pos_reports');
+    $propertyId = AuthHelper::getPropertyId();
+    if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'pos_module')) {
+        ApiResponse::error('POS module is not enabled for your subscription.');
+    }
+
+    $data = ApiHandler::getJsonInput();
+    if (!$data && !empty($_POST)) {
+        $data = $_POST;
+    }
+    $action = $data['action'] ?? $_GET['action'] ?? '';
 
 try {
     if ($action === 'get_restock_history') {
@@ -172,3 +149,4 @@ try {
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
+}, true, true, false);

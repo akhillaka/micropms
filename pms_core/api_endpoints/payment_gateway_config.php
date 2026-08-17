@@ -1,36 +1,15 @@
 <?php
 declare(strict_types=1);
 
-/**
- * Payment Gateway Config API
- * Allows owners to save and test Razorpay/PhonePe credentials per property.
- */
-header('Content-Type: application/json');
-
-if (session_status() === PHP_SESSION_NONE) session_start();
-
-require_once __DIR__ . '/../../pms_core/AuthHelper.php';
-require_once __DIR__ . '/../../pms_core/Database.php';
+require_once __DIR__ . '/../../pms_core/ApiHandler.php';
+require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
 require_once __DIR__ . '/../../pms_core/services/PhonePeService.php';
 
-AuthHelper::requireLogin();
-$role = AuthHelper::getRole();
-if (!in_array($role, ['owner', 'admin', 'superadmin'])) {
-    http_response_code(403);
-    echo json_encode(['success' => false, 'message' => 'Forbidden']);
-    exit;
-}
-
-require_once __DIR__ . '/../../pms_core/CsrfToken.php';
-// Get requests are safe, POST/PUT need CSRF validation
-if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-    CsrfToken::requireValid();
-}
-
-$db = Database::getInstance()->getConnection();
+ApiHandler::run(function (\PDO $db) {
+AuthHelper::requirePermission('manage_payment_gateways');
 $propertyId = AuthHelper::getPropertyId();
-$data = json_decode(file_get_contents('php://input'), true) ?? [];
+$data = ApiHandler::getJsonInput();
 $action = $_GET['action'] ?? $data['action'] ?? '';
 
 // ── Get current config ───────────────────────────────────────────────────────
@@ -190,3 +169,4 @@ if ($action === 'verify_payment') {
 }
 
 echo json_encode(['success' => false, 'message' => 'Unknown action: ' . htmlspecialchars($action)]);
+}, true, $_SERVER['REQUEST_METHOD'] !== 'GET', false);

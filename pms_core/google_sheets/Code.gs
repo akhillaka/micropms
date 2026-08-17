@@ -52,6 +52,7 @@ function sheetNameForType(type) {
 
 function upsertKey(type) {
   if (type === 'expense') return 'Expense ID';
+  if (type === 'payment') return 'Payment ID';
   return 'Booking ID';
 }
 

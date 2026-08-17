@@ -5,6 +5,7 @@ require_once __DIR__ . '/../Database.php';
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../NotificationRelay.php';
 require_once __DIR__ . '/../AuditLogger.php';
+require_once __DIR__ . '/CheckoutService.php';
 
 /**
  * NightAudit — End-of-day audit process for MicroPMS.
@@ -242,36 +243,22 @@ class NightAudit {
                 $this->notifyOverdue($booking, $hoursPast, false);
                 
             } else if ($autoCheckout && $hoursPast >= $graceHours) {
-                // Balance is 0 and auto-checkout is enabled
-                // Auto-checkout
-                $this->db->prepare("
-                    UPDATE bookings SET booking_status = 'checked_out' WHERE id = ?
-                ")->execute([$booking['id']]);
-
-                // Archive active service requests
-                $this->db->prepare("
-                    UPDATE guest_service_requests SET status = 'completed' WHERE booking_id = ? AND status = 'pending'
-                ")->execute([$booking['id']]);
-                
-                $result['checkout_count']++;
-                $this->actions[] = "Auto-checked out Room {$booking['room_number']} (Guest: {$booking['guest_name']})";
-                
-                // Mark room dirty
-                if ($markDirty) {
-                    $this->db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ? AND property_id = ?")
-                        ->execute([$booking['room_id'], $this->propertyId]);
-                    $result['dirty_count']++;
+                try {
+                    CheckoutService::performCheckout($this->db, (int)$booking['id'], $this->propertyId, [
+                        'source' => 'night_audit',
+                        'staff_id' => null,
+                        'notify' => false,
+                        'sync_sheets' => false,
+                    ]);
+                    $result['checkout_count']++;
+                    $this->actions[] = "Auto-checked out Room {$booking['room_number']} (Guest: {$booking['guest_name']})";
+                    if ($markDirty) {
+                        $result['dirty_count']++;
+                    }
+                    $this->notifyOverdue($booking, $hoursPast, true);
+                } catch (\Throwable $e) {
+                    $this->errors[] = "Auto-checkout failed for Room {$booking['room_number']}: " . $e->getMessage();
                 }
-                
-                // Log the auto-checkout
-                AuditLogger::log(null, 'NIGHT_AUDIT_AUTO_CHECKOUT', 'BOOKING', $booking['id'], [
-                    'room' => $booking['room_number'],
-                    'guest' => $booking['guest_name'],
-                    'hours_overdue' => round($hoursPast, 1)
-                ]);
-                
-                // Notify via Telegram
-                $this->notifyOverdue($booking, $hoursPast, true);
                 
             } else {
                 // Just notify (balance is 0, auto-checkout enabled but within grace period)

@@ -131,6 +131,46 @@ class RazorpayService {
     }
 
     /**
+     * Refund a captured payment.
+     */
+    public function refundPayment(string $paymentId, int $amountPaise): array {
+        $response = $this->httpPost('/payments/' . $paymentId . '/refund', [
+            'amount' => $amountPaise,
+            'speed'  => 'normal',
+        ]);
+        if (!$response['success']) {
+            return ['success' => false, 'error' => $response['error'], 'body' => $response['body'] ?? []];
+        }
+        $data = $response['body'] ?? [];
+        if (!empty($data['id'])) {
+            return ['success' => true, 'refund_id' => $data['id'], 'raw' => $data];
+        }
+        return [
+            'success' => false,
+            'error'   => $data['error']['description'] ?? 'Razorpay refund failed',
+            'body'    => $data,
+        ];
+    }
+
+    /**
+     * Create a hosted payment link for a folio balance.
+     */
+    public function createPaymentLink(array $payload): array {
+        $response = $this->httpPost('/payment_links', $payload);
+        if (!$response['success']) {
+            return ['success' => false, 'error' => $response['error']];
+        }
+        $data = $response['body'] ?? [];
+        if (!empty($data['short_url'])) {
+            return ['success' => true, 'short_url' => $data['short_url'], 'raw' => $data];
+        }
+        return [
+            'success' => false,
+            'error'   => $data['error']['description'] ?? 'Payment link creation failed',
+        ];
+    }
+
+    /**
      * Create a Razorpay Subscription (recurring billing for SaaS).
      * 
      * @param string $planId    Razorpay Plan ID (created in Razorpay dashboard)
@@ -199,7 +239,7 @@ class RazorpayService {
         $err  = curl_error($ch);
         curl_close($ch);
         if ($resp === false) return ['success' => false, 'error' => $err];
-        return ['success' => true, 'body' => json_decode($resp, true) ?? []];
+        return $this->parseGatewayResponse($resp);
     }
 
     private function httpGet(string $path): array {
@@ -215,6 +255,18 @@ class RazorpayService {
         $err  = curl_error($ch);
         curl_close($ch);
         if ($resp === false) return ['success' => false, 'error' => $err];
-        return ['success' => true, 'body' => json_decode($resp, true) ?? []];
+        return $this->parseGatewayResponse($resp);
+    }
+
+    private function parseGatewayResponse(string $resp): array {
+        $data = json_decode($resp, true) ?? [];
+        if (isset($data['error'])) {
+            return [
+                'success' => false,
+                'error'   => $data['error']['description'] ?? 'Razorpay error',
+                'body'    => $data,
+            ];
+        }
+        return ['success' => true, 'body' => $data];
     }
 }

@@ -1,5 +1,8 @@
 // JS Logic for SPA
         let selectedRoomIds = []; // Array for multi-room selection
+        window.holdToken = null;
+        window.bookingIdempotencyKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+        let holdSyncTimer = null;
         let selectedRoomsInfo = []; // Track room details for display
 
         function updateStepBar(activeStep) {
@@ -353,7 +356,39 @@
 
             // Update selected count display
             updateSelectedRoomsBar();
+            syncRoomHold();
         };
+
+        function syncRoomHold() {
+            clearTimeout(holdSyncTimer);
+            holdSyncTimer = setTimeout(async () => {
+                const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+                const roomIds = selectedRoomIds.map(r => r.id);
+                try {
+                    const res = await fetch('/api/system/place_room_hold', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-Token': csrf
+                        },
+                        body: JSON.stringify({
+                            room_ids: roomIds,
+                            check_in: getCheckIn(),
+                            check_out: getCheckOut(),
+                            hold_token: window.holdToken || ''
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.success && data.hold_token) {
+                        window.holdToken = data.hold_token;
+                    } else if (!data.success && data.message) {
+                        showNotification(data.message, 'error');
+                    }
+                } catch (e) {
+                    // Hold is best-effort; confirm still re-checks availability
+                }
+            }, 400);
+        }
 
         function updateSelectedRoomsBar() {
             let bar = document.getElementById('selected-rooms-bar');
@@ -638,6 +673,11 @@
 
             const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
             if (csrf) formData.append('_csrf_token', csrf);
+            if (window.holdToken) formData.append('hold_token', window.holdToken);
+            if (!window.bookingIdempotencyKey) {
+                window.bookingIdempotencyKey = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2));
+            }
+            formData.append('idempotency_key', window.bookingIdempotencyKey);
 
             try {
                 const res = await fetch('/api/system/create_hold', {

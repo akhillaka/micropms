@@ -5,7 +5,10 @@ require_once __DIR__ . '/../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 ApiHandler::run(function(\PDO $db) {
 
-    $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $data = ApiHandler::getJsonInput();
+    if (empty($data) && !empty($_POST)) {
+        $data = $_POST;
+    }
     
     if (empty($data['check_in']) || empty($data['check_out'])) {
         ApiResponse::error('Missing check-in or check-out date parameters');
@@ -34,16 +37,52 @@ ApiHandler::run(function(\PDO $db) {
                 WHERE b.check_in < :check_out 
                   AND b.check_out > :check_in
                   AND b.payment_status != 'cancelled'
+                  AND b.booking_status NOT IN ('cancelled', 'checked_out')
                   AND b.property_id = :property_id2
-            )";            
+            )
+              AND r.id NOT IN (
+                SELECT h.room_id FROM room_holds h
+                WHERE h.property_id = :property_id4
+                  AND h.expires_at > NOW()
+                  AND h.check_in < :check_out_hold
+                  AND h.check_out > :check_in_hold
+              )";            
     $stmt = $db->prepare($sql);
-    $stmt->execute([
-        'property_id1' => $propertyId,
-        'property_id2' => $propertyId,
-        'property_id3' => $propertyId,
-        'check_in' => $checkInStr,
-        'check_out' => $checkOutStr
-    ]);
+    try {
+        $stmt->execute([
+            'property_id1' => $propertyId,
+            'property_id2' => $propertyId,
+            'property_id3' => $propertyId,
+            'property_id4' => $propertyId,
+            'check_in' => $checkInStr,
+            'check_out' => $checkOutStr,
+            'check_in_hold' => $checkInStr,
+            'check_out_hold' => $checkOutStr,
+        ]);
+    } catch (\PDOException $e) {
+        $sql = "SELECT r.*, c.name as category_name, 
+                    (SELECT price FROM sliding_rates s WHERE s.category_id = c.id AND s.hours = 24 AND s.property_id = :property_id3 LIMIT 1) as base_daily_rate
+                FROM rooms r
+                JOIN room_categories c ON r.category_id = c.id
+                WHERE r.state != 'out_of_order'
+                  AND r.property_id = :property_id1
+                  AND r.id NOT IN (
+                    SELECT b.room_id FROM bookings b
+                    WHERE b.check_in < :check_out 
+                      AND b.check_out > :check_in
+                      AND b.payment_status != 'cancelled'
+                      AND b.booking_status NOT IN ('cancelled', 'checked_out')
+                      AND b.property_id = :property_id2
+                )";
+        $stmt = $db->prepare($sql);
+        $stmt->execute([
+            'property_id1' => $propertyId,
+            'property_id2' => $propertyId,
+            'property_id3' => $propertyId,
+            'check_in' => $checkInStr,
+            'check_out' => $checkOutStr
+        ]);
+    }
     
     $availableRooms = $stmt->fetchAll();
     

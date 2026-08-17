@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../Database.php';
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/FolioService.php';
+require_once __DIR__ . '/CheckoutService.php';
 
 class TelegramOperationsHandler {
     private $botToken;
@@ -423,20 +424,18 @@ class TelegramOperationsHandler {
         }
 
         try {
-            $this->db->beginTransaction();
-            $this->db->prepare("UPDATE bookings SET booking_status = 'checked_out' WHERE id = ? AND property_id = ?")->execute([$bookingId, $propertyId]);
-            $this->db->prepare("UPDATE rooms SET hk_status = 'dirty' WHERE id = ?")->execute([$roomId]);
-            $this->db->commit();
-
+            CheckoutService::performCheckout($this->db, (int)$bookingId, $propertyId, [
+                'source' => 'telegram',
+                'notify' => false,
+                'sync_sheets' => true,
+            ]);
             $keyboard = [
                 'inline_keyboard' => [
                     [['text' => '🔙 Main Menu', 'callback_data' => 'main_menu']]
                 ]
             ];
             $this->sendMessage($chatId, "✅ Room {$booking['room_number']} has been successfully checked out and marked as dirty.", $keyboard);
-
         } catch (\Exception $e) {
-            $this->db->rollBack();
             $this->sendMessage($chatId, "Error processing check-out: " . $e->getMessage());
         }
     }
@@ -596,7 +595,7 @@ class TelegramOperationsHandler {
         $propertyId = $this->getPropertyIdForChat($chatId);
         if (!$propertyId) return;
 
-        $stmt = $this->db->prepare("SELECT id, room_number FROM rooms WHERE property_id = ? AND hk_status = 'dirty'");
+        $stmt = $this->db->prepare("SELECT id, room_number FROM rooms WHERE property_id = ? AND state = 'dirty'");
         $stmt->execute([$propertyId]);
         $rooms = $stmt->fetchAll();
 
@@ -626,7 +625,7 @@ class TelegramOperationsHandler {
         $propertyId = $this->getPropertyIdForChat($chatId);
         if (!$propertyId) return;
 
-        $stmt = $this->db->prepare("UPDATE rooms SET hk_status = 'clean' WHERE id = ? AND property_id = ?");
+        $stmt = $this->db->prepare("UPDATE rooms SET state = 'clean' WHERE id = ? AND property_id = ?");
         $stmt->execute([$roomId, $propertyId]);
 
         if ($stmt->rowCount() > 0) {

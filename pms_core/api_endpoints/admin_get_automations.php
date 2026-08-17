@@ -1,35 +1,27 @@
 <?php
-require_once __DIR__ . '/../AuthHelper.php';
-require_once __DIR__ . '/../Database.php';
+declare(strict_types=1);
 
-header('Content-Type: application/json');
-AuthHelper::requireLogin();
-if (!AuthHelper::can('send_whatsapp') && !AuthHelper::can('manage_automations') && !AuthHelper::can('manage_settings')) {
-    http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'Forbidden']);
-    exit;
-}
+require_once __DIR__ . '/../../pms_core/ApiHandler.php';
+require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 
-$propertyId = AuthHelper::getPropertyId();
+ApiHandler::run(function (\PDO $db) {
+    if (!AuthHelper::can('send_whatsapp') && !AuthHelper::can('manage_automations') && !AuthHelper::can('manage_settings')) {
+        ApiResponse::error('Forbidden', 403);
+    }
 
-try {
-    $db = Database::getInstance()->getConnection();
-    
-    // Fetch all events
+    $propertyId = AuthHelper::getPropertyId();
     $eventsStmt = $db->query("SELECT * FROM wa_automation_events ORDER BY id ASC");
     $events = $eventsStmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Fetch configured rules
+
     $rulesStmt = $db->prepare("SELECT * FROM wa_automations WHERE property_id = ?");
     $rulesStmt->execute([$propertyId]);
     $rules = $rulesStmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Map rules by event_key
+
     $rulesMap = [];
     foreach ($rules as $r) {
         $rulesMap[$r['event_key']] = $r;
     }
-    
+
     $result = [];
     foreach ($events as $ev) {
         $rule = $rulesMap[$ev['event_key']] ?? null;
@@ -46,9 +38,6 @@ try {
             'telegram_body_text' => '',
         ];
     }
-    
-    echo json_encode(['success' => true, 'data' => $result]);
-} catch (Exception $e) {
-    error_log("Failed to fetch automations: " . $e->getMessage());
-    echo json_encode(['success' => false, 'error' => 'Database error occurred']);
-}
+
+    ApiResponse::success(['data' => $result]);
+}, true, false, false);

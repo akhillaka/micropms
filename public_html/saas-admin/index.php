@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
+require_once __DIR__ . '/../../pms_core/CsrfToken.php';
+require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -99,19 +101,41 @@ try {
 
     $createdCredentials = null;
 
-    // Handle Property Creation / Update
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? '';
+        $jsonActions = ['get_staff', 'save_staff', 'get_audit_logs'];
+        if (!CsrfToken::validate()) {
+            if (in_array($action, $jsonActions, true)) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Invalid security token. Refresh the page and try again.']);
+                exit;
+            }
+            $error = 'Invalid security token. Refresh the page and try again.';
+            $action = '';
+        }
         
         if ($action === 'switch_context') {
             $pId = (int)($_POST['property_id'] ?? 0);
-            if ($pId > 0) {
-                // To switch context, we could mock the staff session, but the Superadmin is a separate session.
-                // For now, we set a global override if the system supports it, or redirect.
-                // Since superadmin lacks a staff_users ID, we simulate it by setting a special session flag:
-                $_SESSION['user_id'] = 0; 
-                $_SESSION['role'] = 'owner';
+            $propStmt = $db->prepare("SELECT id, name, is_active FROM properties WHERE id = ? LIMIT 1");
+            $propStmt->execute([$pId]);
+            $property = $propStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$property) {
+                $error = 'Property not found.';
+            } else {
+                $saasId = (int)($_SESSION['saas_admin_id'] ?? 0);
+                $_SESSION['user_id'] = $saasId > 0 ? $saasId : (int)($_SESSION['user_id'] ?? 0);
+                $_SESSION['role'] = 'superadmin';
+                $_SESSION['access_level'] = 'superadmin';
                 $_SESSION['property_id'] = $pId;
+                $_SESSION['saas_impersonating'] = true;
+                $_SESSION['saas_view_property_id'] = $pId;
+                try {
+                    AuditLogger::log($saasId, 'SAAS_IMPERSONATE', 'PROPERTY', $pId, [
+                        'property_name' => $property['name'],
+                        'source' => 'saas-admin',
+                    ], $pId);
+                } catch (\Throwable $e) {
+                }
                 header('Location: /admin');
                 exit;
             }
@@ -471,24 +495,18 @@ try {
         }
 
         if ($action === 'deploy_hostinger') {
-            require_once __DIR__ . '/../../pms_core/CsrfToken.php';
             require_once __DIR__ . '/../../pms_core/services/GithubDeployService.php';
-            require_once __DIR__ . '/../../pms_core/AuditLogger.php';
-            if (!CsrfToken::validate($_POST['_csrf_token'] ?? null)) {
-                $error = 'Security token expired. Refresh the page and try again.';
-            } else {
-                $deployResult = GithubDeployService::triggerDeploy();
-                if (!empty($deployResult['ok'])) {
-                    $message = $deployResult['message'];
-                    try {
-                        AuditLogger::log((int)($_SESSION['saas_admin_id'] ?? 0), 'DEPLOY_HOSTINGER', 'SYSTEM', null, [
-                            'repo' => GithubDeployService::repo(),
-                        ]);
-                    } catch (\Throwable $e) {
-                    }
-                } else {
-                    $error = $deployResult['message'] ?? 'Deploy failed';
+            $deployResult = GithubDeployService::triggerDeploy();
+            if (!empty($deployResult['ok'])) {
+                $message = $deployResult['message'];
+                try {
+                    AuditLogger::log((int)($_SESSION['saas_admin_id'] ?? 0), 'DEPLOY_HOSTINGER', 'SYSTEM', null, [
+                        'repo' => GithubDeployService::repo(),
+                    ]);
+                } catch (\Throwable $e) {
                 }
+            } else {
+                $error = $deployResult['message'] ?? 'Deploy failed';
             }
             $openSaasTab = 'deploy';
         }
@@ -557,6 +575,7 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SaaS Control Panel | MicroPMS</title>
+    <?= CsrfToken::meta() ?>
     <meta name="description" content="MicroPMS SaaS Super-Admin — Tenant Management & Platform Controls">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1511,6 +1530,22 @@ try {
     </div>
 
     <script>
+        const csrfToken = <?= json_encode(CsrfToken::generate()) ?>;
+        document.querySelectorAll('form').forEach((form) => {
+            const method = (form.getAttribute('method') || 'get').toLowerCase();
+            if (method === 'get') return;
+            if (form.querySelector('input[name="_csrf_token"]')) return;
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = '_csrf_token';
+            input.value = csrfToken;
+            form.appendChild(input);
+        });
+        function withCsrf(formData) {
+            formData.append('_csrf_token', csrfToken);
+            return formData;
+        }
+
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -1569,6 +1604,7 @@ try {
             const formData = new FormData();
             formData.append('action', 'get_staff');
             formData.append('property_id', activePropertyId);
+            withCsrf(formData);
 
             try {
                 const res = await fetch('', { method: 'POST', body: formData });
@@ -1637,6 +1673,7 @@ try {
             const formData = new FormData(document.getElementById('staffUserForm'));
             formData.append('action', 'save_staff');
             formData.append('property_id', activePropertyId);
+            withCsrf(formData);
 
             try {
                 const res = await fetch('', { method: 'POST', body: formData });
@@ -1659,6 +1696,7 @@ try {
             if (propId !== '') {
                 formData.append('property_id', propId);
             }
+            withCsrf(formData);
 
             try {
                 const res = await fetch('', { method: 'POST', body: formData });

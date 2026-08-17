@@ -40,7 +40,7 @@ class AuditLogger {
         'UPLOAD_DOCUMENT' => 'Uploaded document',
         'NIGHT_AUDIT_AUTO_CHECKOUT' => 'Night audit auto-checkout',
         'WA_MESSAGE_SUCCESS' => 'WhatsApp message sent',
-        'WA_MESSAGE_FAILED' => 'WhatsApp message failed',
+        'SAAS_IMPERSONATE' => 'Viewed property as superadmin',
     ];
 
     /**

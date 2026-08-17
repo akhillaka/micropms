@@ -6,12 +6,14 @@ require_once __DIR__ . '/../../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../../pms_core/PhoneHelper.php';
 require_once __DIR__ . '/../../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../../pms_core/SequenceGenerator.php';
+require_once __DIR__ . '/../../../pms_core/TenantScope.php';
 
 ApiHandler::run(function(\PDO $db) {
     // Session is checked by ApiHandler
 
-    $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    $data = ApiHandler::getJsonInput();
     $action = $data['action'] ?? $_GET['action'] ?? '';
+    $propertyId = AuthHelper::getPropertyId();
 
     // Action: Search Guests by Phone or Name
     if ($action === 'search') {
@@ -21,18 +23,18 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::success(['guests' => []]);
         }
 
-        // Escape LIKE special characters to prevent wildcard abuse
         $escapedQ = str_replace(['%', '_'], ['\\%', '\\_'], $q);
         $searchTerm = "%{$escapedQ}%";
         
         $sql = "SELECT id, name, phone, email, age, city, state, country, pincode, photo, id_proof_front, id_proof_back 
                 FROM guests 
-                WHERE name LIKE :q_name OR phone LIKE :q_phone 
+                WHERE property_id = :pid AND (name LIKE :q_name OR phone LIKE :q_phone)
                 ORDER BY created_at DESC 
                 LIMIT 5";
         
         $stmt = $db->prepare($sql);
         $stmt->execute([
+            'pid' => $propertyId,
             'q_name' => $searchTerm,
             'q_phone' => $searchTerm
         ]);
@@ -42,39 +44,35 @@ ApiHandler::run(function(\PDO $db) {
         foreach ($guests as $g) {
             $guestId = (int)$g['id'];
 
-            // 1. Calculate stay count
-            $stayStmt = $db->prepare("SELECT COUNT(*) FROM bookings WHERE guest_id = :gid AND payment_status != 'cancelled'");
-            $stayStmt->execute(['gid' => $guestId]);
+            $stayStmt = $db->prepare("SELECT COUNT(*) FROM bookings WHERE guest_id = :gid AND property_id = :pid AND payment_status != 'cancelled'");
+            $stayStmt->execute(['gid' => $guestId, 'pid' => $propertyId]);
             $stayCount = (int)$stayStmt->fetchColumn();
 
-            // 2. Get last stay check-in date
-            $lastStayStmt = $db->prepare("SELECT MAX(check_in) FROM bookings WHERE guest_id = :gid AND payment_status != 'cancelled'");
-            $lastStayStmt->execute(['gid' => $guestId]);
+            $lastStayStmt = $db->prepare("SELECT MAX(check_in) FROM bookings WHERE guest_id = :gid AND property_id = :pid AND payment_status != 'cancelled'");
+            $lastStayStmt->execute(['gid' => $guestId, 'pid' => $propertyId]);
             $lastStay = $lastStayStmt->fetchColumn();
             $lastStayDate = $lastStay ? date('Y-m-d', strtotime($lastStay)) : 'None';
 
-            // 3. Get preferred room category name
             $prefRoomStmt = $db->prepare("
                 SELECT c.name, COUNT(*) as cnt 
                 FROM bookings b 
                 JOIN rooms r ON b.room_id = r.id 
                 JOIN room_categories c ON r.category_id = c.id 
-                WHERE b.guest_id = :gid AND b.payment_status != 'cancelled'
+                WHERE b.guest_id = :gid AND b.property_id = :pid AND b.payment_status != 'cancelled'
                 GROUP BY c.id 
                 ORDER BY cnt DESC 
                 LIMIT 1
             ");
-            $prefRoomStmt->execute(['gid' => $guestId]);
+            $prefRoomStmt->execute(['gid' => $guestId, 'pid' => $propertyId]);
             $prefCategory = $prefRoomStmt->fetchColumn() ?: 'None';
 
-            // 4. Calculate outstanding balance
             $balStmt = $db->prepare("
                 SELECT COALESCE(SUM(fl.amount), 0) as balance 
                 FROM bookings b 
                 JOIN folio_ledger fl ON b.id = fl.booking_id 
-                WHERE b.guest_id = :gid AND b.booking_status IN ('booked', 'checked_in') AND b.payment_status != 'cancelled'
+                WHERE b.guest_id = :gid AND b.property_id = :pid AND b.booking_status IN ('booked', 'checked_in') AND b.payment_status != 'cancelled'
             ");
-            $balStmt->execute(['gid' => $guestId]);
+            $balStmt->execute(['gid' => $guestId, 'pid' => $propertyId]);
             $balance = (float)$balStmt->fetchColumn();
 
             $enhancedGuests[] = [
@@ -194,8 +192,11 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('Guest ID is required');
         }
 
+        $propertyId = AuthHelper::getPropertyId();
+        TenantScope::guest($db, $guestId, $propertyId);
+
         $fieldsToUpdate = [];
-        $params = ['id' => $guestId];
+        $params = ['id' => $guestId, 'pid' => $propertyId];
 
         if (!empty($data['name'])) {
             $fieldsToUpdate[] = "name = :name";
@@ -221,7 +222,7 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::success(['message' => 'No changes required']);
         }
 
-        $sql = "UPDATE guests SET " . implode(', ', $fieldsToUpdate) . " WHERE id = :id";
+        $sql = "UPDATE guests SET " . implode(', ', $fieldsToUpdate) . " WHERE id = :id AND property_id = :pid";
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
 

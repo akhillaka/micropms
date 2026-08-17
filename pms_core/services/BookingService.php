@@ -84,8 +84,8 @@ class BookingService {
 
         try {
             // Lock room and get category
-            $stmt = $db->prepare("SELECT r.category_id, r.property_id, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.id = :room_id FOR UPDATE");
-            $stmt->execute(['room_id' => $roomId]);
+            $stmt = $db->prepare("SELECT r.category_id, r.property_id, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.id = :room_id AND r.property_id = :pid FOR UPDATE");
+            $stmt->execute(['room_id' => $roomId, 'pid' => $propId]);
             $room = $stmt->fetch();
             if (!$room) {
                 throw new \Exception('Invalid room selected');
@@ -104,8 +104,9 @@ class BookingService {
                 }
             }
 
-            // Check availability
-            if (!self::isRoomAvailable($db, $roomId, $checkIn, $checkOut)) {
+            // Check availability (ignore this session's own 15-minute hold)
+            $holdToken = isset($params['hold_token']) ? (string)$params['hold_token'] : null;
+            if (!self::isRoomAvailable($db, $roomId, $checkIn, $checkOut, null, $propId, $holdToken ?: null)) {
                 throw new \Exception('Room is no longer available for this timeframe');
             }
 
@@ -295,7 +296,7 @@ class BookingService {
     /**
      * Check if a room is available for the given timeframe.
      */
-    public static function isRoomAvailable(\PDO $db, int $roomId, string $checkIn, string $checkOut, ?int $excludeBookingId = null, ?int $propertyId = null): bool {
+    public static function isRoomAvailable(\PDO $db, int $roomId, string $checkIn, string $checkOut, ?int $excludeBookingId = null, ?int $propertyId = null, ?string $exceptHoldToken = null): bool {
         // BUG-5 fix: pad both dates to 00:00:00 for consistent open-interval comparisons
         if (strlen($checkIn) === 10)  $checkIn  .= ' 00:00:00';
         if (strlen($checkOut) === 10) $checkOut .= ' 00:00:00';
@@ -306,6 +307,7 @@ class BookingService {
                 WHERE room_id = :room_id
                   AND property_id = :property_id
                   AND payment_status != 'cancelled'
+                  AND booking_status NOT IN ('cancelled', 'checked_out')
                   AND check_in < :check_out
                   AND check_out > :check_in";
         $params = [
@@ -325,7 +327,37 @@ class BookingService {
         
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
-        return (int)$stmt->fetchColumn() === 0;
+        if ((int)$stmt->fetchColumn() > 0) {
+            return false;
+        }
+
+        try {
+            $holdSql = "SELECT COUNT(*) FROM room_holds
+                        WHERE room_id = :room_id
+                          AND property_id = :property_id
+                          AND expires_at > NOW()
+                          AND check_in < :check_out
+                          AND check_out > :check_in";
+            $holdParams = [
+                'room_id' => $roomId,
+                'property_id' => $propId,
+                'check_in' => $checkIn,
+                'check_out' => $checkOut,
+            ];
+            if ($exceptHoldToken) {
+                $holdSql .= " AND token != :token";
+                $holdParams['token'] = $exceptHoldToken;
+            }
+            $holdStmt = $db->prepare($holdSql);
+            $holdStmt->execute($holdParams);
+            if ((int)$holdStmt->fetchColumn() > 0) {
+                return false;
+            }
+        } catch (\PDOException $e) {
+            // room_holds may not exist until migration 026 runs
+        }
+
+        return true;
     }
 
     /**

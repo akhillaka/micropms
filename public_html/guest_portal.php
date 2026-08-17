@@ -5,6 +5,7 @@ require_once __DIR__ . '/../pms_core/Database.php';
 require_once __DIR__ . '/../pms_core/config.php';
 require_once __DIR__ . '/../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../pms_core/GuestAccessToken.php';
+require_once __DIR__ . '/../pms_core/services/CheckoutService.php';
 
 $db = Database::getInstance()->getConnection();
 load_db_settings($db);
@@ -221,20 +222,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = "Cannot checkout: Active check-in session not found.";
         } else {
             try {
-                $db->beginTransaction();
-
-                $statusStmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_out', actual_checkout = NOW() WHERE id = ?");
-                $statusStmt->execute([$bookingId]);
-
-                $roomStmt = $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?");
-                $roomStmt->execute([$booking['room_id']]);
-
-                AuditLogger::log(0, 'PORTAL_SELF_CHECKOUT', 'BOOKING', $booking['id'], [
-                    'guest' => $booking['guest_name'],
-                    'room' => $booking['room_number']
-                ], (int)$booking['property_id']);
-
-                $db->commit();
+                CheckoutService::performCheckout($db, (int)$bookingId, (int)$booking['property_id'], [
+                    'source' => 'guest_portal',
+                    'staff_id' => 0,
+                    'notify' => true,
+                ]);
                 header("Location: /guest-portal?id={$bookingId}&token={$token}&msg=checkout_success");
                 exit;
             } catch (Exception $e) {

@@ -57,7 +57,7 @@ return array (
   'admin_view_document.php' => '/api/admin/view_document',
   'check_availability.php' => '/api/system/check_availability',
   'create_hold.php' => '/api/system/create_hold',
-  'debug_schema.php' => '/api/system/debug_schema',
+  'place_room_hold.php' => '/api/system/place_room_hold',
   'guest_auth.php' => '/api/guest/auth',
   'guest_add_folio_charge.php' => '/api/guest/add_folio_charge',
   'guest_create_phonepe_payment.php' => '/api/guest/create_phonepe_payment',
@@ -76,7 +76,6 @@ return array (
   'saas_subscription.php' => '/api/system/saas_subscription',
   'search_guests.php' => '/api/system/search_guests',
   'trigger_automation.php' => '/api/system/trigger_automation',
-  'wa_debug.php' => '/api/whatsapp/debug',
   'wa_sync_status.php' => '/api/whatsapp/sync_status',
   'whatsapp_webhook.php' => '/api/whatsapp/webhook',
 );
