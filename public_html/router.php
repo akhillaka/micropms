@@ -125,6 +125,7 @@ switch ($request) {
         break;
 
     case '/login':
+    case '/admin/login':
         require __DIR__ . '/admin/login.php';
         break;
 

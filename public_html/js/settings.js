@@ -474,7 +474,7 @@ async function previewBookingImport() {
     const out = document.getElementById('bookingImportPreview');
     const commitBtn = document.getElementById('bookingImportCommitBtn');
     if (!fileEl || !fileEl.files.length) {
-        out.innerHTML = '<p class="text-red-600">Choose a CSV file first.</p>';
+        out.innerHTML = '<p class="text-red-600">Choose a CSV or ZIP file first.</p>';
         return;
     }
     const fd = new FormData();
@@ -490,14 +490,47 @@ async function previewBookingImport() {
             out.innerHTML = `<p class="text-red-600">${data.message || 'Preview failed'}</p>`;
             return;
         }
-        const rows = data.stays || [];
-        let html = `<p class="font-semibold mb-2">${data.valid_count || 0} ready, ${data.error_count || 0} with errors (max 500 stays).</p>`;
-        html += '<div class="overflow-x-auto max-h-80 border border-slate-200 rounded-xl"><table class="w-full text-[11px]"><thead><tr class="bg-slate-50 text-left"><th class="p-2">Ref</th><th class="p-2">Guest</th><th class="p-2">Room</th><th class="p-2">Dates</th><th class="p-2">Folio</th><th class="p-2">Status</th></tr></thead><tbody>';
-        rows.forEach((s) => {
-            const ok = !s.error;
-            html += `<tr class="${ok ? '' : 'bg-red-50'}"><td class="p-2 font-mono">${s.import_ref || ''}</td><td class="p-2">${s.guest_name || ''}<br>${s.guest_phone || ''}</td><td class="p-2">${s.room_number || ''}</td><td class="p-2">${s.check_in || ''} → ${s.check_out || ''}</td><td class="p-2">${s.folio_count || 0}</td><td class="p-2">${ok ? 'OK' : (s.error || '')}</td></tr>`;
-        });
-        html += '</tbody></table></div>';
+        const stays = data.stays || [];
+        const payments = data.payments || [];
+        const expenses = data.expenses || [];
+        let html = `<p class="font-semibold mb-2">${data.valid_count || 0} ready, ${data.error_count || 0} with errors.</p>`;
+        const table = (title, rows, cols) => {
+            if (!rows.length) return '';
+            let t = `<p class="text-xs font-bold uppercase tracking-wider mt-3 mb-1">${title}</p>`;
+            t += '<div class="overflow-x-auto max-h-64 border border-slate-200 rounded-xl"><table class="w-full text-[11px]"><thead><tr class="bg-slate-50 text-left">';
+            cols.forEach((c) => { t += `<th class="p-2">${c.label}</th>`; });
+            t += '</tr></thead><tbody>';
+            rows.forEach((s) => {
+                const ok = !s.error;
+                t += `<tr class="${ok ? (s.action === 'exists' ? 'bg-amber-50' : '') : 'bg-red-50'}">`;
+                cols.forEach((c) => {
+                    t += `<td class="p-2">${c.value(s)}</td>`;
+                });
+                t += '</tr>';
+            });
+            t += '</tbody></table></div>';
+            return t;
+        };
+        html += table('Bookings', stays, [
+            { label: 'Booking ID', value: (s) => s.import_ref || '' },
+            { label: 'Guest', value: (s) => `${s.guest_name || ''}<br>${s.guest_phone || ''}` },
+            { label: 'Room', value: (s) => s.room_number || '' },
+            { label: 'Dates', value: (s) => `${s.check_in || ''} → ${s.check_out || ''}` },
+            { label: 'Status', value: (s) => s.error || (s.action === 'exists' ? 'Already in PMS' : 'OK') },
+        ]);
+        html += table('Payments', payments, [
+            { label: 'Payment ID', value: (s) => s.payment_id || '' },
+            { label: 'Booking ID', value: (s) => s.booking_id || '' },
+            { label: 'Amount', value: (s) => s.amount || '' },
+            { label: 'Type', value: (s) => s.payment_method || '' },
+            { label: 'Status', value: (s) => s.error || 'OK' },
+        ]);
+        html += table('Expenses', expenses, [
+            { label: 'Expense ID', value: (s) => s.expense_id || '' },
+            { label: 'Category', value: (s) => s.category || '' },
+            { label: 'Amount', value: (s) => s.amount || '' },
+            { label: 'Status', value: (s) => s.error || 'OK' },
+        ]);
         out.innerHTML = html;
         if ((data.valid_count || 0) > 0) commitBtn.classList.remove('hidden');
     } catch (e) {

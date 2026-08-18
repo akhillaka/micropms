@@ -99,8 +99,7 @@ echo "\n";
 $hour = (int)date('G');
 if ($hour === 23) {
     echo "[DAILY SUMMARY] Sending daily summary...\n";
-    // FIX: cron_scheduler.php lives in public_html/ — summary file is in public_html/api/
-    $summaryFile = __DIR__ . '/api/admin_daily_summary.php';
+    $summaryFile = dirname(__DIR__) . '/pms_core/api_endpoints/admin_daily_summary.php';
     if (file_exists($summaryFile)) {
         $_SERVER['REQUEST_METHOD'] = 'GET';
         ob_start();
@@ -192,9 +191,7 @@ $overstayStmt->execute();
 $overstays = $overstayStmt->fetchAll();
 
 foreach ($overstays as $o) {
-    // FIX: Do NOT mark room dirty while guest is still checked_in (they are still occupying it).
-    // Room will be marked dirty on actual checkout via admin_booking_status.php or NightAudit auto-checkout.
-    // Here we only send the alert and flag the booking for staff attention.
+    // Room stays occupied until actual checkout; we only alert staff here.
 
     $msg = "\u26a0\ufe0f <b>Overstay Alert</b>\n\nRoom: {$o['room_number']}\nGuest: " . htmlspecialchars((string)($o['guest_name'] ?? 'N/A')) . "\nCheckout was: {$o['check_out']}\nGuest has not checked out. Please investigate.";
 

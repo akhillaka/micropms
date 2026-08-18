@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLogin();
 if (!AuthHelper::can('send_whatsapp') && !AuthHelper::can('manage_settings')) {

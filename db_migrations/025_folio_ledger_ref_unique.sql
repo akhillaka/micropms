@@ -6,4 +6,4 @@ UPDATE `folio_ledger`
  WHERE `transaction_ref` = '';
 
 ALTER TABLE `folio_ledger`
-  ADD UNIQUE KEY `uq_folio_booking_ref` (`booking_id`, `transaction_ref`);
+  ADD UNIQUE INDEX IF NOT EXISTS `uq_folio_booking_ref` (`booking_id`, `transaction_ref`);

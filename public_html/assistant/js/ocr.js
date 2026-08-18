@@ -103,11 +103,11 @@ class OcrController {
     // Strip data URI prefix for API
     const base64Data = base64Image.replace(/^data:image\/[a-z]+;base64,/, '');
 
-    const response = await fetch('/api/ocr_google_vision.php', {
+    const response = await fetch('/api/system/ocr_google_vision', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+        'X-CSRF-TOKEN': window.__PMS_CSRF || document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
       },
       body: JSON.stringify({ image: base64Data }),
       signal: AbortSignal.timeout(30000) // 30s timeout

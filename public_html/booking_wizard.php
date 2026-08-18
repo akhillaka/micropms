@@ -14,6 +14,13 @@ load_db_settings($db);
 
 $propertyId = AuthHelper::getPropertyId();
 $paymentMethods = get_payment_methods($db, (int)$propertyId);
+$activeGateways = get_active_payment_gateways($db, (int)$propertyId);
+foreach ($activeGateways as $gw) {
+    $label = $gw['gateway'] === 'phonepe' ? 'PhonePe' : 'Razorpay';
+    if (!in_array($label, $paymentMethods, true)) {
+        $paymentMethods[] = $label;
+    }
+}
 $isOwner = (AuthHelper::getRole() === 'owner') ? 'true' : 'false';
 
 // Default auto-fetched check-in & check-out dates and times
@@ -337,28 +344,38 @@ function renderTimeOptions(string $selectedVal = ''): string {
                 <!-- Document Uploads -->
                 <div class="space-y-3">
                     <p class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Guest Verification & Photos</p>
+                    <p class="text-[10px] text-slate-500 font-semibold">ID: fill the card frame, avoid glare, hold still. Photo: center the face.</p>
                     <div class="grid grid-cols-3 gap-2">
                         <!-- ID Front -->
-                        <label class="border border-dashed border-slate-200 rounded-xl p-3 flex flex-col items-center justify-center text-center hover:bg-slate-50 cursor-pointer transition-colors relative min-h-[85px] overflow-hidden">
+                        <div class="border border-dashed border-slate-200 rounded-xl p-3 flex flex-col items-center justify-center text-center min-h-[85px]">
                             <i class="ph ph-identification-card text-xl text-slate-400 mb-1"></i>
                             <span class="text-[9px] font-bold text-slate-600 leading-none">ID Front</span>
-                            <input type="file" id="id_proof_front" class="hidden" onchange="updateFileLabel(this, 'id-front-name')">
+                            <button type="button" onclick="captureGuestDoc('id_proof_front', 'id_front')" class="mt-1.5 text-[9px] font-bold text-indigo-700">Camera</button>
+                            <label class="text-[9px] font-bold text-slate-500 cursor-pointer">Upload
+                                <input type="file" id="id_proof_front" accept="image/*" capture="environment" class="hidden" onchange="updateFileLabel(this, 'id-front-name')">
+                            </label>
                             <span id="id-front-name" class="text-[8px] text-slate-450 mt-1 block truncate max-w-full font-semibold"></span>
-                        </label>
+                        </div>
                         <!-- ID Back -->
-                        <label class="border border-dashed border-slate-200 rounded-xl p-3 flex flex-col items-center justify-center text-center hover:bg-slate-50 cursor-pointer transition-colors relative min-h-[85px] overflow-hidden">
+                        <div class="border border-dashed border-slate-200 rounded-xl p-3 flex flex-col items-center justify-center text-center min-h-[85px]">
                             <i class="ph ph-identification-card text-xl text-slate-400 mb-1"></i>
                             <span class="text-[9px] font-bold text-slate-600 leading-none">ID Back</span>
-                            <input type="file" id="id_proof_back" class="hidden" onchange="updateFileLabel(this, 'id-back-name')">
+                            <button type="button" onclick="captureGuestDoc('id_proof_back', 'id_back')" class="mt-1.5 text-[9px] font-bold text-indigo-700">Camera</button>
+                            <label class="text-[9px] font-bold text-slate-500 cursor-pointer">Upload
+                                <input type="file" id="id_proof_back" accept="image/*" capture="environment" class="hidden" onchange="updateFileLabel(this, 'id-back-name')">
+                            </label>
                             <span id="id-back-name" class="text-[8px] text-slate-450 mt-1 block truncate max-w-full font-semibold"></span>
-                        </label>
+                        </div>
                         <!-- Guest Photo -->
-                        <label class="border border-dashed border-slate-200 rounded-xl p-3 flex flex-col items-center justify-center text-center hover:bg-slate-50 cursor-pointer transition-colors relative min-h-[85px] overflow-hidden">
+                        <div class="border border-dashed border-slate-200 rounded-xl p-3 flex flex-col items-center justify-center text-center min-h-[85px]">
                             <i class="ph ph-camera text-xl text-slate-400 mb-1"></i>
                             <span class="text-[9px] font-bold text-slate-600 leading-none">Photo</span>
-                            <input type="file" id="guest_photo" class="hidden" onchange="updateFileLabel(this, 'photo-name')">
+                            <button type="button" onclick="captureGuestDoc('guest_photo', 'guest_face')" class="mt-1.5 text-[9px] font-bold text-indigo-700">Camera</button>
+                            <label class="text-[9px] font-bold text-slate-500 cursor-pointer">Upload
+                                <input type="file" id="guest_photo" accept="image/*" class="hidden" onchange="updateFileLabel(this, 'photo-name')">
+                            </label>
                             <span id="photo-name" class="text-[8px] text-slate-450 mt-1 block truncate max-w-full font-semibold"></span>
-                        </label>
+                        </div>
                     </div>
                 </div>
 
@@ -401,6 +418,19 @@ function renderTimeOptions(string $selectedVal = ''): string {
             }
         }
 
+        function captureGuestDoc(inputId, mode) {
+            if (!window.PhotoCapture) return;
+            const labels = { id_proof_front: 'id-front-name', id_proof_back: 'id-back-name', guest_photo: 'photo-name' };
+            PhotoCapture.open({
+                mode,
+                onCapture: (_url, file) => {
+                    const input = document.getElementById(inputId);
+                    PhotoCapture.assignFile(input, file);
+                    updateFileLabel(input, labels[inputId]);
+                }
+            });
+        }
+
         // Minimalist Glass Toast Helper
         function showNotification(message, type = 'success') {
             const wrapper = document.getElementById('toast-wrapper');
@@ -441,6 +471,7 @@ function renderTimeOptions(string $selectedVal = ''): string {
         window.TAX_LABEL = <?= json_encode(defined('TAX_LABEL') ? TAX_LABEL : 'GST') ?>;
 
     </script>
+    <script src="js/photo_capture.js?v=<?= time() ?>"></script>
     <script src="js/booking_wizard.js?v=<?= time() ?>"></script>
     
 </body>

@@ -9,6 +9,10 @@ require_once __DIR__ . '/../AuditLogger.php';
  */
 class FolioService {
 
+    public static function uniqueRef(string $prefix = 'LED'): string {
+        return strtoupper($prefix) . '-' . bin2hex(random_bytes(6));
+    }
+
     /**
      * Get folio balance for a booking.
      * Positive = guest owes money, Negative = guest has credit.
@@ -26,7 +30,7 @@ class FolioService {
         $stmt = $db->prepare("
             SELECT COALESCE(SUM(
                 CASE 
-                    WHEN transaction_type = 'REFUND' OR description LIKE 'Refund%' THEN -ABS(amount)
+                    WHEN is_refund = 1 OR transaction_type = 'REFUND' OR description LIKE 'Refund%' THEN -ABS(amount)
                     WHEN amount < 0 THEN ABS(amount)
                     ELSE 0 
                 END
@@ -72,7 +76,8 @@ class FolioService {
             $type   = strtoupper($entry['transaction_type']);
 
             // Refunds stored as POSITIVE amounts (they reduce balance just like payments)
-            if ($type === 'REFUND' || str_contains($desc, 'refund') || $type === 'REBATE') {
+            $isRefund = ((int)($entry['is_refund'] ?? 0) === 1) || $type === 'REFUND' || str_contains($desc, 'refund') || $type === 'REBATE';
+            if ($isRefund) {
                 $breakdown['refunds'] += abs($amount);
             } elseif (strtolower($type) === 'payment') {
                 // True payments
@@ -154,9 +159,12 @@ class FolioService {
      * Record a payment against a booking folio.
      * Standardized description format regardless of source (admin/assistant/API).
      */
-    public static function recordPayment(\PDO $db, int $bookingId, float $amount, string $method, string $ref = 'MANUAL', string $source = 'admin', string $category = 'booking', ?string $recordedAt = null, bool $isSplit = false): int {
+    public static function recordPayment(\PDO $db, int $bookingId, float $amount, string $method, string $ref = 'MANUAL', string $source = 'admin', string $category = 'booking', ?string $recordedAt = null, bool $isSplit = false, bool $skipGoogleSheets = false): int {
         if ($amount == 0) {
             throw new \InvalidArgumentException("Payment amount cannot be zero.");
+        }
+        if ($ref === '' || strcasecmp($ref, 'MANUAL') === 0) {
+            $ref = self::uniqueRef('PAY');
         }
 
         $shouldCommit = false;
@@ -205,7 +213,7 @@ class FolioService {
             // Map category to folio_bucket enum ('main' or 'incidentals')
             $bucket = ($category === 'F&B' || $category === 'incidentals') ? 'incidentals' : 'main';
 
-            $sql = "INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description, payment_method, folio_bucket, category";
+            $sql = "INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description, payment_method, folio_bucket, category, is_refund";
             $params = [
                 'pid'      => $propertyId,
                 'bid'      => $bookingId, 
@@ -214,14 +222,15 @@ class FolioService {
                 'desc'     => $description,
                 'method'   => strtolower($method),
                 'bucket'   => $bucket,
-                'category' => $category
+                'category' => $category,
+                'is_ref'   => $isRefund ? 1 : 0
             ];
             
             if ($recordedAt !== null) {
-                $sql .= ", recorded_at) VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :bucket, :category, :recorded_at)";
+                $sql .= ", recorded_at) VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :bucket, :category, :is_ref, :recorded_at)";
                 $params['recorded_at'] = $recordedAt;
             } else {
-                $sql .= ") VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :bucket, :category)";
+                $sql .= ") VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :bucket, :category, :is_ref)";
             }
 
             $stmt = $db->prepare($sql);
@@ -247,7 +256,7 @@ class FolioService {
                 $db->commit();
             }
 
-            if (!$isRefund && $ledgerAmount < 0) {
+            if (!$skipGoogleSheets && !$isRefund && $ledgerAmount < 0) {
                 try {
                     require_once __DIR__ . '/../GoogleSheetService.php';
                     GoogleSheetService::syncPayment($db, $entryId);

@@ -7,13 +7,10 @@ require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 
-
-
-
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('edit_folio');
 
-    $data     = json_decode(file_get_contents('php://input'), true);
+    $data     = ApiHandler::getJsonInput();
     $ledgerId = $data['ledger_id'] ?? 0;
     $amount   = floatval($data['amount'] ?? 0);
     $desc     = trim($data['description'] ?? '');

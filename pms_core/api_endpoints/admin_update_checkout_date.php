@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 require_once __DIR__ . '/../../pms_core/PricingEngine.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
+require_once __DIR__ . '/../../pms_core/services/FolioService.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('edit_booking');
@@ -84,7 +85,7 @@ ApiHandler::run(function(\PDO $db) {
         $delStmt = $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type = 'ROOM_CHARGE' AND property_id = :prop_id");
         $delStmt->execute(['id' => $booking['id'], 'prop_id' => $propertyId]);
         
-        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, transaction_ref, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, 'MANUAL', :prop_id)");
+        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, transaction_ref, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, :ref, :prop_id)");
         
         if (!empty($breakdown)) {
             foreach ($breakdown as $item) {
@@ -93,6 +94,7 @@ ApiHandler::run(function(\PDO $db) {
                     'id' => $booking['id'],
                     'amount' => $item['cost'],
                     'desc' => $desc,
+                    'ref' => FolioService::uniqueRef('RC'),
                     'prop_id' => $propertyId
                 ]);
                 SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
@@ -102,6 +104,7 @@ ApiHandler::run(function(\PDO $db) {
                 'id' => $booking['id'],
                 'amount' => $newTotal,
                 'desc' => 'Room Charges - ' . $booking['category_name'],
+                'ref' => FolioService::uniqueRef('RC'),
                 'prop_id' => $propertyId
             ]);
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
@@ -109,10 +112,11 @@ ApiHandler::run(function(\PDO $db) {
     } else {
         // For overridden, just update the single charge if they only have one, or do a differential
         if (abs($difference) > 0.01) {
-            $diffStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, transaction_ref, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, 'Checkout Date Adjustment', 'MANUAL', :prop_id)");
+            $diffStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, transaction_ref, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, 'Checkout Date Adjustment', :ref, :prop_id)");
             $diffStmt->execute([
                 'id' => $booking['id'],
                 'amount' => $difference,
+                'ref' => FolioService::uniqueRef('RC'),
                 'prop_id' => $propertyId
             ]);
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');

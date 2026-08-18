@@ -52,6 +52,8 @@ CREATE TABLE `bookings` (
   `adults` int(11) NOT NULL DEFAULT 2,
   `children` int(11) NOT NULL DEFAULT 0,
   `extra_bed` tinyint(1) NOT NULL DEFAULT 0,
+  `import_ref` varchar(80) DEFAULT NULL,
+  `actual_checkout` datetime DEFAULT NULL,
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `guest_id` (`guest_id`),
@@ -158,7 +160,7 @@ CREATE TABLE `finance_transactions` (
 CREATE TABLE `folio_ledger` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `booking_id` int(11) NOT NULL,
-  `transaction_type` enum('online','cash','card','upi','bank_transfer','payment','ROOM_CHARGE','INCIDENTAL','pos_order','pos_refund') NOT NULL DEFAULT 'payment',
+  `transaction_type` enum('online','cash','card','upi','bank_transfer','payment','ROOM_CHARGE','INCIDENTAL','pos_order','pos_refund','TAX') NOT NULL DEFAULT 'payment',
   `amount` decimal(10,2) NOT NULL,
   `transaction_ref` varchar(100) DEFAULT NULL,
   `recorded_at` timestamp NOT NULL DEFAULT current_timestamp(),
@@ -200,6 +202,10 @@ CREATE TABLE `guests` (
   `id_proof_front` varchar(255) DEFAULT NULL,
   `id_proof_back` varchar(255) DEFAULT NULL,
   `photo` varchar(255) DEFAULT NULL,
+  `id_number` varchar(50) DEFAULT NULL,
+  `id_type` varchar(30) DEFAULT NULL,
+  `date_of_birth` date DEFAULT NULL,
+  `gender` varchar(20) DEFAULT NULL,
   `digital_signature` longtext DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `notes` text DEFAULT NULL COMMENT 'Internal staff notes about guest preferences',
@@ -216,6 +222,38 @@ CREATE TABLE `guests` (
   KEY `idx_guests_display_id` (`display_id`),
   CONSTRAINT `fk_guests_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
   CONSTRAINT `guests_ibfk_1` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `guest_documents` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `guest_id` int(11) NOT NULL,
+  `property_id` int(11) DEFAULT NULL,
+  `document_type` varchar(50) NOT NULL DEFAULT 'id_proof',
+  `file_path` varchar(255) NOT NULL,
+  `uploaded_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_guest_docs_guest` (`guest_id`,`document_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `guest_reviews` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `booking_id` int(11) NOT NULL,
+  `property_id` int(11) NOT NULL,
+  `rating` tinyint(1) NOT NULL DEFAULT 5,
+  `comment` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_reviews_booking` (`booking_id`),
+  KEY `idx_reviews_property` (`property_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `email_report_config` (
+  `property_id` int(11) NOT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 0,
+  `daily_audit_emails` text DEFAULT NULL,
+  `weekly_revenue_emails` text DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`property_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE `housekeeping_checklist_items` (
@@ -397,6 +435,8 @@ CREATE TABLE `pos_inventory` (
   `property_id` int(11) NOT NULL,
   `item_id` int(11) NOT NULL,
   `stock_quantity` int(11) NOT NULL DEFAULT 0,
+  `reorder_level` int(11) DEFAULT 0,
+  `reorder_quantity` int(11) DEFAULT 0,
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `property_id` (`property_id`),
@@ -477,6 +517,7 @@ CREATE TABLE `properties` (
   `valid_until` datetime DEFAULT NULL,
   `features_json` text DEFAULT NULL,
   `is_active` tinyint(1) DEFAULT 1,
+  `is_exempt_from_billing` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `whatsapp_phone_number_id` varchar(100) DEFAULT NULL,
   `razorpay_key_id` varchar(100) DEFAULT NULL,
@@ -524,6 +565,7 @@ CREATE TABLE `room_maintenance` (
   `start_date` date NOT NULL,
   `end_date` date NOT NULL,
   `reason` varchar(255) NOT NULL,
+  `created_by` int(11) DEFAULT NULL,
   `external_uid` varchar(190) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
@@ -538,6 +580,7 @@ CREATE TABLE `rooms` (
   `room_number` varchar(10) NOT NULL,
   `category_id` int(11) NOT NULL,
   `state` enum('clean','dirty','out_of_order') DEFAULT 'clean',
+  `last_deep_clean` timestamp NULL DEFAULT NULL,
   `property_id` int(11) NOT NULL,
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -575,6 +618,25 @@ CREATE TABLE `saas_feature_flags` (
   UNIQUE KEY `idx_property_flag` (`property_id`,`flag_key`),
   CONSTRAINT `saas_feature_flags_ibfk_1` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `saas_leads` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `hotel_name` varchar(190) NOT NULL,
+  `contact_name` varchar(190) DEFAULT NULL,
+  `email` varchar(190) NOT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `city` varchar(120) DEFAULT NULL,
+  `plan` varchar(40) NOT NULL DEFAULT 'starter',
+  `rooms_estimate` int(11) DEFAULT NULL,
+  `message` text DEFAULT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'new',
+  `property_id` int(11) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_leads_status` (`status`),
+  KEY `idx_leads_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `saas_subscriptions` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -639,6 +701,7 @@ CREATE TABLE `staff_properties` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `staff_id` int(11) NOT NULL,
   `property_id` int(11) NOT NULL,
+  `role_id` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -653,11 +716,13 @@ CREATE TABLE `staff_properties` (
 CREATE TABLE `staff_users` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `username` varchar(50) NOT NULL,
+  `phone` varchar(20) DEFAULT NULL,
   `password_hash` varchar(255) NOT NULL,
   `access_level` enum('superadmin','owner','admin','manager','receptionist','housekeeping','front_desk') NOT NULL DEFAULT 'manager',
   `role` varchar(50) DEFAULT NULL,
   `pin_hash` varchar(255) DEFAULT NULL,
   `assistant_access` tinyint(1) NOT NULL DEFAULT 0,
+  `assistant_role` varchar(40) DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `last_login_at` datetime DEFAULT NULL,
   `last_login_ip` varchar(45) DEFAULT NULL,
@@ -780,6 +845,7 @@ CREATE TABLE `wa_delivery_logs` (
 
 CREATE TABLE `wa_messages` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) DEFAULT NULL,
   `conversation_id` int(11) NOT NULL,
   `direction` enum('inbound','outbound') NOT NULL,
   `message_text` text NOT NULL,

@@ -11,7 +11,7 @@ require_once __DIR__ . '/../../pms_core/services/FolioService.php';
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('record_payment');
     
-    $data = json_decode(file_get_contents('php://input'), true);
+    $data = ApiHandler::getJsonInput();
     $bookingId = (int)($data['booking_id'] ?? 0);
     $amount = floatval($data['amount'] ?? 0);
     // Accept both 'method' and 'payment_method' for backward compatibility

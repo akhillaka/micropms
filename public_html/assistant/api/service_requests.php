@@ -55,7 +55,7 @@ ApiHandler::run(function(\PDO $db) {
             $db->beginTransaction();
             try {
                 // Determine fee
-                $feeStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'early_late_fee' AND property_id = ?");
+                $feeStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name IN ('GUEST_PORTAL_EARLY_LATE_FEE', 'early_late_fee') AND property_id = ? ORDER BY key_name = 'GUEST_PORTAL_EARLY_LATE_FEE' DESC LIMIT 1");
                 $feeStmt->execute([$propertyId]);
                 $fee = (float)($feeStmt->fetchColumn() ?: 500);
 

@@ -11,7 +11,7 @@ require_once __DIR__ . '/../../pms_core/config.php';
  */
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('upload_document');
-    $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    $data = ApiHandler::getJsonInput();
     
     $imageBase64 = $data['image'] ?? '';
     if (empty($imageBase64)) {
@@ -20,11 +20,15 @@ ApiHandler::run(function(\PDO $db) {
 
     // Get API key from settings
     $apiKey = getenv('GOOGLE_VISION_API_KEY') ?: '';
-    if (empty($apiKey)) {
-        // Try loading from DB settings
-        $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'google_vision_api_key'");
-        $stmt->execute();
-        $apiKey = $stmt->fetchColumn() ?: '';
+    if ($apiKey === '' && defined('GOOGLE_VISION_API_KEY')) {
+        $apiKey = (string)GOOGLE_VISION_API_KEY;
+    }
+    if ($apiKey === '') {
+        $propertyId = AuthHelper::getPropertyId();
+        $apiKey = get_db_setting($db, 'GOOGLE_VISION_API_KEY', $propertyId, '');
+        if ($apiKey === '') {
+            $apiKey = get_db_setting($db, 'google_vision_api_key', $propertyId, '');
+        }
     }
 
     if (empty($apiKey)) {

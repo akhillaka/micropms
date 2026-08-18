@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../pms_core/ErrorPage.php';
@@ -14,7 +15,8 @@ require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 $db = Database::getInstance()->getConnection();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $data = json_decode(file_get_contents('php://input'), true);
+    CsrfToken::requireValid();
+    $data = CsrfToken::getJsonPayload();
     if (($data['action'] ?? '') === 'update_folio_id') {
         header('Content-Type: application/json');
         if (!AuthHelper::can('edit_folio')) {
@@ -60,11 +62,11 @@ $bookingPk = (int)$booking['id'];
 $id = $bookingPk;
 
 $propertyId = (int)$booking['property_id'];
-$paymentMethods = get_payment_methods($db, (int)$activePropId);
-$activeGateways = get_active_payment_gateways($db, (int)$activePropId);
+$paymentMethods = get_payment_methods($db, $propertyId);
+$activeGateways = get_active_payment_gateways($db, $propertyId);
 $stayEditable = !in_array(($booking['booking_status'] ?? 'booked'), ['checked_out', 'cancelled'], true);
 
-$paymentCategories = get_payment_categories($db, (int)$activePropId);
+$paymentCategories = get_payment_categories($db, $propertyId);
 
 $ledgerStmt = $db->prepare("SELECT * FROM folio_ledger WHERE booking_id = :id ORDER BY recorded_at ASC");
 $ledgerStmt->execute(['id' => $bookingPk]);
@@ -80,14 +82,14 @@ $refundsIssued = 0;
 
 foreach($ledger as $l) {
     $val = (float)$l['amount'];
-    if ($val > 0) {
+    $isRefund = ((int)($l['is_refund'] ?? 0) === 1)
+        || str_contains(strtolower((string)($l['description'] ?? '')), 'refund');
+    if ($isRefund) {
+        $refundsIssued += abs($val);
+    } elseif ($val > 0) {
         $subtotalCharges += $val;
     } else {
-        if (strpos(strtolower($l['description']), 'refund') !== false) {
-            $refundsIssued += abs($val);
-        } else {
-            $totalPayments += abs($val);
-        }
+        $totalPayments += abs($val);
     }
 }
 $taxPref = $booking['tax_preference'] ?? 'exclusive';
@@ -675,13 +677,18 @@ $statusColor = $statusMap[$bookingStatus]['color'];
 
             <!-- Guest Details Tab Panel -->
             <div id="panel-guest" class="hidden space-y-6">
+                <?php
+                    $idFrontUrl = pms_document_url($booking['id_proof_front'] ?? '');
+                    $idBackUrl = pms_document_url($booking['id_proof_back'] ?? '');
+                    $guestPhotoUrl = pms_document_url($booking['guest_photo'] ?? '');
+                ?>
                 <div class="bg-white border border-slate-100 rounded-2xl shadow-sm p-6">
                     <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">Guest Information</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div class="flex items-center gap-4">
                             <div class="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center text-slate-700 text-2xl font-bold">
-                                <?php if($booking['guest_photo']): ?>
-                                    <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($booking['guest_photo'])) ?>" class="w-full h-full object-cover">
+                                <?php if($guestPhotoUrl): ?>
+                                    <img src="<?= htmlspecialchars($guestPhotoUrl, ENT_QUOTES, 'UTF-8') ?>" class="w-full h-full object-cover">
                                 <?php else: ?>
                                     <?= htmlspecialchars((string)(strtoupper(substr($booking['guest_name'], 0, 1)))) ?>
                                 <?php endif; ?>
@@ -706,48 +713,61 @@ $statusColor = $statusMap[$bookingStatus]['color'];
 
                 <!-- Documents and Proof uploads -->
                 <div class="bg-white border border-slate-100 rounded-2xl shadow-sm p-6">
-                    <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">Verification Documents</h3>
+                    <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">Verification Documents</h3>
+                    <p class="text-[10px] text-slate-500 font-semibold mb-4">Fill the card frame. Avoid glare. Hold still. Guest photo: center the face.</p>
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <!-- ID Front -->
                         <div class="border border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:bg-slate-50 transition-colors relative overflow-hidden group min-h-[140px]">
-                            <?php if($booking['id_proof_front']): ?>
-                                <img src="api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_front'])), ENT_QUOTES, 'UTF-8') ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_front'])), ENT_QUOTES, 'UTF-8') ?>')">
-                                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center gap-2">
-                                    <button onclick="UI.viewImage('api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_front'])), ENT_QUOTES, 'UTF-8') ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
-                                    <label class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Replace<input type="file" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
+                            <?php if($idFrontUrl): ?>
+                                <img src="<?= htmlspecialchars($idFrontUrl, ENT_QUOTES, 'UTF-8') ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('<?= htmlspecialchars($idFrontUrl, ENT_QUOTES, 'UTF-8') ?>')">
+                                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center gap-2 flex-wrap p-2">
+                                    <button onclick="UI.viewImage('<?= htmlspecialchars($idFrontUrl, ENT_QUOTES, 'UTF-8') ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
+                                    <button type="button" onclick="captureDoc('id_proof_front')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Camera</button>
+                                    <label class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Replace<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
                                 </div>
                             <?php else: ?>
                                 <i class="ph ph-identification-card text-3xl text-slate-400 mb-2"></i>
                                 <p class="text-xs font-bold text-slate-700">ID Proof (Front)</p>
-                                <label class="mt-2.5 cursor-pointer bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">Upload<input type="file" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
+                                <div class="mt-2.5 flex gap-2">
+                                    <button type="button" onclick="captureDoc('id_proof_front')" class="cursor-pointer bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100">Camera</button>
+                                    <label class="cursor-pointer bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">Upload<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
+                                </div>
                             <?php endif; ?>
                         </div>
                         <!-- ID Back -->
                         <div class="border border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:bg-slate-50 transition-colors relative overflow-hidden group min-h-[140px]">
-                            <?php if($booking['id_proof_back']): ?>
-                                <img src="api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_back'])), ENT_QUOTES, 'UTF-8') ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_back'])), ENT_QUOTES, 'UTF-8') ?>')">
-                                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center gap-2">
-                                    <button onclick="UI.viewImage('api/view_id_proof.php?file=<?= htmlspecialchars((string)(urlencode($booking['id_proof_back'])), ENT_QUOTES, 'UTF-8') ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
-                                    <label class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Replace<input type="file" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
+                            <?php if($idBackUrl): ?>
+                                <img src="<?= htmlspecialchars($idBackUrl, ENT_QUOTES, 'UTF-8') ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('<?= htmlspecialchars($idBackUrl, ENT_QUOTES, 'UTF-8') ?>')">
+                                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center gap-2 flex-wrap p-2">
+                                    <button onclick="UI.viewImage('<?= htmlspecialchars($idBackUrl, ENT_QUOTES, 'UTF-8') ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
+                                    <button type="button" onclick="captureDoc('id_proof_back')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Camera</button>
+                                    <label class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Replace<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
                                 </div>
                             <?php else: ?>
                                 <i class="ph ph-identification-card text-3xl text-slate-400 mb-2"></i>
                                 <p class="text-xs font-bold text-slate-700">ID Proof (Back)</p>
-                                <label class="mt-2.5 cursor-pointer bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">Upload<input type="file" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
+                                <div class="mt-2.5 flex gap-2">
+                                    <button type="button" onclick="captureDoc('id_proof_back')" class="cursor-pointer bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100">Camera</button>
+                                    <label class="cursor-pointer bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">Upload<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
+                                </div>
                             <?php endif; ?>
                         </div>
                         <!-- Photo -->
                         <div class="border border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center hover:bg-slate-50 transition-colors relative overflow-hidden group min-h-[140px]">
-                            <?php if($booking['guest_photo']): ?>
-                                <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($booking['guest_photo'])) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($booking['guest_photo'])) ?>')">
-                                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center gap-2">
-                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($booking['guest_photo'])) ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
-                                    <label class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Replace<input type="file" class="hidden" onchange="uploadDoc('guest_photo', this)"></label>
+                            <?php if($guestPhotoUrl): ?>
+                                <img src="<?= htmlspecialchars($guestPhotoUrl, ENT_QUOTES, 'UTF-8') ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('<?= htmlspecialchars($guestPhotoUrl, ENT_QUOTES, 'UTF-8') ?>')">
+                                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center justify-center gap-2 flex-wrap p-2">
+                                    <button onclick="UI.viewImage('<?= htmlspecialchars($guestPhotoUrl, ENT_QUOTES, 'UTF-8') ?>')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1"><i class="ph ph-eye"></i> View</button>
+                                    <button type="button" onclick="captureDoc('guest_photo')" class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Camera</button>
+                                    <label class="cursor-pointer bg-white text-slate-950 px-3.5 py-2 rounded-xl text-xs font-bold">Replace<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('guest_photo', this)"></label>
                                 </div>
                             <?php else: ?>
                                 <i class="ph ph-camera text-3xl text-slate-400 mb-2"></i>
                                 <p class="text-xs font-bold text-slate-700">Guest Photo</p>
-                                <label class="mt-2.5 cursor-pointer bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">Upload<input type="file" class="hidden" onchange="uploadDoc('guest_photo', this)"></label>
+                                <div class="mt-2.5 flex gap-2">
+                                    <button type="button" onclick="captureDoc('guest_photo')" class="cursor-pointer bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100">Camera</button>
+                                    <label class="cursor-pointer bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">Upload<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('guest_photo', this)"></label>
+                                </div>
                             <?php endif; ?>
                         </div>
                     </div>

@@ -62,7 +62,7 @@ class GuestService {
      * 
      * @return array ['guest_id' => int, 'is_new' => bool]
      */
-    public static function findOrCreate(\PDO $db, string $name, string $phoneRaw): array {
+    public static function findOrCreate(\PDO $db, string $name, string $phoneRaw, ?int $propertyId = null): array {
         $phone = PhoneHelper::toLocal($phoneRaw);
         if ($phone === null) {
             throw new \Exception('Invalid phone number');
@@ -76,7 +76,7 @@ class GuestService {
 
         try {
             // Check if guest exists
-            $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
+            $propId = $propertyId ?: (class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1);
             $stmt = $db->prepare("SELECT id FROM guests WHERE phone = ? AND property_id = ? FOR UPDATE");
             $stmt->execute([$phone, $propId]);
             $existing = $stmt->fetch();

@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 require_once __DIR__ . '/../../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../../pms_core/AuthHelper.php';
@@ -56,7 +57,7 @@ ApiHandler::run(function(\PDO $db) {
 
         $typeKey = strtolower(preg_replace('/[\s_\-]+/', '', (string)$req['service_type']));
         if ($status === 'completed' && $typeKey === 'latecheckout' && ($req['status'] ?? '') !== 'completed') {
-            $feeStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'early_late_fee' AND property_id = ?");
+            $feeStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name IN ('GUEST_PORTAL_EARLY_LATE_FEE', 'early_late_fee') AND property_id = ? ORDER BY key_name = 'GUEST_PORTAL_EARLY_LATE_FEE' DESC LIMIT 1");
             $feeStmt->execute([$propertyId]);
             $fee = (float)($feeStmt->fetchColumn() ?: 500);
             FolioService::postCharge($db, (int)$req['booking_id'], $fee, 'Late Checkout Fee (Approved)', 'other');

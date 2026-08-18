@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 /**
  * ui_head.php — Global head component
  * Injects CDN scripts, Tailwind config, design system CSS, global JS helpers,
@@ -618,6 +619,7 @@ try {
 </script>
 <script src="/js/api-client.js"></script>
 <script src="/js/ui.js"></script>
+<script src="/js/photo_capture.js"></script>
 
 <?php if (!empty($nightAuditActions)): ?>
 <?php

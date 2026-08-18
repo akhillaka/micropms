@@ -7,6 +7,7 @@ require_once __DIR__ . '/../SequenceGenerator.php';
 require_once __DIR__ . '/../NotificationRelay.php';
 require_once __DIR__ . '/../AuditLogger.php';
 require_once __DIR__ . '/../GoogleSheetService.php';
+require_once __DIR__ . '/FolioService.php';
 
 /**
  * BookingService - Shared booking logic for both Admin API and Assistant PWA.
@@ -34,17 +35,22 @@ class BookingService {
         $children      = isset($params['children']) ? (int)$params['children'] : 0;
         $extraBed      = isset($params['extra_bed']) && (int)$params['extra_bed'] === 1 ? 1 : 0;
         $bookingStatus = $params['booking_status'] ?? 'booked';
-        $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
+        $propId = (int)($params['property_id'] ?? 0);
+        if ($propId <= 0) {
+            $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
+        }
 
         // Block booking creation if there are pending Night Audit actions
-        try {
-            $actStmt = $db->prepare("SELECT COUNT(*) FROM night_audit_actions WHERE property_id = ? AND status = 'pending'");
-            $actStmt->execute([$propId]);
-            if ($actStmt->fetchColumn() > 0) {
-                throw new \Exception('Cannot create booking. Please resolve all pending Night Audit actions first.');
+        if (empty($params['skip_night_audit'])) {
+            try {
+                $actStmt = $db->prepare("SELECT COUNT(*) FROM night_audit_actions WHERE property_id = ? AND status = 'pending'");
+                $actStmt->execute([$propId]);
+                if ($actStmt->fetchColumn() > 0) {
+                    throw new \Exception('Cannot create booking. Please resolve all pending Night Audit actions first.');
+                }
+            } catch (\PDOException $e) {
+                // Ignore if table doesn't exist yet
             }
-        } catch (\PDOException $e) {
-            // Ignore if table doesn't exist yet
         }
 
         // Validation
@@ -64,7 +70,6 @@ class BookingService {
         $idempotencyKey = $params['idempotency_key'] ?? null;
         if ($idempotencyKey !== null && $idempotencyKey !== '') {
             try {
-                $propId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
                 $stmt = $db->prepare("SELECT response_body FROM idempotency_keys WHERE property_id = ? AND idempotency_key = ?");
                 $stmt->execute([$propId, $idempotencyKey]);
                 $cached = $stmt->fetchColumn();
@@ -203,52 +208,54 @@ class BookingService {
                 // No duplicate insert needed.
             }
 
-            // Trigger WhatsApp automation + Telegram notification
-            try {
-                $phoneStmt = $db->prepare("SELECT phone FROM guests WHERE id = ? AND property_id = ?");
-                $phoneStmt->execute([$guestId, $propertyId]);
-                $guestPhone = $phoneStmt->fetchColumn();
-                NotificationRelay::triggerAutomation(
-                    'booking_confirmed',
-                    $guestPhone ? PhoneHelper::toE164((string)$guestPhone) : null,
-                    $bookingId,
-                    [],
-                    $propertyId
-                );
-                if ($bookingStatus === 'checked_in') {
+            if (empty($params['skip_notifications'])) {
+                // Trigger WhatsApp automation + Telegram notification
+                try {
+                    $phoneStmt = $db->prepare("SELECT phone FROM guests WHERE id = ? AND property_id = ?");
+                    $phoneStmt->execute([$guestId, $propertyId]);
+                    $guestPhone = $phoneStmt->fetchColumn();
                     NotificationRelay::triggerAutomation(
-                        'guest_check_in',
+                        'booking_confirmed',
                         $guestPhone ? PhoneHelper::toE164((string)$guestPhone) : null,
                         $bookingId,
                         [],
                         $propertyId
                     );
-                }
+                    if ($bookingStatus === 'checked_in') {
+                        NotificationRelay::triggerAutomation(
+                            'guest_check_in',
+                            $guestPhone ? PhoneHelper::toE164((string)$guestPhone) : null,
+                            $bookingId,
+                            [],
+                            $propertyId
+                        );
+                    }
 
-                // Telegram alert to staff for every new booking
-                $guestName = $params['guest_name'] ?? 'Guest';
-                $roomNum   = $room['room_number'] ?? 'N/A';
-                $catName   = $room['category_name'] ?? '';
-                $checkInFmt  = date('d M Y, g:i A', strtotime($checkIn));
-                $checkOutFmt = date('d M Y, g:i A', strtotime($checkOut));
-                $source = ucfirst($bookingSource ?: 'front_desk');
-                $tgMsg = "🏨 <b>New Booking Created</b>\n\n" .
-                    "<b>Guest:</b> {$guestName}\n" .
-                    "<b>Room:</b> {$roomNum}" . ($catName ? " ({$catName})" : '') . "\n" .
-                    "<b>Check-in:</b> {$checkInFmt}\n" .
-                    "<b>Check-out:</b> {$checkOutFmt}\n" .
-                    "<b>Amount:</b> ₹" . number_format($totalAmount, 2) . "\n" .
-                    "<b>Source:</b> {$source} | <b>Ref:</b> {$bookingDisplayId}";
-                NotificationRelay::sendTelegram($tgMsg, 'new_booking', [
-                    'guest_name'   => $guestName,
-                    'room_number'  => $roomNum,
-                    'check_in'     => $checkInFmt,
-                    'check_out'    => $checkOutFmt,
-                    'total_amount' => number_format($totalAmount, 2),
-                    'source'       => $source,
-                ]);
-            } catch (\Throwable $t) {
-                // Ignore notification errors
+                    // Telegram alert to staff for every new booking
+                    $guestName = $params['guest_name'] ?? 'Guest';
+                    $roomNum   = $room['room_number'] ?? 'N/A';
+                    $catName   = $room['category_name'] ?? '';
+                    $checkInFmt  = date('d M Y, g:i A', strtotime($checkIn));
+                    $checkOutFmt = date('d M Y, g:i A', strtotime($checkOut));
+                    $source = ucfirst($bookingSource ?: 'front_desk');
+                    $tgMsg = "🏨 <b>New Booking Created</b>\n\n" .
+                        "<b>Guest:</b> {$guestName}\n" .
+                        "<b>Room:</b> {$roomNum}" . ($catName ? " ({$catName})" : '') . "\n" .
+                        "<b>Check-in:</b> {$checkInFmt}\n" .
+                        "<b>Check-out:</b> {$checkOutFmt}\n" .
+                        "<b>Amount:</b> ₹" . number_format($totalAmount, 2) . "\n" .
+                        "<b>Source:</b> {$source} | <b>Ref:</b> {$bookingDisplayId}";
+                    NotificationRelay::sendTelegram($tgMsg, 'new_booking', [
+                        'guest_name'   => $guestName,
+                        'room_number'  => $roomNum,
+                        'check_in'     => $checkInFmt,
+                        'check_out'    => $checkOutFmt,
+                        'total_amount' => number_format($totalAmount, 2),
+                        'source'       => $source,
+                    ]);
+                } catch (\Throwable $t) {
+                    // Ignore notification errors
+                }
             }
 
             // Audit log
@@ -406,7 +413,7 @@ class BookingService {
     /**
      * Extend a booking's checkout date and post extra charges.
      */
-    public static function extendStay(\PDO $db, int $bookingId, string $newCheckOut): array {
+    public static function extendStay(\PDO $db, int $bookingId, string $newCheckOut, ?int $propertyId = null): array {
         $shouldCommit = false;
         if (!$db->inTransaction()) {
             $db->beginTransaction();
@@ -414,7 +421,7 @@ class BookingService {
         }
 
         try {
-            $propertyId = class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1;
+            $propertyId = $propertyId ?: (class_exists('AuthHelper') ? AuthHelper::getPropertyId() : 1);
             $stmt = $db->prepare("
                 SELECT b.*, r.category_id, c.name as category_name
                 FROM bookings b
@@ -604,26 +611,28 @@ class BookingService {
         $taxLabel = defined('TAX_LABEL') ? TAX_LABEL : 'GST';
 
         $postCharge = function(float $grossAmount, string $baseDesc) use ($db, $propertyId, $bookingId, $taxEnabled, $taxRate, $taxLabel) {
-            $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description) VALUES (:pid, :bid, :type, :amount, 'MANUAL', :desc)");
-            
+            $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description) VALUES (:pid, :bid, :type, :amount, :ref, :desc)");
+
             if ($taxEnabled && $taxRate > 0) {
                 $baseAmount = round($grossAmount / (1 + ($taxRate / 100)), 2);
                 $taxAmount = round($grossAmount - $baseAmount, 2);
-                
+
                 $ledgerStmt->execute([
                     'pid'    => $propertyId,
                     'bid'    => $bookingId,
                     'type'   => 'ROOM_CHARGE',
                     'amount' => $baseAmount,
+                    'ref'    => FolioService::uniqueRef('RC'),
                     'desc'   => $baseDesc,
                 ]);
                 SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
-                
+
                 $ledgerStmt->execute([
                     'pid'    => $propertyId,
                     'bid'    => $bookingId,
                     'type'   => 'TAX',
                     'amount' => $taxAmount,
+                    'ref'    => FolioService::uniqueRef('TAX'),
                     'desc'   => "{$taxLabel} ({$taxRate}%) - " . $baseDesc,
                 ]);
                 SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
@@ -633,6 +642,7 @@ class BookingService {
                     'bid'    => $bookingId,
                     'type'   => 'ROOM_CHARGE',
                     'amount' => $grossAmount,
+                    'ref'    => FolioService::uniqueRef('RC'),
                     'desc'   => $baseDesc,
                 ]);
                 SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
@@ -657,6 +667,10 @@ class BookingService {
         $pStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ?");
         $pStmt->execute([$bookingId]);
         $propertyId = (int)$pStmt->fetchColumn() ?: 1;
+
+        if ($ref === '' || strcasecmp($ref, 'MANUAL') === 0) {
+            $ref = FolioService::uniqueRef('LED');
+        }
 
         $sql = "INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description";
         $params = ['pid' => $propertyId, 'bid' => $bookingId, 'type' => $type, 'amount' => $amount, 'ref' => $ref, 'desc' => $description];
@@ -691,6 +705,169 @@ class BookingService {
      */
     public static function recordPayment(\PDO $db, int $bookingId, float $amount, string $method, string $ref = 'MANUAL', string $description = 'Payment'): int {
         return self::postFolioEntry($db, $bookingId, 'payment', -$amount, $description, $ref, $method);
+    }
+
+    /**
+     * Check in a booked stay.
+     */
+    public static function checkIn(\PDO $db, int $bookingId, int $propertyId, array $opts = []): void {
+        $shouldCommit = false;
+        if (!$db->inTransaction()) {
+            $db->beginTransaction();
+            $shouldCommit = true;
+        }
+        try {
+        $stmt = $db->prepare("SELECT * FROM bookings WHERE id = :id AND property_id = :pid FOR UPDATE");
+        $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
+        $booking = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$booking) {
+            throw new \Exception('Booking not found');
+        }
+        if (($booking['booking_status'] ?? '') !== 'booked') {
+            throw new \Exception("Can only check-in from 'booked' status");
+        }
+
+        $upd = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = :id AND property_id = :pid");
+        $upd->execute(['id' => $bookingId, 'pid' => $propertyId]);
+
+        AuditLogger::log($opts['staff_id'] ?? ($_SESSION['user_id'] ?? null), 'CHECK_IN', 'BOOKING', $bookingId, [
+            'action' => 'check_in',
+            'from_status' => 'booked',
+            'to_status' => 'checked_in',
+            'source' => $opts['source'] ?? 'admin',
+            'check_in_time' => date('Y-m-d H:i:s'),
+        ]);
+
+        if (($opts['notify'] ?? true) !== false) {
+            $roomStmt = $db->prepare("SELECT room_number FROM rooms WHERE id = :id AND property_id = :pid");
+            $roomStmt->execute(['id' => $booking['room_id'], 'pid' => $propertyId]);
+            $roomNum = (string)($roomStmt->fetchColumn() ?: $booking['room_id']);
+            $guestStmt = $db->prepare("SELECT name, phone FROM guests WHERE id = :id AND property_id = :pid");
+            $guestStmt->execute(['id' => $booking['guest_id'], 'pid' => $propertyId]);
+            $guest = $guestStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+            $guestName = (string)($guest['name'] ?? 'N/A');
+            $tgMsg = "🏨 <b>Guest Checked In</b>\n\nRoom: {$roomNum}\nGuest: " . htmlspecialchars($guestName) . "\nCheckout: {$booking['check_out']}";
+            NotificationRelay::sendTelegram($tgMsg, 'check_in', [
+                'guest_name' => $guestName,
+                'room_number' => $roomNum,
+                'check_out_date' => $booking['check_out'],
+                'total_amount' => number_format((float)$booking['total_amount'], 2),
+            ], $propertyId);
+            NotificationRelay::triggerAutomation(
+                'guest_check_in',
+                !empty($guest['phone']) ? PhoneHelper::toE164((string)$guest['phone']) : null,
+                $bookingId,
+                [],
+                $propertyId
+            );
+        }
+
+        try {
+            GoogleSheetService::syncBooking($db, $bookingId);
+        } catch (\Throwable $t) {
+            error_log('Google Sheets sync error in checkIn: ' . $t->getMessage());
+        }
+        if ($shouldCommit) {
+            $db->commit();
+        }
+        } catch (\Throwable $e) {
+            if ($shouldCommit && $db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Change stay dates and/or room, then rebuild room-charge folio lines.
+     */
+    public static function reschedule(\PDO $db, int $bookingId, int $propertyId, string $checkIn, string $checkOut, ?int $newRoomId = null): array {
+        if (strlen($checkIn) === 10) {
+            $checkIn .= ' 14:00:00';
+        }
+        if (strlen($checkOut) === 10) {
+            $checkOut .= ' 11:00:00';
+        }
+        if (strtotime($checkOut) <= strtotime($checkIn)) {
+            throw new \Exception('Check-out must be after check-in');
+        }
+
+        $shouldCommit = false;
+        if (!$db->inTransaction()) {
+            $db->beginTransaction();
+            $shouldCommit = true;
+        }
+
+        try {
+            $stmt = $db->prepare("SELECT b.*, r.category_id, c.name as category_name FROM bookings b JOIN rooms r ON b.room_id = r.id JOIN room_categories c ON r.category_id = c.id WHERE b.id = :id AND b.property_id = :pid FOR UPDATE");
+            $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
+            $booking = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$booking) {
+                throw new \Exception('Booking not found');
+            }
+            if (in_array((string)$booking['booking_status'], ['checked_out', 'cancelled'], true) || ($booking['payment_status'] ?? '') === 'cancelled') {
+                throw new \Exception('Cannot edit a checked-out or cancelled booking');
+            }
+
+            $roomId = $newRoomId ?: (int)$booking['room_id'];
+            $roomStmt = $db->prepare("SELECT r.id, r.room_number, r.category_id, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.id = :id AND r.property_id = :pid FOR UPDATE");
+            $roomStmt->execute(['id' => $roomId, 'pid' => $propertyId]);
+            $room = $roomStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$room) {
+                throw new \Exception('Room not found');
+            }
+            if (!self::isRoomAvailable($db, $roomId, $checkIn, $checkOut, $bookingId, $propertyId)) {
+                throw new \Exception('Room is not available for those dates');
+            }
+
+            $ratePlan = $booking['rate_plan_name'] ?? null;
+            try {
+                $newTotal = PricingEngine::calculateTotalCost((int)$room['category_id'], $checkIn, $checkOut, $ratePlan);
+            } catch (\Exception $e) {
+                $newTotal = self::calculateDays($checkIn, $checkOut) * 1000.00;
+            }
+
+            $upd = $db->prepare("UPDATE bookings SET room_id = :room_id, check_in = :cin, check_out = :cout, total_amount = :total WHERE id = :id AND property_id = :pid");
+            $upd->execute([
+                'room_id' => $roomId,
+                'cin' => $checkIn,
+                'cout' => $checkOut,
+                'total' => $newTotal,
+                'id' => $bookingId,
+                'pid' => $propertyId,
+            ]);
+
+            if ($roomId !== (int)$booking['room_id']) {
+                $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = :id AND property_id = :pid")->execute(['id' => $booking['room_id'], 'pid' => $propertyId]);
+            }
+
+            $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type = 'ROOM_CHARGE' AND property_id = :pid")
+                ->execute(['id' => $bookingId, 'pid' => $propertyId]);
+            self::postRoomCharges($db, $bookingId, (int)$room['category_id'], (string)$room['category_name'], $checkIn, $checkOut, $ratePlan);
+
+            AuditLogger::log($_SESSION['user_id'] ?? null, 'EDIT_BOOKING', 'BOOKING', $bookingId, [
+                'old_room' => $booking['room_id'],
+                'new_room' => $roomId,
+                'check_in' => $checkIn,
+                'check_out' => $checkOut,
+                'new_total' => $newTotal,
+            ]);
+
+            if ($shouldCommit) {
+                $db->commit();
+            }
+            return [
+                'new_total' => $newTotal,
+                'room_number' => $room['room_number'],
+                'check_in' => $checkIn,
+                'check_out' => $checkOut,
+            ];
+        } catch (\Throwable $e) {
+            if ($shouldCommit && $db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
     }
 
     /**

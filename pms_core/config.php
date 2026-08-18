@@ -78,30 +78,110 @@ if (!function_exists('get_payment_methods')) {
     }
 }
 
+if (!function_exists('get_setting_list')) {
+    /**
+     * JSON array or comma-separated system_settings value.
+     * @return list<string>
+     */
+    function get_setting_list(\PDO $db, string $key, int $propertyId, array $default = []): array {
+        $raw = get_db_setting($db, $key, $propertyId, '');
+        if ($raw === '') {
+            return $default;
+        }
+        $decoded = json_decode($raw, true);
+        $items = is_array($decoded) ? $decoded : explode(',', $raw);
+        $out = [];
+        foreach ($items as $item) {
+            $name = trim((string)$item);
+            if ($name !== '') {
+                $out[] = $name;
+            }
+        }
+        $out = array_values(array_unique($out));
+        return $out !== [] ? $out : $default;
+    }
+}
+
+if (!function_exists('upsert_payment_gateway_config')) {
+    function upsert_payment_gateway_config(
+        \PDO $db,
+        int $propertyId,
+        string $gateway,
+        string $keyId,
+        string $keySecret,
+        int $isActive,
+        string $mode = 'live',
+        ?string $extraConfig = null
+    ): void {
+        $gateway = strtolower(trim($gateway));
+        if (!in_array($gateway, ['razorpay', 'phonepe'], true) || $propertyId <= 0) {
+            return;
+        }
+        if ($keySecret === '') {
+            try {
+                $old = $db->prepare("SELECT key_secret FROM payment_gateway_configs WHERE property_id = ? AND gateway = ?");
+                $old->execute([$propertyId, $gateway]);
+                $existing = $old->fetchColumn();
+                if ($existing) {
+                    $keySecret = (string)$existing;
+                }
+            } catch (\Throwable $e) {
+                return;
+            }
+        }
+        $stmt = $db->prepare("
+            INSERT INTO payment_gateway_configs
+                (property_id, gateway, mode, key_id, key_secret, extra_config, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                mode = VALUES(mode),
+                key_id = VALUES(key_id),
+                key_secret = VALUES(key_secret),
+                extra_config = VALUES(extra_config),
+                is_active = VALUES(is_active)
+        ");
+        $stmt->execute([$propertyId, $gateway, $mode, $keyId, $keySecret, $extraConfig, $isActive]);
+    }
+}
+
 if (!function_exists('get_active_payment_gateways')) {
     /**
-     * Gateways marked active in Settings → Payment Gateways.
+     * Gateways that can actually collect payment for this property.
+     * Reads payment_gateway_configs, then Integrations Razorpay keys.
      * @return array<string, array{gateway: string, key_id: string}>
      */
     function get_active_payment_gateways(\PDO $db, int $propertyId): array {
+        $out = [];
         try {
-            $stmt = $db->prepare("SELECT gateway, key_id FROM payment_gateway_configs WHERE property_id = ? AND is_active = 1");
+            $stmt = $db->prepare("SELECT gateway, key_id, is_active FROM payment_gateway_configs WHERE property_id = ?");
             $stmt->execute([$propertyId]);
-            $out = [];
             foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
                 $gw = strtolower(trim((string)($row['gateway'] ?? '')));
-                if ($gw === '') {
+                $keyId = trim((string)($row['key_id'] ?? ''));
+                if ($gw === '' || $keyId === '' || (int)($row['is_active'] ?? 0) !== 1) {
                     continue;
                 }
                 $out[$gw] = [
                     'gateway' => $gw,
-                    'key_id' => (string)($row['key_id'] ?? ''),
+                    'key_id' => $keyId,
                 ];
             }
-            return $out;
         } catch (\Throwable $e) {
-            return [];
+            $out = [];
         }
+        if (empty($out['razorpay'])) {
+            $keyId = trim(get_db_setting($db, 'RAZORPAY_KEY_ID', $propertyId, ''));
+            if ($keyId === '' && defined('RAZORPAY_KEY_ID')) {
+                $keyId = trim((string)RAZORPAY_KEY_ID);
+            }
+            if ($keyId !== '') {
+                $out['razorpay'] = [
+                    'gateway' => 'razorpay',
+                    'key_id' => $keyId,
+                ];
+            }
+        }
+        return $out;
     }
 }
 
@@ -294,8 +374,6 @@ if (!function_exists('load_db_settings')) {
         define_setting('TG_TEMPLATE_FOLIO_ACTIVITY', "🧾 <b>Folio Activity Alert</b>\n\n<b>Guest:</b> {guest_name}\n<b>Room:</b> {room_number}\n<b>Activity:</b> {description}\n<b>Amount:</b> ₹{amount}");
         define_setting('TG_TEMPLATE_PRE_DEPARTURE', "🔔 <b>Pre-Departure Notice</b>\n\n<b>Guest:</b> {guest_name}\n<b>Room:</b> {room_number}\n<b>Checkout scheduled at:</b> {check_out_date}");
 
-
-
         // Notification Preferences (JSON) — which events trigger Telegram alerts
         define_setting('NOTIFY_EVENTS', json_encode([
             'booking_confirmed'   => true,
@@ -322,6 +400,7 @@ if (!function_exists('load_db_settings')) {
         define_setting('TAX_ENABLED', 'false');
         define_setting('TAX_LABEL', 'GST');
         define_setting('TAX_RATE', '12');
+        define_setting('EXTRA_BED_RATE', '500');
 
         // Sequence Formats
         define_setting('SEQ_BOOKING_FORMAT', 'BKG-{YY}{MM}-{ID}');
@@ -357,12 +436,36 @@ if (!function_exists('load_db_settings')) {
         define_setting('GUEST_PORTAL_HOUSEKEEPING_ENABLED', 'false');
         define_setting('GUEST_PORTAL_SELF_CHECKOUT_ENABLED', 'false');
         define_setting('GUEST_PORTAL_EARLY_LATE_FEE', '0.00');
+        define_setting('GUEST_PORTAL_OTP_ENABLED', 'true');
         define_setting('GUEST_PORTAL_WIFI_ENABLED', 'true');
         define_setting('GUEST_PORTAL_SIGHTSEEING_ENABLED', 'true');
         define_setting('GUEST_PORTAL_WAKEUP_ENABLED', 'true');
         define_setting('GUEST_PORTAL_EXTEND_STAY_ENABLED', 'true');
         define_setting('GUEST_PORTAL_UPGRADE_ENABLED', 'true');
         define_setting('GUEST_PORTAL_CONTACT_ENABLED', 'true');
+    }
+}
+
+if (!function_exists('pms_is_safe_upload_filename')) {
+    function pms_is_safe_upload_filename(string $file): bool {
+        return $file !== ''
+            && strpbrk($file, "/\\") === false
+            && !str_contains($file, '..')
+            && (bool)preg_match('/^[A-Za-z0-9._-]+$/', $file);
+    }
+}
+
+if (!function_exists('pms_document_url')) {
+    function pms_document_url(?string $filename): string {
+        $raw = trim((string)$filename);
+        if ($raw === '' || str_contains($raw, '..')) {
+            return '';
+        }
+        $filename = basename(str_replace('\\', '/', $raw));
+        if (!pms_is_safe_upload_filename($filename)) {
+            return '';
+        }
+        return '/api/admin/view_document?file=' . rawurlencode($filename);
     }
 }
 

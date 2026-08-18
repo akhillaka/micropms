@@ -9,11 +9,12 @@ require_once __DIR__ . '/../../pms_core/PricingEngine.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
+require_once __DIR__ . '/../../pms_core/services/FolioService.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('edit_booking');
 
-    $data = json_decode(file_get_contents('php://input'), true);
+    $data = ApiHandler::getJsonInput();
     
     // BUG-4 fix: cast booking_id to int before use
     if (!isset($data['booking_id'], $data['check_in'], $data['check_out'])) {
@@ -102,7 +103,7 @@ ApiHandler::run(function(\PDO $db) {
         } catch (\Exception $e) {
             $breakdown = [];
         }
-        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, transaction_ref, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, 'MANUAL', :prop_id)");
+        $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, transaction_type, amount, description, transaction_ref, property_id) VALUES (:id, 'ROOM_CHARGE', :amount, :desc, :ref, :prop_id)");
         
         if (!empty($breakdown)) {
             foreach ($breakdown as $item) {
@@ -110,6 +111,7 @@ ApiHandler::run(function(\PDO $db) {
                     'id' => $booking['id'],
                     'amount' => $item['cost'],
                     'desc' => "Day {$item['day']} - Room Charges - {$newRoom['category_name']} ({$item['duration']})",
+                    'ref' => FolioService::uniqueRef('RC'),
                     'prop_id' => $propertyId
                 ]);
                 SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
@@ -119,6 +121,7 @@ ApiHandler::run(function(\PDO $db) {
                 'id' => $booking['id'],
                 'amount' => $newTotal,
                 'desc' => "Room Charges - {$newRoom['category_name']}",
+                'ref' => FolioService::uniqueRef('RC'),
                 'prop_id' => $propertyId
             ]);
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');

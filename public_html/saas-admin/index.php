@@ -612,7 +612,6 @@ $saasDefaultCurrency = $settings['SAAS_DEFAULT_CURRENCY'] ?? 'INR';
 $saasPortalSubdomain = $settings['SAAS_PORTAL_SUBDOMAIN'] ?? '';
 $saasPlans = SaaSPlans::get($db);
 
-require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/services/GithubDeployService.php';
 require_once __DIR__ . '/../../pms_core/services/LeadService.php';
 $deployConfigured = GithubDeployService::isConfigured();

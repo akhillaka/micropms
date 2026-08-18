@@ -118,38 +118,15 @@ try {
     }
 
     $preArrivalSig = get_db_setting($db, 'GUEST_PORTAL_PRE_ARRIVAL_SIGNATURE', (int)$booking['property_id'], 'true') === 'true';
-    $signaturePath = null;
+    $signatureData = null;
     
     if ($preArrivalSig) {
         $sigData = $_POST['signature_data'] ?? '';
-        if (empty($sigData)) {
+        if (empty($sigData) || !preg_match('/^data:image\/(\w+);base64,/', $sigData)) {
             throw new Exception("Digital signature is required.");
         }
-        
-        // Process base64 data URL
-        if (preg_match('/^data:image\/(\w+);base64,/', $sigData, $type)) {
-            $data = substr($sigData, strpos($sigData, ',') + 1);
-            $type = strtolower($type[1]);
-            
-            if (!in_array($type, ['jpg', 'jpeg', 'png'])) {
-                throw new Exception("Invalid signature image type.");
-            }
-            $data = base64_decode($data);
-            if ($data === false) {
-                throw new Exception("Signature decoding failed.");
-            }
-            
-            $filename = sprintf('sig_%s.%s', bin2hex(random_bytes(8)), $type);
-            $filepath = $uploadDir . $filename;
-            file_put_contents($filepath, $data);
-            $signaturePath = $filename;
-        } else {
-            throw new Exception("Invalid signature data format.");
-        }
+        $signatureData = $sigData;
     }
-
-    // Add signature column if it doesn't exist (safety check)
-    try { $db->exec("ALTER TABLE guests ADD COLUMN id_proof_signature VARCHAR(255) NULL AFTER id_proof_back"); } catch (\Exception $e) {}
 
     $db->beginTransaction();
 
@@ -159,10 +136,10 @@ try {
         SET name = ?, email = ?, phone = ?, city = ?, state = ?, 
             id_proof_front = COALESCE(?, id_proof_front), 
             id_proof_back = COALESCE(?, id_proof_back),
-            id_proof_signature = COALESCE(?, id_proof_signature)
+            digital_signature = COALESCE(?, digital_signature)
         WHERE id = ? AND property_id = ?
     ");
-    $gStmt->execute([$name, $email, $phone, $city, $state, $idFrontPath, $idBackPath, $signaturePath, $booking['guest_id'], $booking['property_id']]);
+    $gStmt->execute([$name, $email, $phone, $city, $state, $idFrontPath, $idBackPath, $signatureData, $booking['guest_id'], $booking['property_id']]);
 
     // Update Booking to Checked In
     $statusStmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = ? AND property_id = ?");

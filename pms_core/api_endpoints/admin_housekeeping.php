@@ -7,7 +7,10 @@ require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('housekeeping');
-    $data = json_decode(file_get_contents('php://input'), true);
+    $data = ApiHandler::getJsonInput();
+    if ($data === []) {
+        $data = $_POST;
+    }
     $action = $_GET['action'] ?? $data['action'] ?? '';
 
     $propertyId = AuthHelper::getPropertyId();
@@ -31,11 +34,46 @@ ApiHandler::run(function(\PDO $db) {
             }
         }
         
+        $checklistItems = [];
+        try {
+            $cStmt = $db->prepare("SELECT * FROM housekeeping_checklist_items WHERE (property_id = ? OR property_id IS NULL) AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00') ORDER BY display_order ASC, id ASC");
+            $cStmt->execute([$propertyId]);
+            $checklistItems = $cStmt->fetchAll(\PDO::FETCH_ASSOC);
+        } catch (\PDOException $e) {
+            $checklistItems = [];
+        }
         ApiResponse::success([
             'dirty' => $dirty,
             'clean' => $clean,
-            'checklist_items' => []
+            'checklist_items' => $checklistItems
         ]);
+    } elseif ($action === 'add_checklist_item') {
+        $itemText = trim((string)($data['item_text'] ?? ''));
+        $isMandatory = !empty($data['is_mandatory']) ? 1 : 0;
+        if ($itemText === '') {
+            ApiResponse::error('Item text is required');
+        }
+        try {
+            $stmt = $db->prepare("INSERT INTO housekeeping_checklist_items (property_id, item_text, is_mandatory, display_order) VALUES (?, ?, ?, 0)");
+            $stmt->execute([$propertyId, $itemText, $isMandatory]);
+        } catch (\PDOException $e) {
+            $stmt = $db->prepare("INSERT INTO housekeeping_checklist_items (item_text, is_mandatory) VALUES (?, ?)");
+            $stmt->execute([$itemText, $isMandatory]);
+        }
+        ApiResponse::success(['message' => 'Checklist item added', 'id' => (int)$db->lastInsertId()]);
+    } elseif ($action === 'delete_checklist_item') {
+        $itemId = (int)($data['item_id'] ?? 0);
+        if ($itemId <= 0) {
+            ApiResponse::error('Item ID required');
+        }
+        try {
+            $stmt = $db->prepare("DELETE FROM housekeeping_checklist_items WHERE id = ? AND (property_id = ? OR property_id IS NULL)");
+            $stmt->execute([$itemId, $propertyId]);
+        } catch (\PDOException $e) {
+            $stmt = $db->prepare("DELETE FROM housekeeping_checklist_items WHERE id = ?");
+            $stmt->execute([$itemId]);
+        }
+        ApiResponse::success(['message' => 'Checklist item deleted']);
     } elseif ($action === 'mark_clean' || $action === 'mark_deep_clean') {
         if (!AuthHelper::can('update_room_status')) {
             ApiResponse::error('Unauthorized to update room status', 403);

@@ -460,6 +460,15 @@ async function deleteLedger(id) {
     if(data.success) location.reload(); else showToast(data.message);
 }
 
+function captureDoc(type) {
+    if (!window.PhotoCapture) return;
+    const mode = type === 'guest_photo' ? 'guest_face' : (type === 'id_proof_back' ? 'id_back' : 'id_front');
+    PhotoCapture.open({
+        mode,
+        onCapture: (_url, file) => uploadDoc(type, { files: [file] })
+    });
+}
+
 async function uploadDoc(type, input) {
     if(!input.files || input.files.length === 0) return;
 
@@ -623,11 +632,33 @@ async function sendPaymentLink(btn) {
 }
 
 async function payViaGateway(btn, gateway = 'razorpay') {
-    if (gateway === 'phonepe') {
-        return sendPaymentLink(btn);
-    }
     const amt = parseFloat(document.getElementById('cp_amount').value);
     if(amt <= 0 || isNaN(amt)) return showToast('Invalid amount');
+
+    if (gateway === 'phonepe') {
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = 'Wait...';
+        btn.disabled = true;
+        try {
+            const res = await fetch('/api/admin/create_phonepe_payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ booking_id: bookingId, amount: amt })
+            });
+            const data = await res.json();
+            if (data.success && data.redirect_url) {
+                window.location.href = data.redirect_url;
+                return;
+            }
+            showToast(data.message || data.error || 'Could not start PhonePe');
+        } catch (e) {
+            showToast('Network error starting PhonePe');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+        }
+        return;
+    }
 
     const date = document.getElementById('cp_date').value;
     const isSplit = document.getElementById('cp_split_toggle').checked;
@@ -661,7 +692,9 @@ async function payViaGateway(btn, gateway = 'razorpay') {
         });
         const orderData = await orderRes.json();
         if(orderData.success) {
-            orderId = orderData.order_id;
+            orderId = orderData.order_id || orderData.data?.order_id;
+            if (orderData.key_id) FOLIO_DATA.razorpayKeyId = orderData.key_id;
+            if (orderData.data?.key_id) FOLIO_DATA.razorpayKeyId = orderData.data.key_id;
         } else {
             showToast('Failed to generate Order ID: ' + (orderData.message || 'Check Razorpay keys.'));
             btn.innerHTML = originalHTML;

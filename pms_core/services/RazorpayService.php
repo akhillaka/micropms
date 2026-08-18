@@ -28,16 +28,34 @@ class RazorpayService {
      * Load gateway config for a property from the database.
      */
     public static function forProperty(\PDO $db, int $propertyId): ?self {
-        $stmt = $db->prepare("
-            SELECT key_id, key_secret, mode
-            FROM payment_gateway_configs
-            WHERE property_id = ? AND gateway = 'razorpay' AND is_active = 1
-        ");
-        $stmt->execute([$propertyId]);
-        $config = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if (!$config) return null;
+        try {
+            $stmt = $db->prepare("
+                SELECT key_id, key_secret, mode
+                FROM payment_gateway_configs
+                WHERE property_id = ? AND gateway = 'razorpay' AND is_active = 1
+            ");
+            $stmt->execute([$propertyId]);
+            $config = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if ($config && trim((string)$config['key_id']) !== '' && trim((string)$config['key_secret']) !== '') {
+                return new self($config['key_id'], $config['key_secret'], ($config['mode'] ?? '') === 'live');
+            }
+        } catch (\Throwable $e) {
+            // Table may not exist yet; fall through to system_settings.
+        }
 
-        return new self($config['key_id'], $config['key_secret'], $config['mode'] === 'live');
+        require_once __DIR__ . '/../config.php';
+        $keyId = trim(get_db_setting($db, 'RAZORPAY_KEY_ID', $propertyId, ''));
+        $keySecret = trim(get_db_setting($db, 'RAZORPAY_KEY_SECRET', $propertyId, ''));
+        if ($keyId === '' && defined('RAZORPAY_KEY_ID')) {
+            $keyId = trim((string)RAZORPAY_KEY_ID);
+        }
+        if ($keySecret === '' && defined('RAZORPAY_KEY_SECRET')) {
+            $keySecret = trim((string)RAZORPAY_KEY_SECRET);
+        }
+        if ($keyId === '' || $keySecret === '') {
+            return null;
+        }
+        return new self($keyId, $keySecret, true);
     }
 
     /**

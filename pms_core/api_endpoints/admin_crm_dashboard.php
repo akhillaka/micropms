@@ -60,7 +60,7 @@ ApiHandler::run(function(\PDO $db) {
         SELECT g.name, g.phone, COUNT(b.id) as booking_count, SUM(b.total_amount) as total_spent
         FROM guests g
         JOIN bookings b ON g.id = b.guest_id
-        WHERE b.status IN ('checked_out', 'confirmed') AND g.property_id = :prop_id AND b.property_id = :prop_id
+        WHERE b.booking_status IN ('checked_out', 'checked_in', 'booked') AND g.property_id = :prop_id AND b.property_id = :prop_id
         GROUP BY g.id
         ORDER BY total_spent DESC
         LIMIT 5

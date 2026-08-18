@@ -6,12 +6,9 @@ require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 
-
-
-
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('void_folio_item');
-$data = json_decode(file_get_contents('php://input'), true);
+$data = ApiHandler::getJsonInput();
 $ledgerId = $data['ledger_id'] ?? 0;
 if (!$ledgerId) {
     ApiResponse::error('Missing ledger ID');

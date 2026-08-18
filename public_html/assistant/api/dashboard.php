@@ -116,6 +116,7 @@ ApiHandler::run(function(\PDO $db) {
             g.phone as guest_phone,
             g.id_proof_front,
             g.id_proof_back,
+            g.photo as guest_photo,
             COALESCE(fl_agg.balance, 0) as balance
         FROM bookings b
         JOIN rooms r ON b.room_id = r.id

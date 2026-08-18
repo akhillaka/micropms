@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 // Always use absolute base — SCRIPT_NAME is '/router.php' when served through the router,
 // so dynamic strpos-based detection breaks. Hardcode the admin path.
 $adminBaseUrl = '/admin/';

@@ -50,8 +50,10 @@ class BookingAssistant {
 
     // Camera/OCR State
     this.mediaStream = null;
-    this.activeScanSide = 'front'; // 'front', 'back', 'photo'
-    this.scanType = 'physical'; // 'physical', 'whatsapp', 'other'
+    this.activeScanSide = 'front'; // 'front', 'back', 'face'
+    this.scanType = 'physical'; // 'physical', 'whatsapp', 'other', 'face'
+    this.actionSheetCapture = false;
+    this.wizardFaceContinue = false;
 
     // History filter
     this.historyFilter = 'today';
@@ -895,16 +897,7 @@ class BookingAssistant {
       if (res && res.success && res.bookings) {
         const booking = res.bookings.find(b => b.id === bookingId);
         if (booking) {
-          this.openBookingActionsSheet(
-            booking.id,
-            booking.guest_name,
-            booking.room_number,
-            booking.booking_status,
-            booking.guest_id,
-            booking.id_proof_front || '',
-            booking.id_proof_back || '',
-            booking.check_out
-          );
+          this.openBookingActionsSheet(booking);
         } else {
           this.showToast('Booking not found', 'danger');
         }
@@ -1264,20 +1257,69 @@ class BookingAssistant {
   }
 
   // --- STEP 3: IDENTITY SCANNER ---
+  documentUrl(filename) {
+    if (!filename) return '';
+    if (window.PhotoCapture) return PhotoCapture.documentUrl(filename);
+    return '/api/admin/view_document?file=' + encodeURIComponent(filename);
+  }
+
+  scanIdType() {
+    if (this.activeScanSide === 'face') return 'guest_photo';
+    return this.activeScanSide === 'back' ? 'id_proof_back' : 'id_proof_front';
+  }
+
   openIdScanner(type) {
     this.scanType = type;
-    
-    if (type === 'physical' || type === 'other') {
-      this.activeScanSide = 'front';
-      document.getElementById('camera-title').textContent = type === 'physical' ? 'Scan Aadhaar (Front)' : 'Scan ID Card';
-      document.getElementById('camera-guide-text').textContent = type === 'physical' ? 'Align Aadhaar FRONT' : 'Align ID Card';
+
+    if (type === 'whatsapp') {
+      document.getElementById('file-upload-input').click();
+      return;
+    }
+
+    if (type === 'face') {
+      this.activeScanSide = 'face';
+      this.missingIdMode = true;
+    } else if (type === 'physical' || type === 'other') {
+      if (this.activeScanSide !== 'back') this.activeScanSide = 'front';
+      if (!this.actionSheetCapture) this.missingIdMode = false;
+    }
+
+    const mode = this.activeScanSide === 'face' ? 'guest_face' : (this.activeScanSide === 'back' ? 'id_back' : 'id_front');
+    const speakMap = {
+      guest_face: 'Center the guest face in the oval. Look at the camera.',
+      id_back: 'Fill the card frame. Capture the back of the ID. Avoid glare.',
+      id_front: 'Fill the card frame. Avoid glare. Hold still.'
+    };
+    Voice.speak(speakMap[mode] || speakMap.id_front);
+
+    if (window.PhotoCapture) {
+      PhotoCapture.open({
+        mode,
+        onCapture: (dataUrl) => {
+          if (this.missingIdMode || this.activeScanSide === 'face') {
+            this.missingIdMode = false;
+            this.uploadCapturedImage(dataUrl);
+          } else {
+            this.runOcrProcess(dataUrl);
+          }
+        },
+        onCancel: () => {
+          if (this.wizardFaceContinue) {
+            this.wizardFaceContinue = false;
+            this.nextWizardStep(4);
+          }
+        }
+      });
+      return;
+    }
+
+    if (type === 'physical' || type === 'other' || type === 'face') {
+      const titleEl = document.getElementById('camera-title');
+      const guideEl = document.getElementById('camera-guide-text');
+      if (titleEl) titleEl.textContent = type === 'face' ? 'Capture Guest Photo' : (type === 'physical' ? 'Scan Aadhaar' : 'Scan ID Card');
+      if (guideEl) guideEl.textContent = type === 'face' ? 'Center the face in the oval' : 'Fill the card frame. Avoid glare.';
       document.getElementById('camera-popup').classList.add('active');
       this.initCameraStream();
-      
-      Voice.speak(`Please capture the front of the ID card.`);
-    } else if (type === 'whatsapp') {
-      // WhatsApp upload uses Gallery direct file picker
-      document.getElementById('file-upload-input').click();
     }
   }
 
@@ -1361,13 +1403,25 @@ class BookingAssistant {
       const res = await this.apiCall('api/ocr_upload.php', {
         image: base64Data,
         guest_id: this.wizardData.guest_id,
-        id_type: this.activeScanSide === 'front' ? 'id_proof_front' : 'id_proof_back'
+        id_type: this.scanIdType()
       }, { queueOffline: true, queueKind: 'upload', queueLabel: 'ID proof upload' });
       this.hideLoading();
 
       if (res && (res.success || res.queued)) {
-        this.showToast(res.queued ? 'Offline: ID queued for upload' : 'ID proof uploaded successfully!', res.queued ? 'info' : 'success');
-        Voice.speak(res.queued ? 'Saved offline. Will upload later.' : 'ID proof uploaded successfully.');
+        const savedRef = res.queued ? 'queued-image' : res.filename;
+        this.showToast(res.queued ? 'Offline: photo queued for upload' : 'Photo uploaded successfully!', res.queued ? 'info' : 'success');
+        Voice.speak(res.queued ? 'Saved offline. Will upload later.' : 'Photo uploaded successfully.');
+        if (this.actionSheetCapture) {
+          this.storeActionFilename(this.scanIdType(), savedRef);
+          this.refreshActionIdPreviews();
+          this.actionSheetCapture = false;
+        } else if (this.activeScanSide === 'face') {
+          this.wizardData.photo = savedRef;
+          if (this.wizardFaceContinue) {
+            this.wizardFaceContinue = false;
+            this.nextWizardStep(4);
+          }
+        }
         this.loadDashboardData();
       } else {
         this.showToast(res?.message || res?.error || 'Upload failed', 'danger');
@@ -1482,7 +1536,12 @@ class BookingAssistant {
           name: ocr.name || this.wizardData.guest_name,
           phone: ocr.mobile || this.wizardData.guest_phone,
           address: ocr.address || '',
-          pincode: ocr.pincode || ''
+          pincode: ocr.pincode || '',
+          id_number: ocr.id_number || '',
+          id_type: ocr.id_type || '',
+          gender: ocr.gender || '',
+          dob: ocr.dob || '',
+          age: ocr.age || ''
         }).catch(err => console.warn('[OCR Sync Warning]', err));
       }
     }
@@ -1514,7 +1573,7 @@ class BookingAssistant {
             this.wizardData.id_proof_front = savedRef;
           }
           this.wizardData.id_status = uploadRes.queued ? 'Offline Draft' : 'Verified';
-          this.nextWizardStep(4);
+          this.promptGuestPhotoThenContinue();
           this.showToast(uploadRes.queued ? 'Offline: ID saved and will upload when online' : 'ID Verification completed', uploadRes.queued ? 'info' : 'success');
         }
       }
@@ -1529,6 +1588,16 @@ class BookingAssistant {
     this.nextWizardStep(4);
     this.showToast('ID Verification skipped. Booking marked ID Pending.', 'warning');
     Voice.speak('Verification skipped. Enter stay details.');
+  }
+
+  promptGuestPhotoThenContinue() {
+    if (!this.wizardData.guest_id) {
+      this.nextWizardStep(4);
+      return;
+    }
+    this.wizardFaceContinue = true;
+    this.showToast('Now capture guest photo, or close to skip.', 'info');
+    this.openIdScanner('face');
   }
 
   // --- STEP 4: ROOM SELECTION ---
@@ -2557,7 +2626,7 @@ class BookingAssistant {
               Razorpay
             </button>` : ''}
           ${this.activeGateways.some(g => g.gateway === 'phonepe') ? `
-            <button type="button" onclick="app.sendAssistantPaymentLink()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border:2px solid #5b21b6;border-radius:10px;background:#5b21b6;font-weight:800;font-size:0.85rem;color:white;cursor:pointer;">
+            <button type="button" onclick="app.payViaPhonePe()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border:2px solid #5b21b6;border-radius:10px;background:#5b21b6;font-weight:800;font-size:0.85rem;color:white;cursor:pointer;">
               PhonePe
             </button>` : ''}
           ${this.activeGateways.length ? `
@@ -2773,6 +2842,29 @@ class BookingAssistant {
     }
   }
 
+  async payViaPhonePe() {
+    const amt = parseFloat(document.getElementById('quick-payment-amount')?.value) || 0;
+    if (amt <= 0) return this.showToast('Amount must be greater than zero', 'danger');
+    if (!this.activePaymentBookingId) return this.showToast('No booking selected', 'warning');
+
+    this.showLoading('Opening PhonePe...');
+    try {
+      const res = await this.apiCall('/api/admin/create_phonepe_payment', {
+        booking_id: this.activePaymentBookingId,
+        amount: amt
+      });
+      this.hideLoading();
+      if (!res || !res.success || !res.redirect_url) {
+        this.showToast(res.message || res.error || 'Could not start PhonePe', 'danger');
+        return;
+      }
+      window.location.href = res.redirect_url;
+    } catch (e) {
+      this.hideLoading();
+      this.showToast('Network error starting PhonePe', 'danger');
+    }
+  }
+
   async payViaRazorpay() {
     const amt = parseFloat(document.getElementById('quick-payment-amount')?.value) || 0;
     if (amt <= 0) return this.showToast('Amount must be greater than zero', 'danger');
@@ -2888,18 +2980,8 @@ class BookingAssistant {
   startIdCameraCapture(side, guestId) {
     this.activeScanSide = side;
     this.wizardData.guest_id = guestId;
-    this.missingIdMode = true; // Flag to skip OCR and just upload
-    
-    // Open camera popup
-    const popup = document.getElementById('camera-popup');
-    if (popup) {
-      popup.classList.add('active');
-      this.initCameraStream();
-      Voice.speak('Please capture the front of the ID card.');
-    } else {
-      // Fallback to file upload
-      this.triggerIdFileUpload(side, guestId);
-    }
+    this.missingIdMode = true;
+    this.openIdScanner(side === 'face' ? 'face' : 'other');
   }
 
   triggerIdFileUpload(side, guestId) {
@@ -2931,7 +3013,7 @@ class BookingAssistant {
       });
       const res = await this.apiCall('api/ocr_upload.php', {
         guest_id: guestId,
-        id_type: side === 'front' ? 'id_proof_front' : 'id_proof_back',
+        id_type: side === 'face' ? 'guest_photo' : (side === 'back' ? 'id_proof_back' : 'id_proof_front'),
         image: image
       }, { queueOffline: true, queueKind: 'upload', queueLabel: 'ID proof upload' });
       this.hideLoading();
@@ -3043,6 +3125,7 @@ class BookingAssistant {
     this.activeActionGuestId = b.guest_id || 0;
     this.activeActionIdFront = b.id_proof_front || '';
     this.activeActionIdBack = b.id_proof_back || '';
+    this.activeActionIdPhoto = b.guest_photo || b.photo || '';
     this.activeActionCheckOut = b.check_out || '';
     this.activeActionCheckIn = b.check_in || '';
     this.activeActionBooking = b;
@@ -3258,28 +3341,37 @@ class BookingAssistant {
     }
   }
 
+  storeActionFilename(idType, filename) {
+    if (idType === 'id_proof_front') this.activeActionIdFront = filename;
+    else if (idType === 'id_proof_back') this.activeActionIdBack = filename;
+    else if (idType === 'guest_photo' || idType === 'photo') this.activeActionIdPhoto = filename;
+  }
+
   refreshActionIdPreviews() {
     const frontPreview = document.getElementById('action-id-front-preview');
     const backPreview = document.getElementById('action-id-back-preview');
+    const photoPreview = document.getElementById('action-id-photo-preview');
     const statusText = document.getElementById('action-sheet-id-status');
 
     if (frontPreview && backPreview && statusText) {
       const frontFilename = this.activeActionIdFront || '';
       const backFilename = this.activeActionIdBack || '';
+      const photoFilename = this.activeActionIdPhoto || '';
       
       const hasFront = frontFilename.trim().length > 0;
       const hasBack = backFilename.trim().length > 0;
+      const hasPhoto = photoFilename.trim().length > 0;
 
       if (hasFront && hasBack) {
         statusText.className = 'badge badge-success';
-        statusText.textContent = 'Verified';
+        statusText.textContent = hasPhoto ? 'Verified' : 'ID only';
       } else {
         statusText.className = 'badge badge-danger';
         statusText.textContent = 'Missing ID';
       }
 
       if (hasFront) {
-        frontPreview.innerHTML = `<img src="/api/admin/view_document?file=${frontFilename}" style="width:100%; height:100%; object-fit:cover;">`;
+        frontPreview.innerHTML = `<img src="${this.documentUrl(frontFilename)}" style="width:100%; height:100%; object-fit:cover;">`;
       } else {
         frontPreview.innerHTML = `
           <i class="lucide-image" style="font-size: 1.5rem; color: var(--color-text-muted);"></i>
@@ -3288,12 +3380,23 @@ class BookingAssistant {
       }
 
       if (hasBack) {
-        backPreview.innerHTML = `<img src="/api/admin/view_document?file=${backFilename}" style="width:100%; height:100%; object-fit:cover;">`;
+        backPreview.innerHTML = `<img src="${this.documentUrl(backFilename)}" style="width:100%; height:100%; object-fit:cover;">`;
       } else {
         backPreview.innerHTML = `
           <i class="lucide-image" style="font-size: 1.5rem; color: var(--color-text-muted);"></i>
           <span style="font-size: 0.75rem; color: var(--color-text-secondary); margin-top: 4px; font-weight:700;">Back Image</span>
         `;
+      }
+
+      if (photoPreview) {
+        if (hasPhoto) {
+          photoPreview.innerHTML = `<img src="${this.documentUrl(photoFilename)}" style="width:100%; height:100%; object-fit:cover;">`;
+        } else {
+          photoPreview.innerHTML = `
+            <span style="font-size: 1.3rem;">👤</span>
+            <span style="font-size: 0.75rem; color: var(--color-text-secondary); margin-top: 2px; font-weight:700;">Guest Photo</span>
+          `;
+        }
       }
     }
   }
@@ -3301,8 +3404,9 @@ class BookingAssistant {
   showIdProofOptions(idType) {
     this.currentIdProofType = idType;
     const viewBtn = document.getElementById('btn-id-view');
-    const hasImage = (idType === 'id_proof_front' && this.activeActionIdFront) || 
-                     (idType === 'id_proof_back' && this.activeActionIdBack);
+    const hasImage = (idType === 'id_proof_front' && this.activeActionIdFront) ||
+                     (idType === 'id_proof_back' && this.activeActionIdBack) ||
+                     ((idType === 'guest_photo' || idType === 'photo') && this.activeActionIdPhoto);
     
     viewBtn.style.display = hasImage ? 'block' : 'none';
     document.getElementById('id-proof-options-popup').classList.add('active');
@@ -3313,29 +3417,58 @@ class BookingAssistant {
     document.getElementById('id-proof-options-popup').classList.remove('active');
   }
 
+  actionFilenameForType(idType) {
+    if (idType === 'id_proof_front') return this.activeActionIdFront;
+    if (idType === 'id_proof_back') return this.activeActionIdBack;
+    return this.activeActionIdPhoto;
+  }
+
   viewIdProof() {
     this.closeIdProofOptions();
-    const filename = this.currentIdProofType === 'id_proof_front' ? this.activeActionIdFront : this.activeActionIdBack;
-    if (filename) {
-      window.open(`/api/admin/view_document?file=${filename}`, '_blank');
+    const filename = this.actionFilenameForType(this.currentIdProofType);
+    if (filename) this.openImageViewer(this.documentUrl(filename));
+  }
+
+  openImageViewer(src) {
+    const modal = document.getElementById('image-viewer-modal');
+    const img = document.getElementById('viewer-image');
+    if (modal && img && src) {
+      img.src = src;
+      modal.classList.add('active');
     }
+  }
+
+  closeImageViewer(event) {
+    if (event && event.target !== event.currentTarget) return;
+    const modal = document.getElementById('image-viewer-modal');
+    const img = document.getElementById('viewer-image');
+    if (modal) modal.classList.remove('active');
+    if (img) img.src = '';
   }
 
   triggerIdCamera() {
     this.closeIdProofOptions();
-    if (this.currentIdProofType === 'id_proof_front') {
-      document.getElementById('action-id-front-camera').click();
-    } else {
-      document.getElementById('action-id-back-camera').click();
+    if (!this.activeActionGuestId) {
+      this.showToast('No active guest linked to this booking', 'warning');
+      return;
     }
+    this.actionSheetCapture = true;
+    this.wizardData.guest_id = this.activeActionGuestId;
+    this.missingIdMode = true;
+    if (this.currentIdProofType === 'id_proof_back') this.activeScanSide = 'back';
+    else if (this.currentIdProofType === 'guest_photo' || this.currentIdProofType === 'photo') this.activeScanSide = 'face';
+    else this.activeScanSide = 'front';
+    this.openIdScanner(this.activeScanSide === 'face' ? 'face' : 'other');
   }
 
   triggerIdUpload() {
     this.closeIdProofOptions();
     if (this.currentIdProofType === 'id_proof_front') {
       document.getElementById('action-id-front-picker').click();
-    } else {
+    } else if (this.currentIdProofType === 'id_proof_back') {
       document.getElementById('action-id-back-picker').click();
+    } else {
+      document.getElementById('action-id-photo-picker').click();
     }
   }
 
@@ -3346,7 +3479,7 @@ class BookingAssistant {
       return;
     }
 
-    this.showLoading('Uploading ID Proof...');
+    this.showLoading('Uploading photo...');
     const formData = new FormData();
     formData.append('guest_id', this.activeActionGuestId);
     formData.append('id_type', idType);
@@ -3361,18 +3494,12 @@ class BookingAssistant {
       this.hideLoading();
 
       if (res && res.success) {
-        this.showToast('ID Proof updated successfully', 'success');
-        Voice.speak('ID proof uploaded successfully.');
-        
-        if (idType === 'id_proof_front') {
-          this.activeActionIdFront = res.filename;
-        } else if (idType === 'id_proof_back') {
-          this.activeActionIdBack = res.filename;
-        }
-        
+        this.showToast('Photo updated successfully', 'success');
+        Voice.speak('Photo uploaded successfully.');
+        this.storeActionFilename(idType, res.filename);
         this.refreshActionIdPreviews();
-        this.loadBookingHistory(); // Reload history cache
-        this.loadDashboardData();  // Update statistics
+        this.loadBookingHistory();
+        this.loadDashboardData();
       } else {
         this.showToast(res.message || 'Upload failed', 'danger');
       }

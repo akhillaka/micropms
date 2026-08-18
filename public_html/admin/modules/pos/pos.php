@@ -91,6 +91,12 @@ $bookingsStmt = $db->prepare("
 $bookingsStmt->execute([$propertyId]);
 $activeBookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
 $posPaymentMethods = get_payment_methods($db, (int)$propertyId);
+foreach (get_active_payment_gateways($db, (int)$propertyId) as $gw) {
+    $label = $gw['gateway'] === 'phonepe' ? 'PhonePe' : 'Razorpay';
+    if (!in_array($label, $posPaymentMethods, true)) {
+        $posPaymentMethods[] = $label;
+    }
+}
 $renderPosPaymentOptions = static function (array $methods): void {
     foreach ($methods as $pm) {
         echo '<option value="' . htmlspecialchars((string)$pm, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars((string)$pm) . '</option>';
@@ -1409,8 +1415,6 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
             });
             document.getElementById('edit_order_grand_total').textContent = '₹' + total.toFixed(2);
         }
-
-
 
         function updateEditOrderQty(index, change) {
             const item = editOrderCart[index];

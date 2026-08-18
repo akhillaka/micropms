@@ -5,8 +5,10 @@ require_once __DIR__ . '/../Database.php';
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/FolioService.php';
 require_once __DIR__ . '/CheckoutService.php';
+require_once __DIR__ . '/TelegramDeskFlows.php';
 
 class TelegramOperationsHandler {
+    use TelegramDeskFlows;
     private $botToken;
     private $allowedChatIds;
     private $db;
@@ -43,6 +45,17 @@ class TelegramOperationsHandler {
             return;
         }
 
+        $fileId = $this->telegramFileIdFromMessage($message);
+        if ($fileId !== '') {
+            if ($this->handleIncomingMedia($chatId, $message)) {
+                return;
+            }
+            if ($text === '') {
+                $this->sendMessage($chatId, "Photos are used for ID proof. Open *ID Proof* from the menu, or type the text this step is asking for.");
+                return;
+            }
+        }
+
         if ($text === '/start') {
             $this->clearSession($chatId);
             $this->sendMainMenu($chatId);
@@ -61,6 +74,9 @@ class TelegramOperationsHandler {
         // Check if there is an active session state
         $session = $this->getSession($chatId);
         if ($session) {
+            if ($this->handleDeskStatefulInput($chatId, $text, $session)) {
+                return;
+            }
             $this->handleStatefulInput($chatId, $text, $session);
         } else {
             $this->sendMessage($chatId, "I didn't understand that. Type /start to open the menu.");
@@ -87,36 +103,104 @@ class TelegramOperationsHandler {
         }
 
         if ($data === 'cmd_room_status') {
+            if (!$this->requireAction($chatId, 'room_status')) return;
             $this->handleRoomStatus($chatId);
-        } elseif ($data === 'cmd_add_payment') {
-            $this->startAddPaymentFlow($chatId);
-        } elseif (strpos($data, 'pay_room_') === 0) {
-            $roomId = (int)str_replace('pay_room_', '', $data);
-            $this->askPaymentMethod($chatId, $roomId);
-        } elseif (strpos($data, 'pay_method_') === 0) {
-            $method = str_replace('pay_method_', '', $data);
-            $this->askPaymentAmount($chatId, $method);
-        } elseif ($data === 'cmd_quick_checkout') {
-            $this->startQuickCheckoutFlow($chatId);
-        } elseif (strpos($data, 'checkout_room_') === 0) {
-            $roomId = (int)str_replace('checkout_room_', '', $data);
-            $this->processQuickCheckout($chatId, $roomId);
-        } elseif ($data === 'cmd_extend_stay') {
-            $this->startExtendStayFlow($chatId);
-        } elseif (strpos($data, 'extend_room_') === 0) {
-            $roomId = (int)str_replace('extend_room_', '', $data);
-            $this->askExtendStayDays($chatId, $roomId);
+        } elseif ($data === 'cmd_add_payment' || strpos($data, 'pay_room_') === 0 || strpos($data, 'pay_method_') === 0) {
+            if (!$this->requireAction($chatId, 'add_payment')) return;
+            if ($data === 'cmd_add_payment') {
+                $this->startAddPaymentFlow($chatId);
+            } elseif (strpos($data, 'pay_room_') === 0) {
+                $this->askPaymentMethod($chatId, (int)str_replace('pay_room_', '', $data));
+            } else {
+                $this->askPaymentAmount($chatId, str_replace('pay_method_', '', $data));
+            }
+        } elseif ($data === 'cmd_quick_checkout' || strpos($data, 'checkout_room_') === 0) {
+            if (!$this->requireAction($chatId, 'quick_checkout')) return;
+            if ($data === 'cmd_quick_checkout') {
+                $this->startQuickCheckoutFlow($chatId);
+            } else {
+                $this->processQuickCheckout($chatId, (int)str_replace('checkout_room_', '', $data));
+            }
+        } elseif ($data === 'cmd_extend_stay' || strpos($data, 'extend_room_') === 0) {
+            if (!$this->requireAction($chatId, 'extend_stay')) return;
+            if ($data === 'cmd_extend_stay') {
+                $this->startExtendStayFlow($chatId);
+            } else {
+                $this->askExtendStayDays($chatId, (int)str_replace('extend_room_', '', $data));
+            }
         } elseif ($data === 'cmd_today_revenue') {
+            if (!$this->requireAction($chatId, 'today_revenue')) return;
             $this->handleTodayRevenue($chatId);
         } elseif ($data === 'cmd_arrivals_today') {
+            if (!$this->requireAction($chatId, 'arrivals')) return;
             $this->handleArrivalsToday($chatId);
         } elseif ($data === 'cmd_departures_today') {
+            if (!$this->requireAction($chatId, 'departures')) return;
             $this->handleDeparturesToday($chatId);
-        } elseif ($data === 'cmd_mark_room_clean') {
-            $this->startMarkRoomCleanFlow($chatId);
-        } elseif (strpos($data, 'clean_room_') === 0) {
-            $roomId = (int)str_replace('clean_room_', '', $data);
-            $this->processMarkRoomClean($chatId, $roomId);
+        } elseif ($data === 'cmd_mark_room_clean' || strpos($data, 'clean_room_') === 0) {
+            if (!$this->requireAction($chatId, 'mark_room_clean')) return;
+            if ($data === 'cmd_mark_room_clean') {
+                $this->startMarkRoomCleanFlow($chatId);
+            } else {
+                $this->processMarkRoomClean($chatId, (int)str_replace('clean_room_', '', $data));
+            }
+        } elseif ($data === 'cmd_new_booking') {
+            if (!$this->requireAction($chatId, 'create_booking')) return;
+            $this->startNewBookingFlow($chatId);
+        } elseif ($data === 'nb_in_today' || $data === 'nb_in_tom') {
+            if (!$this->requireAction($chatId, 'create_booking')) return;
+            $session = $this->getSession($chatId);
+            $context = $session ? (json_decode((string)$session['context_data'], true) ?: []) : [];
+            $date = $data === 'nb_in_today' ? date('Y-m-d') : date('Y-m-d', strtotime('+1 day'));
+            $this->askNewBookingNights($chatId, $context, $date);
+        } elseif (preg_match('/^nb_n(\d+)$/', $data, $m)) {
+            if (!$this->requireAction($chatId, 'create_booking')) return;
+            $session = $this->getSession($chatId);
+            $context = $session ? (json_decode((string)$session['context_data'], true) ?: []) : [];
+            $this->showAvailableRoomsForNewBooking($chatId, $context, (int)$m[1]);
+        } elseif (strpos($data, 'nb_r') === 0) {
+            if (!$this->requireAction($chatId, 'create_booking')) return;
+            $this->confirmCreateBooking($chatId, (int)substr($data, 4));
+        } elseif ($data === 'nb_ci' || $data === 'nb_id' || $data === 'nb_pay') {
+            $map = ['nb_ci' => 'check_in', 'nb_id' => 'id_proof', 'nb_pay' => 'add_payment'];
+            if (!$this->requireAction($chatId, $map[$data])) return;
+            $this->continueAfterCreate($chatId, str_replace('nb_', '', $data));
+        } elseif ($data === 'cmd_check_in' || strpos($data, 'ci_room_') === 0) {
+            if (!$this->requireAction($chatId, 'check_in')) return;
+            if ($data === 'cmd_check_in') {
+                $this->startCheckInFlow($chatId);
+            } else {
+                $this->processQuickCheckIn($chatId, (int)str_replace('ci_room_', '', $data));
+            }
+        } elseif ($data === 'cmd_edit_booking' || strpos($data, 'eb_room_') === 0) {
+            if (!$this->requireAction($chatId, 'edit_booking')) return;
+            if ($data === 'cmd_edit_booking') {
+                $this->startEditBookingFlow($chatId);
+            } else {
+                $this->showEditMenu($chatId, (int)str_replace('eb_room_', '', $data));
+            }
+        } elseif ($data === 'eb_dates') {
+            if (!$this->requireAction($chatId, 'edit_booking')) return;
+            $this->beginEditDates($chatId);
+        } elseif ($data === 'eb_chgroom') {
+            if (!$this->requireAction($chatId, 'edit_booking')) return;
+            $this->beginChangeRoom($chatId);
+        } elseif ($data === 'eb_guest') {
+            if (!$this->requireAction($chatId, 'edit_booking')) return;
+            $this->beginEditGuest($chatId);
+        } elseif (strpos($data, 'eb_r') === 0) {
+            if (!$this->requireAction($chatId, 'edit_booking')) return;
+            $this->applyChangeRoom($chatId, (int)substr($data, 4));
+        } elseif ($data === 'cmd_id_proof' || strpos($data, 'id_room_') === 0) {
+            if (!$this->requireAction($chatId, 'id_proof')) return;
+            if ($data === 'cmd_id_proof') {
+                $this->startIdProofFlow($chatId);
+            } else {
+                $this->beginIdCapture($chatId, (int)str_replace('id_room_', '', $data));
+            }
+        } elseif ($data === 'id_skip') {
+            if (!$this->requireAction($chatId, 'id_proof')) return;
+            $this->skipIdBack($chatId);
         } else {
             $this->sendMessage($chatId, "Unknown command.");
         }
@@ -124,6 +208,10 @@ class TelegramOperationsHandler {
 
     private function handleStatefulInput(string $chatId, string $text, array $session) {
         if ($session['state'] === 'AWAITING_PAYMENT_AMOUNT') {
+            if (!$this->requireAction($chatId, 'add_payment')) {
+                $this->clearSession($chatId);
+                return;
+            }
             $amount = (float)$text;
             if ($amount <= 0) {
                 $this->sendMessage($chatId, "Please enter a valid amount greater than 0.");
@@ -157,6 +245,10 @@ class TelegramOperationsHandler {
                 $this->sendMessage($chatId, "Error adding payment: " . $e->getMessage());
             }
         } elseif ($session['state'] === 'AWAITING_EXTEND_DAYS') {
+            if (!$this->requireAction($chatId, 'extend_stay')) {
+                $this->clearSession($chatId);
+                return;
+            }
             $days = (int)$text;
             if ($days <= 0) {
                 $this->sendMessage($chatId, "Please enter a valid number of days greater than 0.");
@@ -197,27 +289,63 @@ class TelegramOperationsHandler {
     }
 
     private function sendMainMenu(string $chatId) {
-        $text = "🏨 *MicroPMS Operations Menu*\nPlease choose an action:";
-        $keyboard = [
-            'inline_keyboard' => [
-                [
-                    ['text' => '🛏 Room Status', 'callback_data' => 'cmd_room_status'],
-                    ['text' => '💰 Add Payment', 'callback_data' => 'cmd_add_payment']
-                ],
-                [
-                    ['text' => '🚪 Quick Check-Out', 'callback_data' => 'cmd_quick_checkout'],
-                    ['text' => '📅 Extend Stay', 'callback_data' => 'cmd_extend_stay']
-                ],
-                [
-                    ['text' => '📊 Today\'s Revenue', 'callback_data' => 'cmd_today_revenue'],
-                    ['text' => '🧽 Mark Room Clean', 'callback_data' => 'cmd_mark_room_clean']
-                ],
-                [
-                    ['text' => '🛬 Arrivals Today', 'callback_data' => 'cmd_arrivals_today'],
-                    ['text' => '🛫 Departures Today', 'callback_data' => 'cmd_departures_today']
-                ]
-            ]
-        ];
+        $role = $this->getUserRole($chatId);
+        $text = "🏨 *MicroPMS Operations Menu*\nRole: `" . $role . "`\nPlease choose an action:";
+
+        $buttons = [];
+        if ($this->roleAllows($role, 'create_booking')) {
+            $buttons[] = ['text' => '📝 New Booking', 'callback_data' => 'cmd_new_booking'];
+        }
+        if ($this->roleAllows($role, 'edit_booking')) {
+            $buttons[] = ['text' => '✏️ Edit Stay', 'callback_data' => 'cmd_edit_booking'];
+        }
+        if ($this->roleAllows($role, 'check_in')) {
+            $buttons[] = ['text' => '🔑 Check-In', 'callback_data' => 'cmd_check_in'];
+        }
+        if ($this->roleAllows($role, 'id_proof')) {
+            $buttons[] = ['text' => '🪪 ID Proof', 'callback_data' => 'cmd_id_proof'];
+        }
+        if ($this->roleAllows($role, 'room_status')) {
+            $buttons[] = ['text' => '🛏 Room Status', 'callback_data' => 'cmd_room_status'];
+        }
+        if ($this->roleAllows($role, 'add_payment')) {
+            $buttons[] = ['text' => '💰 Add Payment', 'callback_data' => 'cmd_add_payment'];
+        }
+        if ($this->roleAllows($role, 'quick_checkout')) {
+            $buttons[] = ['text' => '🚪 Quick Check-Out', 'callback_data' => 'cmd_quick_checkout'];
+        }
+        if ($this->roleAllows($role, 'extend_stay')) {
+            $buttons[] = ['text' => '📅 Extend Stay', 'callback_data' => 'cmd_extend_stay'];
+        }
+        if ($this->roleAllows($role, 'today_revenue')) {
+            $buttons[] = ['text' => "📊 Today's Revenue", 'callback_data' => 'cmd_today_revenue'];
+        }
+        if ($this->roleAllows($role, 'mark_room_clean')) {
+            $buttons[] = ['text' => '🧽 Mark Room Clean', 'callback_data' => 'cmd_mark_room_clean'];
+        }
+        if ($this->roleAllows($role, 'arrivals')) {
+            $buttons[] = ['text' => '🛬 Arrivals Today', 'callback_data' => 'cmd_arrivals_today'];
+        }
+        if ($this->roleAllows($role, 'departures')) {
+            $buttons[] = ['text' => '🛫 Departures Today', 'callback_data' => 'cmd_departures_today'];
+        }
+
+        $keyboard = ['inline_keyboard' => []];
+        $row = [];
+        foreach ($buttons as $btn) {
+            $row[] = $btn;
+            if (count($row) === 2) {
+                $keyboard['inline_keyboard'][] = $row;
+                $row = [];
+            }
+        }
+        if (!empty($row)) {
+            $keyboard['inline_keyboard'][] = $row;
+        }
+        if (empty($keyboard['inline_keyboard'])) {
+            $this->sendMessage($chatId, "Authorized, but no operations are mapped to your role (`$role`). Ask an admin to set TELEGRAM_ROLES.");
+            return;
+        }
         $this->sendMessage($chatId, $text, $keyboard);
     }
 
@@ -262,19 +390,18 @@ class TelegramOperationsHandler {
         $propertyId = $this->getPropertyIdForChat($chatId);
         if (!$propertyId) return;
 
-        // Fetch checked in rooms
         $stmt = $this->db->prepare("
             SELECT b.id as booking_id, r.id as room_id, r.room_number, g.name 
             FROM bookings b 
             JOIN rooms r ON b.room_id = r.id 
             JOIN guests g ON b.guest_id = g.id
-            WHERE b.property_id = ? AND b.booking_status = 'checked_in'
+            WHERE b.property_id = ? AND b.booking_status IN ('booked', 'checked_in') AND b.payment_status != 'cancelled'
         ");
         $stmt->execute([$propertyId]);
         $bookings = $stmt->fetchAll();
 
         if (empty($bookings)) {
-            $this->sendMessage($chatId, "No checked-in rooms found to add payments.");
+            $this->sendMessage($chatId, "No booked or checked-in rooms found to add payments.");
             return;
         }
 
@@ -301,7 +428,10 @@ class TelegramOperationsHandler {
         
         $stmt = $this->db->prepare("
             SELECT b.id, r.room_number FROM bookings b JOIN rooms r ON b.room_id = r.id 
-            WHERE r.id = ? AND b.booking_status = 'checked_in' AND b.property_id = ?
+            WHERE r.id = ? AND b.booking_status IN ('booked', 'checked_in') AND b.property_id = ?
+              AND b.payment_status != 'cancelled'
+            ORDER BY b.id DESC
+            LIMIT 1
         ");
         $stmt->execute([$roomId, $propertyId]);
         $booking = $stmt->fetch();
@@ -320,12 +450,7 @@ class TelegramOperationsHandler {
 
         $keyboard = ['inline_keyboard' => []];
         $methods = [];
-        if (function_exists('get_payment_methods')) {
-            $methods = get_payment_methods($this->db, $propertyId);
-        } else {
-            require_once __DIR__ . '/../config.php';
-            $methods = get_payment_methods($this->db, $propertyId);
-        }
+        $methods = get_payment_methods($this->db, $propertyId);
         $row = [];
         foreach ($methods as $m) {
             $row[] = ['text' => $m, 'callback_data' => 'pay_method_' . $m];
@@ -333,6 +458,14 @@ class TelegramOperationsHandler {
                 $keyboard['inline_keyboard'][] = $row;
                 $row = [];
             }
+        }
+        $existing = array_map('strtolower', $methods);
+        $gateways = function_exists('get_active_payment_gateways') ? get_active_payment_gateways($this->db, $propertyId) : [];
+        if (!empty($gateways['razorpay']) && !in_array('razorpay', $existing, true)) {
+            $row[] = ['text' => 'Razorpay link', 'callback_data' => 'pay_method_razorpay'];
+        }
+        if (!empty($gateways['phonepe']) && !in_array('phonepe', $existing, true)) {
+            $row[] = ['text' => 'PhonePe link', 'callback_data' => 'pay_method_phonepe'];
         }
         if ($row !== []) {
             $keyboard['inline_keyboard'][] = $row;
@@ -354,7 +487,10 @@ class TelegramOperationsHandler {
 
         $this->setSession($chatId, 'AWAITING_PAYMENT_AMOUNT', $context);
 
-        $this->sendMessage($chatId, "Method selected: $method\n\nPlease type the amount received (e.g. 1500):");
+        $hint = $this->isOnlineGateway($method)
+            ? "Type the amount to collect. I will send a {$method} pay link (forward it to the guest)."
+            : "Please type the amount received (e.g. 1500):";
+        $this->sendMessage($chatId, "Method selected: $method\n\n$hint");
     }
 
     private function startQuickCheckoutFlow(string $chatId) {
@@ -512,7 +648,7 @@ class TelegramOperationsHandler {
         $stmt = $this->db->prepare("
             SELECT COALESCE(SUM(ABS(amount)), 0) as rev 
             FROM folio_ledger 
-            WHERE property_id = ? AND ledger_type = 'payment' AND DATE(recorded_at) = ?
+            WHERE property_id = ? AND transaction_type = 'payment' AND DATE(recorded_at) = ? AND IFNULL(is_refund, 0) = 0
         ");
         $stmt->execute([$propertyId, $today]);
         $revenue = $stmt->fetchColumn();
@@ -537,7 +673,7 @@ class TelegramOperationsHandler {
             FROM bookings b 
             JOIN rooms r ON b.room_id = r.id 
             JOIN guests g ON b.guest_id = g.id 
-            WHERE b.property_id = ? AND b.check_in = ? AND b.booking_status = 'confirmed'
+            WHERE b.property_id = ? AND DATE(b.check_in) = ? AND b.booking_status IN ('booked', 'confirmed')
         ");
         $stmt->execute([$propertyId, $today]);
         $arrivals = $stmt->fetchAll();
@@ -705,18 +841,42 @@ class TelegramOperationsHandler {
 
     private function getUserRole(string $chatId): string {
         $propertyId = $this->getPropertyIdForChat($chatId);
-        if (!$propertyId) return 'user';
-        
+        if (!$propertyId) return 'staff';
+
         $stmt = $this->db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'TELEGRAM_ROLES'");
         $stmt->execute([$propertyId]);
         $rolesJson = $stmt->fetchColumn();
         if ($rolesJson) {
             $roles = json_decode($rolesJson, true);
-            if (isset($roles[$chatId])) {
-                return $roles[$chatId];
+            if (is_array($roles) && isset($roles[$chatId])) {
+                $role = strtolower(trim((string)$roles[$chatId]));
+                return $role !== '' ? $role : 'staff';
             }
         }
-        return 'user';
+        return 'staff';
+    }
+
+    private function roleAllows(string $role, string $action): bool {
+        $role = strtolower(trim($role));
+        $matrix = [
+            'admin' => ['*'],
+            'manager' => ['room_status', 'add_payment', 'quick_checkout', 'extend_stay', 'today_revenue', 'mark_room_clean', 'arrivals', 'departures', 'create_booking', 'edit_booking', 'check_in', 'id_proof'],
+            'staff' => ['room_status', 'add_payment', 'quick_checkout', 'extend_stay', 'arrivals', 'departures', 'create_booking', 'edit_booking', 'check_in', 'id_proof'],
+            'receptionist' => ['room_status', 'add_payment', 'quick_checkout', 'extend_stay', 'arrivals', 'departures', 'create_booking', 'edit_booking', 'check_in', 'id_proof'],
+            'housekeeping' => ['room_status', 'mark_room_clean'],
+            'hk' => ['room_status', 'mark_room_clean'],
+            'user' => ['room_status', 'add_payment', 'quick_checkout', 'extend_stay', 'arrivals', 'departures', 'create_booking', 'edit_booking', 'check_in', 'id_proof'],
+        ];
+        $allowed = $matrix[$role] ?? $matrix['staff'];
+        return in_array('*', $allowed, true) || in_array($action, $allowed, true);
+    }
+
+    private function requireAction(string $chatId, string $action): bool {
+        if ($this->roleAllows($this->getUserRole($chatId), $action)) {
+            return true;
+        }
+        $this->sendMessage($chatId, "Your Telegram role cannot run this action.");
+        return false;
     }
 
     // --- Utility Methods ---
@@ -732,13 +892,15 @@ class TelegramOperationsHandler {
         return $this->defaultPropertyId;
     }
 
-    private function sendMessage(string $chatId, string $text, array $replyMarkup = []) {
+    private function sendMessage(string $chatId, string $text, array $replyMarkup = [], ?string $parseMode = 'Markdown') {
         $url = 'https://api.telegram.org/bot' . $this->botToken . '/sendMessage';
         $data = [
             'chat_id' => $chatId,
             'text' => $text,
-            'parse_mode' => 'Markdown'
         ];
+        if ($parseMode) {
+            $data['parse_mode'] = $parseMode;
+        }
         if (!empty($replyMarkup)) {
             $data['reply_markup'] = json_encode($replyMarkup);
         }

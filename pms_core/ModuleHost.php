@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 /**
  * Maps Hostinger module hostnames onto app surfaces.
- * Loopback (localhost / 127.0.0.1) stays path-based: /admin, /assistant, /saas-admin.
+ * Loopback and Hostinger preview (*.hostingersite.com) stay path-based: /admin, /assistant, /saas-admin.
+ * Preview SSL is issued only for the apex preview host, not admin.preview.hostingersite.com.
  */
 class ModuleHost {
     public const MODULES = ['guest', 'admin', 'assistant', 'saas'];
@@ -26,8 +27,14 @@ class ModuleHost {
         return $host === '' || in_array($host, ['localhost', '127.0.0.1', '::1'], true);
     }
 
+    public static function isPreviewHost(string $host): bool {
+        $host = self::normalizeHost($host);
+        return $host === 'hostingersite.com' || str_ends_with($host, '.hostingersite.com');
+    }
+
     public static function isPathMode(?string $host = null): bool {
-        return self::isLoopbackHost($host ?? self::currentHost());
+        $host = $host ?? self::currentHost();
+        return self::isLoopbackHost($host) || self::isPreviewHost($host);
     }
 
     public static function baseDomain(?string $host = null): string {
@@ -36,7 +43,7 @@ class ModuleHost {
             return self::normalizeHost($env);
         }
         $host = self::normalizeHost($host ?? self::currentHost());
-        if ($host === '' || self::isLoopbackHost($host)) {
+        if ($host === '' || self::isLoopbackHost($host) || self::isPreviewHost($host)) {
             return '';
         }
         $parts = explode('.', $host);
@@ -51,7 +58,7 @@ class ModuleHost {
      */
     public static function detectModule(string $host, string $baseDomain = ''): string {
         $host = self::normalizeHost($host);
-        if (self::isLoopbackHost($host)) {
+        if (self::isLoopbackHost($host) || self::isPreviewHost($host)) {
             return 'path';
         }
         $baseDomain = $baseDomain !== '' ? self::normalizeHost($baseDomain) : self::baseDomain($host);
@@ -151,7 +158,7 @@ class ModuleHost {
 
     public static function sessionCookieDomain(?string $module = null, ?string $baseDomain = null, ?string $host = null): string {
         $host = self::normalizeHost($host ?? self::currentHost());
-        if (self::isLoopbackHost($host)) {
+        if (self::isLoopbackHost($host) || self::isPreviewHost($host)) {
             return '';
         }
         $module = $module ?? self::detectModule($host, $baseDomain ?? self::baseDomain($host));

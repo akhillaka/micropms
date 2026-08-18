@@ -986,16 +986,19 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 80%;
-  height: 60%;
-  border: 2px dashed rgba(255, 255, 255, 0.5);
-  border-radius: var(--border-radius-sm);
+  width: 86%;
+  aspect-ratio: 1.586 / 1;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  color: rgba(255, 255, 255, 0.7);
-  font-weight: 600;
-  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding-bottom: 8px;
+  text-align: center;
 }
 
 /* ═══════════════════════════════════════════════════════

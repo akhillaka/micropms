@@ -3,11 +3,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../../pms_core/ApiResponse.php';
+require_once __DIR__ . '/../../../pms_core/TenantScope.php';
 
 ApiHandler::run(function(\PDO $db) {
     // Session is checked by ApiHandler
 
-    $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    $data = ApiHandler::getJsonInput();
     
     // Check if multipart/form-data or JSON upload
     $guestId = isset($_POST['guest_id']) ? (int)$_POST['guest_id'] : (isset($data['guest_id']) ? (int)$data['guest_id'] : 0);
@@ -16,6 +17,8 @@ ApiHandler::run(function(\PDO $db) {
     if (!$guestId) {
         ApiResponse::error('Guest ID is required');
     }
+
+    TenantScope::guest($db, $guestId);
     
     $validTypes = ['id_proof_front', 'id_proof_back', 'photo', 'guest_photo'];
     if (!in_array($idType, $validTypes, true)) {
@@ -89,13 +92,14 @@ ApiHandler::run(function(\PDO $db) {
     }
 
     // Update guest profile in DB
-    $stmt = $db->prepare("UPDATE guests SET `{$dbCol}` = :filename WHERE id = :id");
-    $stmt->execute(['filename' => $savedFilename, 'id' => $guestId]);
+    $propertyId = AuthHelper::getPropertyId();
+    $stmt = $db->prepare("UPDATE guests SET `{$dbCol}` = :filename WHERE id = :id AND property_id = :pid");
+    $stmt->execute(['filename' => $savedFilename, 'id' => $guestId, 'pid' => $propertyId]);
 
     ApiResponse::success([
         'message' => 'Document uploaded and linked successfully',
         'filename' => $savedFilename,
-        'url' => '/api/admin/view_document?file=' . $savedFilename
+        'url' => pms_document_url($savedFilename)
     ]);
 
 }, true, true, false);

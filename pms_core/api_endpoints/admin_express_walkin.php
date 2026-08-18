@@ -156,11 +156,12 @@ ApiHandler::run(function(\PDO $db) {
         // Post room charge to folio (separate INSERT statements — no multi-value with reused params)
         $chargeStmt = $db->prepare("
             INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description, property_id)
-            VALUES (:bid, 'ROOM_CHARGE', :amt, 'MANUAL', :desc, :prop_id)
+            VALUES (:bid, 'ROOM_CHARGE', :amt, :ref, :desc, :prop_id)
         ");
         $chargeStmt->execute([
             'bid'  => $bookingId,
             'amt'  => $totalAmount,
+            'ref'  => FolioService::uniqueRef('RC'),
             'desc' => "Room Tariff - {$room['category_name']} ({$durationHours}H Walk-in)",
             'prop_id' => $propertyId
         ]);
@@ -169,11 +170,12 @@ ApiHandler::run(function(\PDO $db) {
         // Post payment entry (separate statement — fixes duplicate named param bug)
         $paymentStmt = $db->prepare("
             INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description, payment_method, property_id)
-            VALUES (:bid, 'payment', :amt, 'MANUAL', :desc, :method, :prop_id)
+            VALUES (:bid, 'payment', :amt, :ref, :desc, :method, :prop_id)
         ");
         $paymentStmt->execute([
             'bid'    => $bookingId,
             'amt'    => -$totalAmount,
+            'ref'    => FolioService::uniqueRef('PAY'),
             'desc'   => 'Express Walk-in Payment - ' . ucfirst(strtolower($paymentMethod)),
             'method' => strtolower($paymentMethod),
             'prop_id' => $propertyId

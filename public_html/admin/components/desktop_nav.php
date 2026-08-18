@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 /**
  * desktop_nav.php — Main Navigation Menu
  * Shows a hamburger menu with all navigation links

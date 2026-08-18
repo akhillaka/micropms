@@ -486,8 +486,7 @@ class NotificationRelay {
      */
     public static function triggerAutomation(string $eventKey, ?string $phoneNumber, ?int $bookingId = null, array $customDataArray = [], ?int $propertyId = null): bool {
         require_once __DIR__ . '/Database.php';
-        require_once __DIR__ . '/config.php';
-        
+
         $db = Database::getInstance()->getConnection();
 
         if ($propertyId === null && $bookingId !== null) {

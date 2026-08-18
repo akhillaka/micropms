@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 /**
  * ui_kpi_bar.php — Reusable KPI Bar Component
  * Injects 4 live KPI tiles: Occupancy %, Today's Revenue, Pending Actions, Dirty Rooms.

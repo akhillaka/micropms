@@ -1,62 +1,46 @@
 <?php
+declare(strict_types=1);
 require_once __DIR__ . '/../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/Database.php';
+require_once __DIR__ . '/../../pms_core/config.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('manage_payment_gateways');
 
-    $data = json_decode(file_get_contents('php://input'), true) ?? $_POST ?? [];
+    $data = ApiHandler::getJsonInput();
     $propId = AuthHelper::getPropertyId();
-    $gateway = $data['gateway'] ?? '';
-    $mode = $data['mode'] ?? 'test';
-    $keyId = trim($data['key_id'] ?? '');
-    $keySecret = trim($data['key_secret'] ?? '');
-    $isActive = (int)($data['is_active'] ?? 0);
-    $saltIndex = trim($data['salt_index'] ?? '1');
+    $gateway = strtolower(trim((string)($data['gateway'] ?? '')));
+    $mode = in_array(($data['mode'] ?? 'test'), ['test', 'live'], true) ? $data['mode'] : 'test';
+    $keyId = trim((string)($data['key_id'] ?? ''));
+    $keySecret = trim((string)($data['key_secret'] ?? ''));
+    $isActive = (int)($data['is_active'] ?? 0) === 1 ? 1 : 0;
+    $saltIndex = trim((string)($data['salt_index'] ?? '1'));
 
-    if (!in_array($gateway, ['razorpay', 'phonepe'])) {
+    if (!in_array($gateway, ['razorpay', 'phonepe'], true)) {
         ApiResponse::error("Invalid gateway specified");
     }
-    
+
+    if ($isActive === 1 && $keyId === '') {
+        ApiResponse::error('Enter the ' . ($gateway === 'phonepe' ? 'Merchant ID' : 'Key ID') . ' before marking this gateway active.');
+    }
+
     $extraConfig = null;
     if ($gateway === 'phonepe') {
         $extraConfig = json_encode(['salt_index' => $saltIndex]);
     }
 
-    if ($keySecret === '') {
-        $old = $db->prepare("SELECT key_secret FROM payment_gateway_configs WHERE property_id = ? AND gateway = ?");
-        $old->execute([$propId, $gateway]);
-        $existing = $old->fetchColumn();
-        if ($existing) {
-            $keySecret = (string)$existing;
+    upsert_payment_gateway_config($db, $propId, $gateway, $keyId, $keySecret, $isActive, $mode, $extraConfig);
+
+    if ($gateway === 'razorpay' && $keyId !== '') {
+        $stmt = $db->prepare("INSERT INTO system_settings (property_id, key_name, key_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE key_value = VALUES(key_value)");
+        $stmt->execute([$propId, 'RAZORPAY_KEY_ID', $keyId]);
+        if ($keySecret !== '') {
+            $stmt->execute([$propId, 'RAZORPAY_KEY_SECRET', $keySecret]);
         }
     }
 
-    // Upsert the config
-    $stmt = $db->prepare("
-        INSERT INTO payment_gateway_configs 
-        (property_id, gateway, mode, key_id, key_secret, extra_config, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE 
-        mode = VALUES(mode),
-        key_id = VALUES(key_id),
-        key_secret = VALUES(key_secret),
-        extra_config = VALUES(extra_config),
-        is_active = VALUES(is_active)
-    ");
-    
-    $stmt->execute([
-        $propId, 
-        $gateway, 
-        $mode, 
-        $keyId, 
-        $keySecret, 
-        $extraConfig, 
-        $isActive
-    ]);
-
     ApiResponse::success([
-        'message' => ucfirst($gateway) . ' configuration saved successfully.'
+        'message' => ucfirst($gateway) . ' configuration saved. Active gateways now appear when collecting payments.'
     ]);
 });

@@ -4,18 +4,15 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 
-
-
-
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
-require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
+require_once __DIR__ . '/../../pms_core/services/FolioService.php';
 
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('edit_folio');
 
-    $data = json_decode(file_get_contents('php://input'), true);
+    $data = ApiHandler::getJsonInput();
     if (!isset($data['booking_id']) || !isset($data['item_name']) || !isset($data['amount'])) {
         ApiResponse::error('Missing parameters');
     }
@@ -33,16 +30,7 @@ ApiHandler::run(function(\PDO $db) {
     }
 
     // Insert into folio ledger (tax breakdown stored separately if needed, not embedded in amount)
-    $folioStmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description, category) VALUES (:pid, :id, 'INCIDENTAL', :amount, 'MANUAL', :desc, :category)");
-    $folioStmt->execute([
-        'pid'      => $propertyId,
-        'id'       => $data['booking_id'],
-        'amount'   => $amount,
-        'desc'     => $data['item_name'],
-        'category' => $data['category'] ?? 'other'
-    ]);
-
-    SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
+    FolioService::postCharge($db, (int)$data['booking_id'], $amount, (string)$data['item_name'], (string)($data['category'] ?? 'other'));
 
     AuditLogger::log($_SESSION['user_id'] ?? null, 'POST_CHARGE', 'FOLIO', $data['booking_id'], ['item' => $data['item_name'], 'amount' => $amount, 'category' => $data['category'] ?? 'other']);
 

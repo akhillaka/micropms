@@ -6,7 +6,10 @@ require_once __DIR__ . '/../../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../../pms_core/AuditLogger.php';
 
 ApiHandler::run(function(\PDO $db) {
-    $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    $data = ApiHandler::getJsonInput();
+    if ($data === []) {
+        $data = $_POST;
+    }
     $action = $data['action'] ?? 'list';
 
     // Auto-create checklist tables if missing (migration guard)
@@ -70,23 +73,30 @@ ApiHandler::run(function(\PDO $db) {
     }
 
     if ($action === 'list') {
-        // Fetch dirty and clean rooms
-        $stmt = $db->query("
+        $propertyId = AuthHelper::getPropertyId();
+        $stmt = $db->prepare("
             SELECT r.id, r.room_number, r.state, r.category_id, c.name as category_name 
             FROM rooms r
             JOIN room_categories c ON r.category_id = c.id
-            WHERE r.state IN ('dirty', 'clean')
+            WHERE r.property_id = ? AND r.state IN ('dirty', 'clean')
             ORDER BY r.state DESC, r.room_number ASC
         ");
+        $stmt->execute([$propertyId]);
         $rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Fetch master checklist items
-        $cStmt = $db->query("
-            SELECT id, category_id, item_text, is_mandatory, display_order 
-            FROM housekeeping_checklist_items 
-            ORDER BY display_order ASC, id ASC
-        ");
-        $checklistItems = $cStmt->fetchAll(PDO::FETCH_ASSOC);
+        try {
+            $cStmt = $db->prepare("
+                SELECT id, category_id, item_text, is_mandatory, display_order 
+                FROM housekeeping_checklist_items 
+                WHERE (property_id = ? OR property_id IS NULL)
+                ORDER BY display_order ASC, id ASC
+            ");
+            $cStmt->execute([$propertyId]);
+            $checklistItems = $cStmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\PDOException $e) {
+            $cStmt = $db->query("SELECT id, category_id, item_text, is_mandatory, display_order FROM housekeeping_checklist_items ORDER BY display_order ASC, id ASC");
+            $checklistItems = $cStmt->fetchAll(PDO::FETCH_ASSOC);
+        }
 
         $dirty = [];
         $clean = [];
@@ -194,8 +204,8 @@ ApiHandler::run(function(\PDO $db) {
 
         if ($itemText === '') ApiResponse::error('Item text is required');
 
-        $stmt = $db->prepare("INSERT INTO housekeeping_checklist_items (category_id, item_text, is_mandatory) VALUES (:cid, :txt, :mand)");
-        $stmt->execute(['cid' => $categoryId, 'txt' => $itemText, 'mand' => $isMandatory]);
+        $stmt = $db->prepare("INSERT INTO housekeeping_checklist_items (property_id, category_id, item_text, is_mandatory) VALUES (:pid, :cid, :txt, :mand)");
+        $stmt->execute(['pid' => AuthHelper::getPropertyId(), 'cid' => $categoryId, 'txt' => $itemText, 'mand' => $isMandatory]);
 
         ApiResponse::success(['message' => 'Checklist item added', 'id' => (int)$db->lastInsertId()]);
 
@@ -203,8 +213,8 @@ ApiHandler::run(function(\PDO $db) {
         $itemId = (int)($data['item_id'] ?? 0);
         if (!$itemId) ApiResponse::error('Item ID required');
 
-        $stmt = $db->prepare("DELETE FROM housekeeping_checklist_items WHERE id = :id");
-        $stmt->execute(['id' => $itemId]);
+        $stmt = $db->prepare("DELETE FROM housekeeping_checklist_items WHERE id = :id AND (property_id = :pid OR property_id IS NULL)");
+        $stmt->execute(['id' => $itemId, 'pid' => AuthHelper::getPropertyId()]);
 
         ApiResponse::success(['message' => 'Checklist item deleted']);
 

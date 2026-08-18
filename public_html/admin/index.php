@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
@@ -529,7 +530,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                     <div class="guest-card flex flex-col md:flex-row justify-between items-start md:items-center gap-4 animate-fade-up">
                         <div class="flex items-center gap-3.5">
                             <div class="w-11 h-11 rounded-full bg-slate-100 border border-slate-200/50 flex items-center justify-center font-bold text-slate-700 text-sm overflow-hidden relative uppercase shrink-0 font-display">
-                                ${b.guest_photo ? `<img src="/api/admin/view_document?file=${b.guest_photo}" class="w-full h-full object-cover">` : initials}
+                                ${b.guest_photo ? `<img src="${(window.PhotoCapture && PhotoCapture.documentUrl(b.guest_photo)) || ('/api/admin/view_document?file=' + encodeURIComponent(b.guest_photo))}" class="w-full h-full object-cover">` : initials}
                             </div>
                             <div>
                                 <div class="flex items-center gap-2 flex-wrap">

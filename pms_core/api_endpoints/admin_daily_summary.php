@@ -9,9 +9,9 @@ require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
  * Daily Summary Telegram Notification
  *
  * Can be called via:
- *   - CLI:  php public_html/api/admin_daily_summary.php
- *   - Cron: curl http://localhost:8000/api/admin_daily_summary.php
- *   - Manual: Visit in browser (requires auth)
+ *   - CLI:  php pms_core/api_endpoints/admin_daily_summary.php [property_id]
+ *   - Cron: public_html/cron_scheduler.php (11pm)
+ *   - Manual: GET /api/admin/daily_summary (requires auth)
  *
  * Fix #3/#20: CLI mode is detected before ApiHandler::run().
  * When run from CLI, auth and CSRF checks are skipped (no session available).
@@ -49,7 +49,7 @@ ApiHandler::run(function(\PDO $db) use ($isCli) {
 
     // 4. UPI Amount collected today
     $upiStmt = $db->prepare("SELECT COALESCE(SUM(-amount), 0) as total FROM folio_ledger 
-        WHERE transaction_type IN ('payment', 'refund') 
+        WHERE transaction_type = 'payment' AND (is_refund = 0 OR is_refund IS NULL)
           AND DATE(recorded_at) = :d 
           AND LOWER(payment_method) = 'upi' AND property_id = :pid");
     $upiStmt->execute(['d' => $today, 'pid' => $propertyId]);
@@ -57,7 +57,7 @@ ApiHandler::run(function(\PDO $db) use ($isCli) {
 
     // 5. Cash Amount collected today
     $cashStmt = $db->prepare("SELECT COALESCE(SUM(-amount), 0) as total FROM folio_ledger 
-        WHERE transaction_type IN ('payment', 'refund') 
+        WHERE transaction_type = 'payment' AND (is_refund = 0 OR is_refund IS NULL)
           AND DATE(recorded_at) = :d 
           AND LOWER(payment_method) = 'cash' AND property_id = :pid");
     $cashStmt->execute(['d' => $today, 'pid' => $propertyId]);
@@ -71,7 +71,8 @@ ApiHandler::run(function(\PDO $db) use ($isCli) {
 
     // 7. Total Amount collected today (Revenue across all methods)
     $revStmt = $db->prepare("SELECT COALESCE(SUM(-amount), 0) as total FROM folio_ledger 
-        WHERE transaction_type IN ('payment', 'refund') AND DATE(recorded_at) = :d AND property_id = :pid");
+        WHERE transaction_type = 'payment' AND (is_refund = 0 OR is_refund IS NULL)
+          AND DATE(recorded_at) = :d AND property_id = :pid");
     $revStmt->execute(['d' => $today, 'pid' => $propertyId]);
     $totalAmount = (float)$revStmt->fetch()['total'];
 
@@ -85,7 +86,7 @@ ApiHandler::run(function(\PDO $db) use ($isCli) {
             r.room_number,
             rc.name as room_type,
             g.name as guest_name,
-            (SELECT COALESCE(SUM(ABS(fl.amount)), 0) FROM folio_ledger fl WHERE fl.booking_id = b.id AND fl.transaction_type = 'payment' AND fl.property_id = :pid) as amount_collected,
+            (SELECT COALESCE(SUM(ABS(fl.amount)), 0) FROM folio_ledger fl WHERE fl.booking_id = b.id AND fl.transaction_type = 'payment' AND (fl.is_refund = 0 OR fl.is_refund IS NULL) AND fl.property_id = :pid) as amount_collected,
             (SELECT COALESCE(SUM(fl.amount), 0) FROM folio_ledger fl WHERE fl.booking_id = b.id AND fl.property_id = :pid) as pending_due
         FROM bookings b
         JOIN rooms r ON b.room_id = r.id

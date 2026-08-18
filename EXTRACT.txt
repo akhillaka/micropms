@@ -1,0 +1,36 @@
+MicroPMS — extract this zip on Hostinger
+========================================
+
+1. hPanel → File Manager → open the DOMAIN folder
+   (the parent of public_html, not public_html itself).
+
+2. Upload this zip there. Extract. You must see siblings:
+
+     .env                 (create once; never overwrite)
+     public_html/         (web root)
+     pms_core/
+     db_migrations/
+
+   Wrong: public_html/public_html  or  public_html/pms_core
+
+3. Do not replace existing:
+     .env
+     public_html/uploads/
+     pms_core/uploads/
+
+4. If .env does not exist yet, copy .env.example to .env in this
+   same folder and fill DB_* plus INVOICE_SECRET.
+   On the Hostinger preview host (*.hostingersite.com) leave
+   APP_BASE_DOMAIN empty. Use /login not admin.preview...
+
+5. PHP 8.1+ with pdo_mysql, curl, mbstring, openssl.
+
+6. Open https://YOUR-HOST/admin/run_migration and click Run
+   (log in first at /login). This applies payment-gateway sync
+   (029), guest ID fields for OCR (030), and schema alignment
+   (031: import_ref, guest_documents, folio TAX type, and related columns).
+
+Preview login (no subdomain SSL):
+  https://YOUR.hostingersite.com/login
+  https://YOUR.hostingersite.com/admin
+  https://YOUR.hostingersite.com/saas-admin

@@ -1,94 +1,151 @@
-# Deploy to Hostinger
+# MicroPMS — Hostinger deployment
 
-This app must keep `pms_core` **next to** `public_html`. PHP loads core from `../pms_core` (guest portal) and `../../pms_core` (admin pages).
+Use this file for first go-live and every later update. PHP **8.1+**. Do not use hPanel Git.
+
+## Folder layout (do not change)
+
+Hostinger’s primary document root is always `public_html`. Keep app code **next to** it:
 
 ```
-domains/yourdomain.com/
-  pms_core/       ← repo pms_core/
-  public_html/    ← repo public_html/  (Hostinger document root)
-  .env            ← created once on the server, never in git
+domains/yourdomain.com/          ← FTP home (parent of public_html)
+  .env                           ← created once on the server, never in git
+  public_html/                   ← repo public_html/  (web root)
+  pms_core/                      ← repo pms_core/     (not web-accessible)
+  db_migrations/                 ← repo db_migrations/
 ```
 
-Do not dump the GitHub repo into `public_html` (that nests `public_html/public_html`). Use the GitHub Action below, or the zip fallback.
+Do not dump the GitHub repo into `public_html` (that creates `public_html/public_html`). Do not put `pms_core` inside `public_html`.
 
-## Never overwrite
+Never overwrite on the server:
 
-| Path | Why |
+- `.env` — live DB and API secrets
+- `public_html/uploads/` — guest / public files
+- `pms_core/uploads/` — ID photos and similar
+
+### Hostinger preview URL (`*.hostingersite.com`)
+
+SSL on the temporary site is issued only for  
+`https://something.hostingersite.com`  
+not for `admin.something.hostingersite.com`. Chrome `ERR_CERT_COMMON_NAME_INVALID` is that mismatch. Do not create `admin.` / `guest.` subdomains on the preview host.
+
+Use paths on the preview host:
+
+- Landing: `https://something.hostingersite.com/`
+- Staff login: `https://something.hostingersite.com/login`
+- Admin: `https://something.hostingersite.com/admin`
+- SaaS: `https://something.hostingersite.com/saas-admin`
+- Leads form: `https://something.hostingersite.com/register`
+
+Leave `APP_BASE_DOMAIN` empty until a real domain is connected. Then issue SSL on that domain and point `guest` / `admin` / `assistant` / `saas` at the same `public_html`.
+
+---
+
+## 1. First time on Hostinger
+
+### A. PHP and MySQL
+
+1. hPanel → **PHP Configuration** → **8.1 or newer**. Enable `pdo_mysql`, `curl`, `mbstring`, `openssl`.
+2. hPanel → **MySQL** → create a database and user. Note host (usually `localhost`), name, user, password.
+
+### B. FTP user (parent of public_html)
+
+hPanel → **Files** → **FTP Accounts**. Home directory = the **domain folder** (the parent of `public_html`), so the user can see both `public_html` and `pms_core`.
+
+| | Typical |
 |---|---|
-| `.env` | Live DB and API secrets |
-| `public_html/uploads/` | Guest / public files |
-| `pms_core/uploads/` | ID photos and similar |
+| Host | value shown in hPanel (`ftp.yourdomain.com` or the server hostname) |
+| Protocol | `sftp` (port **65002**) or `ftp` / `ftps` (port **21**) |
 
-The Action overwrites code files only. It does **not** delete extra files on the server.
+### C. GitHub Actions secrets (required to upload)
 
-## GitHub Action (normal path)
-
-Deploys are **manual**. A push to `main` does **not** go live by itself. You run the workflow (from GitHub, or from SaaS → Deploy).
-
-There are **two different secrets**. They are not interchangeable.
-
-| What | Where it lives | What it is for |
-|---|---|---|
-| FTP/SFTP secrets | GitHub repo → Settings → Secrets and variables → Actions | The Action logs into Hostinger and uploads folders |
-| `GITHUB_DEPLOY_TOKEN` | **Server** `.env` only (sibling of `public_html`) | Optional. Lets SaaS admin click Deploy and start that same Action via GitHub’s API |
-
-The Action never uses `GITHUB_DEPLOY_TOKEN` to talk to Hostinger. Hostinger is FTP. The PAT only talks to GitHub.
-
-### 1. FTP account in hPanel
-
-hPanel → **Files** → **FTP Accounts** (or SFTP). Create a user whose home is the **domain folder** (the parent of `public_html`), so it can see both `public_html` and `pms_core`.
-
-- FTP: port `21`, protocol `ftp` or `ftps`
-- SFTP (typical Hostinger): port `65002`, protocol `sftp`
-
-Hostname is usually `ftp.yourdomain.com` or the host shown in hPanel (not `github.com`). PHP **8.1+**.
-
-### 2. GitHub Actions secrets (required to upload)
-
-Open `https://github.com/akhillaka/micropms` → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**. Add each name exactly:
+Repo `akhillaka/micropms` → **Settings** → **Secrets and variables** → **Actions**. Add these names exactly:
 
 | Secret | Value |
 |---|---|
-| `FTP_SERVER` | Hostinger FTP/SFTP hostname from hPanel |
+| `FTP_SERVER` | Hostinger FTP/SFTP hostname |
 | `FTP_USERNAME` | FTP user |
 | `FTP_PASSWORD` | FTP password |
-| `FTP_PORT` | `21` or `65002` |
-| `FTP_PROTOCOL` | `ftp`, `ftps`, or `sftp` |
+| `FTP_PORT` | `65002` or `21` |
+| `FTP_PROTOCOL` | `sftp`, `ftp`, or `ftps` |
 
-Do not put these in the repo, in chat, or in `.env.example`.
+Do not put these in git or in `.env.example`.
 
-The workflow file is [`.github/workflows/deploy-hostinger.yml`](.github/workflows/deploy-hostinger.yml). It runs only on **workflow_dispatch** (manual). It checks out git, installs `lftp`, then uploads:
+Workflow: [`.github/workflows/deploy-hostinger.yml`](.github/workflows/deploy-hostinger.yml) (manual **workflow_dispatch** only). A push to `main` does **not** go live by itself.
 
-- `public_html/` → `/public_html/`
-- `pms_core/` → `/pms_core/`
-- `db_migrations/` → `/db_migrations/`
+### D. First upload
 
-It skips `.env` and `uploads/`. It does **not** delete extra files on the server.
+1. Confirm `main` on GitHub is the code you want live.
+2. GitHub → **Actions** → **Deploy to Hostinger** → **Run workflow** → branch `main`.
+3. Green check = `public_html/`, `pms_core/`, and `db_migrations/` are on the server. It skips `.env` and `uploads/`. It does not delete extra files.
 
-### 3. Push code, then run the Action
+### E. Server `.env`
 
-1. Commit locally and `git push origin main`.
-2. GitHub → **Actions** → **Deploy to Hostinger** → **Run workflow** → branch `main` → **Run workflow**.
-3. Open the run. A green check means files are on Hostinger. A red X: open the failed step (almost always FTP host/user/port/protocol).
-4. After a green run: open the apex landing page, log in on `admin.`, and open one stay on `guest.`.
-5. If this release added files under `db_migrations/`, run `/admin/run_migration` on live (see below).
+In File Manager, create `.env` in the **domain folder** (sibling of `public_html` and `pms_core`). Copy [`.env.example`](.env.example). Minimum for first login:
 
-GitHub’s built-in `GITHUB_TOKEN` is enough for checkout inside the Action. You do **not** add a PAT as an Actions secret unless you want the SaaS Deploy button (next section).
+```
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=your_db
+DB_USER=your_user
+DB_PASS=your_db_password
 
-### 4. Optional: SaaS page Deploy button (`GITHUB_DEPLOY_TOKEN`)
+INVOICE_SECRET=long_random_string_here
+APP_ENV=production
+APP_BASE_DOMAIN=yourdomain.com
+```
 
-This token is **not** for Hostinger. It is a GitHub Personal Access Token so live PHP can call:
+Replace `yourdomain.com` with the real apex (no `https://`, no `www`). Add Razorpay / WhatsApp / Telegram / SMTP later as needed.
 
-`POST /repos/akhillaka/micropms/actions/workflows/deploy-hostinger.yml/dispatches`
+### F. Module subdomains (same public_html)
 
-That is the same as clicking **Run workflow** on GitHub.
+Create these in hPanel → **Domains** → **Subdomains**. Then set **each** document root to the **same** `public_html` as the primary domain.
 
-Create it:
+Do **not** let Hostinger create `public_html/admin`, `public_html/guest`, or a second site folder. Nested roots break `../../pms_core`.
 
-1. GitHub → your avatar → **Settings** → **Developer settings** → **Personal access tokens**.
-2. Fine-grained token (preferred): Resource owner = your user, Repository access = **Only** `akhillaka/micropms`. Permissions → **Actions: Read and write**. Contents can stay Read-only.
-3. Classic token fallback: scope `repo` + `workflow`.
-4. Copy the token once (`github_pat_...` or `ghp_...`). Put it only in the **server** `.env`:
+| Host | What it serves |
+|---|---|
+| `yourdomain.com` | Marketing landing (`/`). **Request access** saves a lead. |
+| `guest.yourdomain.com` | Guest portal |
+| `admin.yourdomain.com` | Staff admin |
+| `assistant.yourdomain.com` | Hotel Assistant |
+| `saas.yourdomain.com` | SaaS panel. Create accounts from **Leads**. |
+
+Issue SSL for the apex and each subdomain (or a wildcard). URLs have **no `.php`** (`/login`, `/admin`, `/register`).
+
+### G. Schema and first check
+
+1. Open `https://yourdomain.com/` — landing page.
+2. If setup is not done, `/setup` runs. Otherwise log in at `https://admin.yourdomain.com/login` (or `/login` on localhost).
+3. Open `https://admin.yourdomain.com/admin/run_migration` and click run (applies pending SQL, including `028`–`031`). Safe to click again.
+4. SaaS: `https://saas.yourdomain.com/` — **Leads** tab for landing requests; **Onboarding** to create a property when you grant access.
+
+### H. Cron (not created by the Action)
+
+hPanel → **Cron Jobs**. Add both if they are missing (adjust the PHP path Hostinger shows):
+
+```
+* * * * * php /home/USER/domains/yourdomain.com/pms_core/cron_worker.php
+* * * * * php /home/USER/domains/yourdomain.com/public_html/cron_scheduler.php
+```
+
+`cron_worker.php` = WhatsApp / Telegram / Sheets queues. `cron_scheduler.php` = night audit and scheduled tasks.
+
+---
+
+## 2. Every later update
+
+1. Commit and `git push origin main`.
+2. GitHub → **Actions** → **Deploy to Hostinger** → **Run workflow**.
+3. If this release added files under `db_migrations/`, run `/admin/run_migration` on live.
+4. Smoke: landing `/`, staff `/login`, one guest stay on `guest.`, SaaS **Leads**.
+
+Red Action: open the failed step. Almost always `FTP_SERVER` / user / port / protocol.
+
+### Optional: Deploy button in SaaS
+
+This is **not** a Hostinger password. It is a GitHub PAT so live PHP can start the same workflow.
+
+GitHub → **Settings** → **Developer settings** → **Personal access tokens**. Fine-grained, repo `akhillaka/micropms` only, **Actions: Read and write**. Put it only in the **server** `.env`:
 
 ```
 GITHUB_DEPLOY_TOKEN=github_pat_...
@@ -97,103 +154,37 @@ GITHUB_DEPLOY_WORKFLOW=deploy-hostinger.yml
 GITHUB_DEPLOY_REF=main
 ```
 
-5. On live: `https://saas.yourdomain.com/` → **Deploy** → start the Action. Refresh for status.
+Then `https://saas.yourdomain.com/` → **Deploy**. Without this token, GitHub → Actions still works.
 
-If this token is missing, deploys still work from GitHub → Actions. Do not use Hostinger hPanel Git for this folder layout.
+---
 
-## Database migrations on live
+## 3. Emergency zip (if FTP from GitHub fails)
 
-Code deploy does **not** change the MySQL schema by itself. After a deploy that includes new files in `db_migrations/`:
-
-1. Log in as **superadmin**.
-2. Open `https://admin.yourdomain.com/admin/run_migration` (or `/admin/run_migration` on localhost).
-3. Click run. Pending SQL files apply in order; already-applied ones are skipped (safe to click again).
-
-Do this after the Action is green, before you assume new features work. Do not upload a full database dump.
-
-## Module hosts (same public_html)
-
-The primary domain document root is always `public_html`. You cannot change that in hPanel, and you do not need to.
-
-All product UIs share **one** copy of the app. Create subdomains in hPanel, then set each subdomain’s document root to the **same** `public_html` as the primary domain. Do **not** let Hostinger create `public_html/admin`, `public_html/guest`, or `domains/admin.yourdomain.com/public_html`. Nested roots break `../../pms_core`.
-
-Set `APP_BASE_DOMAIN=yourdomain.com` in the server `.env`.
-
-| Host | Surface |
-|---|---|
-| `yourdomain.com` | Marketing landing (`/`) |
-| `guest.yourdomain.com` | Guest portal |
-| `admin.yourdomain.com` | Staff admin |
-| `assistant.yourdomain.com` | Hotel Assistant |
-| `saas.yourdomain.com` | SaaS control panel. Public `/register` is a lead form, not self-signup. |
-
-Issue SSL for each hostname (or a wildcard). Landing **Login** goes to staff admin; **Register** creates a property on a SaaS plan and signs the owner into admin. Platform operators use `saas.` login.
-
-## Local: paths vs subdomains
-
-You do **not** need subdomains on your Mac. `http://localhost:8000` stays path-based:
-
-| URL | Surface |
-|---|---|
-| `http://localhost:8000/` | Marketing landing |
-| `http://localhost:8000/login` | Staff login |
-| `http://localhost:8000/admin` | Staff dashboard |
-| `http://localhost:8000/admin?hotelId=1000` | Same dashboard, property 1000 |
-| `http://localhost:8000/guest-login` | Guest portal login |
-| `http://localhost:8000/assistant` | Hotel Assistant |
-| `http://localhost:8000/saas-admin` | SaaS panel |
-| `http://localhost:8000/register` | Lead form (request access; no account yet) |
-
-Start the app from `public_html` so routing works:
-
-```bash
-cd public_html
-php -S 127.0.0.1:8000 router.php
-```
-
-`http://localhost:8000/index.php?hotelId=1000` redirects to `/admin?hotelId=1000`. Prefer `/admin?hotelId=1000`.
-
-### Optional: fake subdomains on localhost
-
-PHP’s built-in server has no hPanel. To exercise `guest.` / `admin.` hosts locally:
-
-1. Add to `/etc/hosts` (needs your Mac password):
-
-```
-127.0.0.1 guest.localhost admin.localhost assistant.localhost saas.localhost
-```
-
-2. In the **local** `.env` (repo parent of `public_html`, not git):
-
-```
-APP_BASE_DOMAIN=localhost
-```
-
-3. Start the same server bound to `127.0.0.1` (so every hostname hits it):
-
-```bash
-cd public_html
-php -S 127.0.0.1:8000 router.php
-```
-
-4. Open `http://admin.localhost:8000/`, `http://guest.localhost:8000/`, `http://saas.localhost:8000/`, `http://127.0.0.1:8000/` (landing still on loopback).
-
-Login links keep port `:8000`. You still do **not** create extra folders.
-
-## First time on the server
-
-1. Run the Action once so the two folders exist.
-2. Create `.env` in the **domain folder** (sibling of `public_html` and `pms_core`). Copy [`.env.example`](.env.example). Use Hostinger MySQL (`DB_HOST` is usually `localhost`), a strong `INVOICE_SECRET`, and `APP_BASE_DOMAIN`.
-3. Confirm `https://yourdomain.com/` shows the landing page, then log in on `admin.`.
-
-Telegram, Sheets, and WhatsApp queues use [`pms_core/cron_worker.php`](pms_core/cron_worker.php). Code deploy does **not** create that cron. Add it in hPanel → Cron Jobs if it is not already there.
-
-## Emergency zip
-
-If GitHub Actions cannot reach FTP:
+On your Mac:
 
 ```bash
 bash scripts/build_deployment_zip.sh
 ```
 
-Upload `deployment.zip` in File Manager, extract so `pms_core` and `public_html` stay siblings, and do not replace `.env` or `uploads/`.
+hPanel → File Manager → **domain folder** (parent of `public_html`) → upload `deployment.zip` → extract. Read `EXTRACT.txt` inside the zip. `public_html`, `pms_core`, and `db_migrations` must stay **siblings**. Do not replace `.env` or `uploads/`. Then open `/login` and run `/admin/run_migration`.
+
+---
+
+## 4. Local (no subdomains required)
+
+```bash
+cd public_html
+php -S 127.0.0.1:8000 router.php
+```
+
+| URL | Surface |
+|---|---|
+| `http://localhost:8000/` | Landing |
+| `http://localhost:8000/login` | Staff login |
+| `http://localhost:8000/admin` | Dashboard |
+| `http://localhost:8000/register` | Lead form |
+| `http://localhost:8000/guest-login` | Guest portal |
+| `http://localhost:8000/assistant` | Hotel Assistant |
+| `http://localhost:8000/saas-admin` | SaaS |
+
+To mimic Hostinger hosts: add `guest.localhost admin.localhost assistant.localhost saas.localhost` to `/etc/hosts`, set `APP_BASE_DOMAIN=localhost` in the **local** `.env`, keep the same `php -S 127.0.0.1:8000 router.php`.

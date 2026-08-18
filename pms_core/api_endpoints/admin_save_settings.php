@@ -9,7 +9,7 @@ ApiHandler::run(function(\PDO $db) {
     // Fix #2/#13: owner check inside callback so Content-Type header is set first
     AuthHelper::requirePermission('manage_settings');
 
-    $data = json_decode(file_get_contents('php://input'), true);
+    $data = ApiHandler::getJsonInput();
 
     if (!is_array($data) || empty($data)) {
         throw new \Exception('No data provided');
@@ -51,6 +51,12 @@ ApiHandler::run(function(\PDO $db) {
         }
 
         $stmt->execute([$propertyId, $key, $value]);
+    }
+
+    $rzKey = trim((string)($data['RAZORPAY_KEY_ID'] ?? ''));
+    $rzSecret = trim((string)($data['RAZORPAY_KEY_SECRET'] ?? ''));
+    if ($rzKey !== '') {
+        upsert_payment_gateway_config($db, $propertyId, 'razorpay', $rzKey, $rzSecret, 1, 'live', null);
     }
 
     AuditLogger::log($_SESSION['user_id'], 'UPDATE_SETTINGS', 'SYSTEM', null, ['updated_keys' => array_keys($data)]);

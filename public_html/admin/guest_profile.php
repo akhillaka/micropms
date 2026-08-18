@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../pms_core/ErrorPage.php';
@@ -86,8 +87,9 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                 <!-- Profile Card -->
                 <div class="card-minimal p-6 lg:col-span-2 flex flex-col sm:flex-row gap-6 items-start sm:items-center relative">
                     <div class="w-24 h-24 sm:w-32 sm:h-32 rounded-2xl bg-brand-900 flex items-center justify-center text-white text-4xl sm:text-5xl font-black shadow-minimal overflow-hidden shrink-0 border-4 border-white">
-                        <?php if($guest['photo']): ?>
-                            <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['photo'])) ?>" class="w-full h-full object-cover">
+                        <?php $headerPhotoUrl = pms_document_url($guest['photo'] ?? ''); ?>
+                        <?php if($headerPhotoUrl): ?>
+                            <img src="<?= htmlspecialchars($headerPhotoUrl, ENT_QUOTES, 'UTF-8') ?>" class="w-full h-full object-cover">
                         <?php else: ?>
                             <?= htmlspecialchars((string)(strtoupper(substr($guest['name'] ?: '?', 0, 1))), ENT_QUOTES, 'UTF-8') ?>
                         <?php endif; ?>
@@ -160,58 +162,75 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                     <h3 class="text-xl font-black text-brand-900 tracking-tight">Documents & Verification</h3>
                 </div>
                 <div class="card-minimal p-6">
+                    <?php
+                        $idFrontUrl = pms_document_url($guest['id_proof_front'] ?? '');
+                        $idBackUrl = pms_document_url($guest['id_proof_back'] ?? '');
+                        $guestPhotoUrl = pms_document_url($guest['photo'] ?? '');
+                    ?>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <!-- ID Proof Front -->
                         <div class="border-2 border-dashed border-brand-300 rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:border-brand-900 hover:bg-brand-50 transition-all relative overflow-hidden group min-h-[220px]">
-                            <?php if($guest['id_proof_front']): ?>
-                                <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_front'])) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_front'])) ?>')">
+                            <?php if($idFrontUrl): ?>
+                                <img src="<?= htmlspecialchars($idFrontUrl, ENT_QUOTES, 'UTF-8') ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('<?= htmlspecialchars($idFrontUrl, ENT_QUOTES, 'UTF-8') ?>')">
                                 <div class="absolute inset-0 bg-brand-900/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_front'])) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
-                                    <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
+                                    <button onclick="UI.viewImage('<?= htmlspecialchars($idFrontUrl, ENT_QUOTES, 'UTF-8') ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
+                                    <button type="button" onclick="captureDoc('id_proof_front')" class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold">Camera</button>
+                                    <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
                                 </div>
                             <?php else: ?>
                                 <div class="w-16 h-16 rounded-full bg-brand-100 text-brand-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                                     <i class="ph-fill ph-identification-card text-3xl"></i>
                                 </div>
                                 <p class="text-sm font-bold text-brand-900">ID Proof (Front)</p>
-                                <p class="text-xs text-brand-500 font-medium mt-1 mb-3">Upload a clear photo</p>
-                                <label class="cursor-pointer bg-brand-900 text-white px-5 py-2 rounded-xl text-xs font-bold hover:shadow-minimal transition-all">Upload File<input type="file" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
+                                <p class="text-xs text-brand-500 font-medium mt-1 mb-3">Fill the card frame. Avoid glare. Hold still.</p>
+                                <div class="flex gap-2">
+                                    <button type="button" onclick="captureDoc('id_proof_front')" class="cursor-pointer bg-brand-900 text-white px-5 py-2 rounded-xl text-xs font-bold">Camera</button>
+                                    <label class="cursor-pointer bg-brand-900 text-white px-5 py-2 rounded-xl text-xs font-bold hover:shadow-minimal transition-all">Upload File<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('id_proof_front', this)"></label>
+                                </div>
                             <?php endif; ?>
                         </div>
                         
                         <!-- ID Proof Back -->
                         <div class="border-2 border-dashed border-brand-300 rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:border-brand-900 hover:bg-brand-50 transition-all relative overflow-hidden group min-h-[220px]">
-                            <?php if($guest['id_proof_back']): ?>
-                                <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_back'])) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_back'])) ?>')">
+                            <?php if($idBackUrl): ?>
+                                <img src="<?= htmlspecialchars($idBackUrl, ENT_QUOTES, 'UTF-8') ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('<?= htmlspecialchars($idBackUrl, ENT_QUOTES, 'UTF-8') ?>')">
                                 <div class="absolute inset-0 bg-brand-900/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['id_proof_back'])) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
-                                    <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
+                                    <button onclick="UI.viewImage('<?= htmlspecialchars($idBackUrl, ENT_QUOTES, 'UTF-8') ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
+                                    <button type="button" onclick="captureDoc('id_proof_back')" class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold">Camera</button>
+                                    <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
                                 </div>
                             <?php else: ?>
                                 <div class="w-16 h-16 rounded-full bg-brand-100 text-brand-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                                     <i class="ph-fill ph-identification-card text-3xl"></i>
                                 </div>
                                 <p class="text-sm font-bold text-brand-900">ID Proof (Back)</p>
-                                <p class="text-xs text-brand-500 font-medium mt-1 mb-3">Upload a clear photo</p>
-                                <label class="cursor-pointer bg-brand-900 text-white px-5 py-2 rounded-xl text-xs font-bold hover:shadow-minimal transition-all">Upload File<input type="file" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
+                                <p class="text-xs text-brand-500 font-medium mt-1 mb-3">Fill the card frame. Avoid glare. Hold still.</p>
+                                <div class="flex gap-2">
+                                    <button type="button" onclick="captureDoc('id_proof_back')" class="cursor-pointer bg-brand-900 text-white px-5 py-2 rounded-xl text-xs font-bold">Camera</button>
+                                    <label class="cursor-pointer bg-brand-900 text-white px-5 py-2 rounded-xl text-xs font-bold hover:shadow-minimal transition-all">Upload File<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('id_proof_back', this)"></label>
+                                </div>
                             <?php endif; ?>
                         </div>
                         
                         <!-- Guest Photo -->
                         <div class="border-2 border-dashed border-brand-300 rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:border-brand-900 hover:bg-brand-50 transition-all relative overflow-hidden group min-h-[220px]">
-                            <?php if($guest['photo']): ?>
-                                <img src="/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['photo'])) ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['photo'])) ?>')">
+                            <?php if($guestPhotoUrl): ?>
+                                <img src="<?= htmlspecialchars($guestPhotoUrl, ENT_QUOTES, 'UTF-8') ?>" class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer" onclick="UI.viewImage('<?= htmlspecialchars($guestPhotoUrl, ENT_QUOTES, 'UTF-8') ?>')">
                                 <div class="absolute inset-0 bg-brand-900/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
-                                    <button onclick="UI.viewImage('/api/admin/view_document?file=<?= htmlspecialchars((string)($guest['photo'])) ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
-                                    <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" class="hidden" onchange="uploadDoc('photo', this)"></label>
+                                    <button onclick="UI.viewImage('<?= htmlspecialchars($guestPhotoUrl, ENT_QUOTES, 'UTF-8') ?>')" class="cursor-pointer bg-white text-brand-900 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform flex items-center gap-2"><i class="ph-bold ph-eye"></i> View</button>
+                                    <button type="button" onclick="captureDoc('photo')" class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold">Camera</button>
+                                    <label class="cursor-pointer bg-brand-800 text-white border border-brand-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-minimal hover:-translate-y-0.5 transition-transform">Replace<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('photo', this)"></label>
                                 </div>
                             <?php else: ?>
                                 <div class="w-16 h-16 rounded-full bg-brand-100 text-brand-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                                     <i class="ph-fill ph-camera text-3xl"></i>
                                 </div>
                                 <p class="text-sm font-bold text-brand-900">Guest Photo</p>
-                                <p class="text-xs text-brand-500 font-medium mt-1 mb-3">Face clearly visible</p>
-                                <label class="cursor-pointer bg-brand-900 text-white px-5 py-2 rounded-xl text-xs font-bold hover:shadow-minimal transition-all">Upload File<input type="file" class="hidden" onchange="uploadDoc('photo', this)"></label>
+                                <p class="text-xs text-brand-500 font-medium mt-1 mb-3">Center the face in the oval. Look at the camera.</p>
+                                <div class="flex gap-2">
+                                    <button type="button" onclick="captureDoc('photo')" class="cursor-pointer bg-brand-900 text-white px-5 py-2 rounded-xl text-xs font-bold">Camera</button>
+                                    <label class="cursor-pointer bg-brand-900 text-white px-5 py-2 rounded-xl text-xs font-bold hover:shadow-minimal transition-all">Upload File<input type="file" accept="image/*" class="hidden" onchange="uploadDoc('photo', this)"></label>
+                                </div>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -426,6 +445,15 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
             }
         }
         
+        function captureDoc(type) {
+            if (!window.PhotoCapture) return;
+            const mode = type === 'photo' || type === 'guest_photo' ? 'guest_face' : (type === 'id_proof_back' ? 'id_back' : 'id_front');
+            PhotoCapture.open({
+                mode,
+                onCapture: (_url, file) => uploadDoc(type, { files: [file] })
+            });
+        }
+
         async function uploadDoc(type, input) {
             if(!input.files || input.files.length === 0) return;
             

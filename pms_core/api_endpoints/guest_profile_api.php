@@ -33,9 +33,27 @@ try {
     $docStmt->execute([$guestId]);
     $docs = $docStmt->fetchAll(PDO::FETCH_ASSOC);
 
+    $gStmt = $db->prepare("SELECT id_proof_front, id_proof_back, photo FROM guests WHERE id = ?");
+    $gStmt->execute([$guestId]);
+    $guest = $gStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
     $documents = [];
     foreach ($docs as $d) {
-        $documents[$d['document_type']] = $d['file_path'];
+        $path = trim((string)$d['file_path']);
+        if ($path === '') {
+            continue;
+        }
+        if (str_starts_with($path, 'uploads/')) {
+            $documents[$d['document_type']] = '/' . ltrim($path, '/');
+        } else {
+            $documents[$d['document_type']] = pms_document_url(basename($path)) ?: ('/' . ltrim($path, '/'));
+        }
+    }
+    if (!empty($guest['id_proof_front'])) {
+        $documents['id_proof_front'] = pms_document_url($guest['id_proof_front']);
+    }
+    if (!empty($guest['id_proof_back'])) {
+        $documents['id_proof_back'] = pms_document_url($guest['id_proof_back']);
     }
 
     echo json_encode(['success' => true, 'data' => ['documents' => $documents]]);

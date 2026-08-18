@@ -488,7 +488,7 @@ ApiHandler::run(function(\PDO $db) {
             }
 
             // Total Rooms count
-            $roomsStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ?");
+            $roomsStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ? AND deleted_at IS NULL");
             $roomsStmt->execute([$propertyId]);
             $totalRooms = (int)$roomsStmt->fetchColumn();
             
@@ -509,7 +509,8 @@ ApiHandler::run(function(\PDO $db) {
                     WHERE transaction_type = 'ROOM_CHARGE' AND property_id = :pid1
                     GROUP BY booking_id
                 ) fl ON b.id = fl.booking_id
-                WHERE b.booking_status IN ('checked_in', 'checked_out')
+                WHERE b.booking_status IN ('booked', 'checked_in', 'checked_out')
+                  AND b.payment_status != 'cancelled'
                   AND b.property_id = :pid2
                   AND b.check_in <= :end 
                   AND b.check_out >= :start
@@ -565,7 +566,7 @@ ApiHandler::run(function(\PDO $db) {
             foreach ($dateBuckets as $d_str => &$metrics) {
                 $occupiedCount = count($metrics['unique_rooms']);
                 $metrics['occupied_rooms'] = $occupiedCount;
-                $metrics['occupancy_percent'] = $totalRooms > 0 ? round(($occupiedCount / $totalRooms) * 100, 1) : 0.0;
+                $metrics['occupancy_percent'] = $totalRooms > 0 ? round(($occupiedCount / $totalRooms) * 100, 2) : 0.0;
                 $metrics['adr'] = $occupiedCount > 0 ? round($metrics['room_revenue'] / $occupiedCount, 2) : 0.0;
                 $metrics['revpar'] = $totalRooms > 0 ? round($metrics['room_revenue'] / $totalRooms, 2) : 0.0;
                 $metrics['room_revenue'] = round($metrics['room_revenue'], 2);
@@ -578,7 +579,7 @@ ApiHandler::run(function(\PDO $db) {
             
         case 'occupancy':
             // Total Rooms count
-            $roomsStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ?");
+            $roomsStmt = $db->prepare("SELECT COUNT(*) FROM rooms WHERE property_id = ? AND deleted_at IS NULL");
             $roomsStmt->execute([$propertyId]);
             $totalRooms = (int)$roomsStmt->fetchColumn();
             
@@ -594,7 +595,8 @@ ApiHandler::run(function(\PDO $db) {
             $sql = "
                 SELECT room_id, check_in, check_out 
                 FROM bookings 
-                WHERE booking_status IN ('checked_in', 'checked_out')
+                WHERE booking_status IN ('booked', 'checked_in', 'checked_out')
+                  AND payment_status != 'cancelled'
                   AND property_id = :pid
                   AND check_in <= :end 
                   AND check_out >= :start
@@ -638,7 +640,7 @@ ApiHandler::run(function(\PDO $db) {
             foreach ($dateBuckets as $d_str => &$metrics) {
                 $occupiedCount = count($metrics['unique_rooms']);
                 $metrics['occupied'] = $occupiedCount;
-                $metrics['occupancy_percent'] = $totalRooms > 0 ? round(($occupiedCount / $totalRooms) * 100, 1) : 0.0;
+                $metrics['occupancy_percent'] = $totalRooms > 0 ? round(($occupiedCount / $totalRooms) * 100, 2) : 0.0;
                 unset($metrics['unique_rooms']);
                 $result[] = $metrics;
             }

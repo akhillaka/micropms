@@ -69,6 +69,12 @@ $showTransfer = $canBuyAddons && $transferPrice > 0;
 $loyaltyTier = '';
 $loyaltyStayCount = 0;
 $guestId = (int)($booking['guest_id'] ?? 0);
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+if ($guestId > 0) {
+    $_SESSION['guest_id'] = $guestId;
+}
 if ($loyaltyEnabled && $guestId > 0) {
     $stayCountStmt = $db->prepare("
         SELECT COUNT(*) FROM bookings
@@ -123,10 +129,7 @@ if ($taxEnabled) {
 }
 $balance = $totalCharges - $totalPayments + $refundsIssued;
 
-// Fetch active payment gateway configurations
-$gatewayStmt = $db->prepare("SELECT gateway, is_active FROM payment_gateway_configs WHERE property_id = ? AND is_active = 1");
-$gatewayStmt->execute([$booking['property_id']]);
-$activeGateways = $gatewayStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+$activeGateways = get_active_payment_gateways($db, (int)$booking['property_id']);
 
 $message = null;
 $error = null;
@@ -1048,14 +1051,18 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                     </div>
                     <div id="id-front-upload-form">
                         <ul class="text-xs text-gray-500 mb-3 list-disc pl-4">
-                            <li>Ensure good lighting without glare</li>
-                            <li>Frame the ID completely within the photo</li>
+                            <li>Fill the card frame. Avoid glare. Hold still.</li>
                             <li>Accepted formats: JPG, PNG, PDF (Max 5MB)</li>
                         </ul>
-                        <button onclick="document.getElementById('idFrontInput').click()" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-2 rounded-xl text-sm font-bold transition">
-                            <i class="ph ph-camera mr-2"></i> Upload Front ID
-                        </button>
-                        <input type="file" id="idFrontInput" class="hidden" accept="image/*,application/pdf" onchange="uploadProfileId(this, 'id_proof_front')">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" onclick="capturePortalId('id_proof_front')" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-2 rounded-xl text-sm font-bold transition">
+                                <i class="ph ph-camera mr-1"></i> Camera
+                            </button>
+                            <button type="button" onclick="document.getElementById('idFrontInput').click()" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-2 rounded-xl text-sm font-bold transition">
+                                <i class="ph ph-upload mr-1"></i> Upload
+                            </button>
+                        </div>
+                        <input type="file" id="idFrontInput" class="hidden" accept="image/*,application/pdf" capture="environment" onchange="uploadProfileId(this, 'id_proof_front')">
                     </div>
                 </div>
 
@@ -1069,14 +1076,18 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                     </div>
                     <div id="id-back-upload-form">
                         <ul class="text-xs text-gray-500 mb-3 list-disc pl-4">
-                            <li>Ensure good lighting without glare</li>
-                            <li>Frame the ID completely within the photo</li>
+                            <li>Fill the card frame. Avoid glare. Hold still.</li>
                             <li>Accepted formats: JPG, PNG, PDF (Max 5MB)</li>
                         </ul>
-                        <button onclick="document.getElementById('idBackInput').click()" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-2 rounded-xl text-sm font-bold transition">
-                            <i class="ph ph-camera mr-2"></i> Upload Back ID
-                        </button>
-                        <input type="file" id="idBackInput" class="hidden" accept="image/*,application/pdf" onchange="uploadProfileId(this, 'id_proof_back')">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" onclick="capturePortalId('id_proof_back')" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-2 rounded-xl text-sm font-bold transition">
+                                <i class="ph ph-camera mr-1"></i> Camera
+                            </button>
+                            <button type="button" onclick="document.getElementById('idBackInput').click()" class="w-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 py-2 rounded-xl text-sm font-bold transition">
+                                <i class="ph ph-upload mr-1"></i> Upload
+                            </button>
+                        </div>
+                        <input type="file" id="idBackInput" class="hidden" accept="image/*,application/pdf" capture="environment" onchange="uploadProfileId(this, 'id_proof_back')">
                     </div>
                 </div>
             </div>
@@ -1509,17 +1520,30 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                 previewEl.classList.remove('hidden');
                 formEl.classList.add('hidden');
                 
-                // Show PDF placeholder or actual image
                 if (url.toLowerCase().endsWith('.pdf')) {
                     previewEl.innerHTML = '<div class="text-center text-slate-500"><i class="ph ph-file-pdf text-4xl mb-2 text-red-500"></i><p class="text-xs font-bold">PDF uploaded</p></div>';
                 } else {
-                    const absUrl = url.startsWith('http') ? url : `/${url}`;
+                    const absUrl = (url.startsWith('http') || url.startsWith('/')) ? url : `/${url}`;
                     previewEl.innerHTML = `<img src="${absUrl}" class="max-w-full max-h-full object-contain">`;
                 }
             } else {
                 previewEl.classList.add('hidden');
                 formEl.classList.remove('hidden');
             }
+        }
+
+        function capturePortalId(docType) {
+            if (!window.PhotoCapture) {
+                document.getElementById(docType === 'id_proof_back' ? 'idBackInput' : 'idFrontInput').click();
+                return;
+            }
+            PhotoCapture.open({
+                mode: docType === 'id_proof_back' ? 'id_back' : 'id_front',
+                onCapture: (_url, file) => {
+                    const input = document.getElementById(docType === 'id_proof_back' ? 'idBackInput' : 'idFrontInput');
+                    PhotoCapture.assignFile(input, file);
+                }
+            });
         }
 
         async function uploadProfileId(input, docType) {
@@ -1662,7 +1686,22 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
         }
 
         async function payWithPhonePe() {
-            guestToast('Complete PhonePe from the link sent by the desk, or pay at the desk.', 'err');
+            if (folioBalance <= 0) return;
+            try {
+                const res = await fetch('/api/guest/create_phonepe_payment', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ booking_id: bookingId, token: token, amount: folioBalance })
+                });
+                const data = await res.json();
+                if (data.success && data.redirect_url) {
+                    window.location.href = data.redirect_url;
+                    return;
+                }
+                guestToast(data.message || 'Could not start PhonePe.', 'err');
+            } catch (e) {
+                guestToast('Payment could not be started.', 'err');
+            }
         }
 
         function initProfileSignature() {
@@ -1738,6 +1777,7 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
         })();
 
     </script>
+    <script src="/js/photo_capture.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.5/dist/signature_pad.umd.min.js"></script>
 </body>
 </html>

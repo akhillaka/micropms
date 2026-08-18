@@ -64,31 +64,49 @@ $stmt = $db->prepare("
 $stmt->execute([$propertyId, $normalized]);
 $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-$otpEnabled = defined('GUEST_PORTAL_OTP_ENABLED') && GUEST_PORTAL_OTP_ENABLED === 'true';
+$otpEnabled = get_db_setting($db, 'GUEST_PORTAL_OTP_ENABLED', $propertyId, 'true') === 'true';
 
-if (!$otpEnabled) {
+if ($otpEnabled) {
+    if (!empty($bookings)) {
+        $otp = (string)random_int(1000, 9999);
+        $_SESSION['guest_otp_code'] = $otp;
+        $_SESSION['guest_otp_phone'] = $phone;
+        $_SESSION['guest_otp_property_id'] = $propertyId;
+        $_SESSION['guest_otp_bookings'] = $bookings;
+        $_SESSION['guest_otp_expiry'] = time() + 300;
+        $_SESSION['guest_otp_attempts'] = 0;
+
+        $message = "Your MicroPMS verification OTP is: *{$otp}*. It is valid for 5 minutes.";
+        NotificationRelay::sendWhatsAppSync($phone, $message, false);
+    }
+
     echo json_encode([
-        'success' => false,
+        'success' => true,
         'otp_required' => true,
-        'message' => 'Guest portal lookup requires OTP verification. Enable GUEST_PORTAL_OTP_ENABLED.'
+        'message' => $genericOtpMessage
     ]);
     exit;
 }
 
-if (!empty($bookings)) {
-    $otp = (string)random_int(100000, 999999);
-    $_SESSION['guest_otp_code'] = $otp;
-    $_SESSION['guest_otp_phone'] = $phone;
-    $_SESSION['guest_otp_property_id'] = $propertyId;
-    $_SESSION['guest_otp_bookings'] = $bookings;
-    $_SESSION['guest_otp_expiry'] = time() + 300;
-
-    $message = "Your MicroPMS verification OTP is: *{$otp}*. It is valid for 5 minutes.";
-    NotificationRelay::sendWhatsAppSync($phone, $message, false);
+require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
+$resolved = [];
+foreach ($bookings as $b) {
+    if (!GuestAccessToken::bookingIsAccessible($b)) {
+        continue;
+    }
+    $resolved[] = [
+        'id' => $b['id'],
+        'display_id' => $b['display_id'],
+        'check_in' => $b['check_in'],
+        'check_out' => $b['check_out'],
+        'guest_name' => $b['guest_name'],
+        'token' => GuestAccessToken::generate((string)$b['id']),
+    ];
 }
 
 echo json_encode([
     'success' => true,
-    'otp_required' => true,
-    'message' => $genericOtpMessage
+    'otp_required' => false,
+    'bookings' => $resolved,
+    'message' => $resolved === [] ? 'No accessible stays found for this number.' : ''
 ]);

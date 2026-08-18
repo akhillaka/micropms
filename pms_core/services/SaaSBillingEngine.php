@@ -4,10 +4,11 @@ declare(strict_types=1);
 /**
  * SaaSBillingEngine - Enforces SaaS plans, room limits, and subscription status validations.
  */
+require_once __DIR__ . '/../saas_plans.php';
+
 class SaaSBillingEngine {
 
     public static function resolvePlanCap(\PDO $db, int $propertyId, string $capKey, int $fallback): int {
-        require_once __DIR__ . '/../saas_plans.php';
         $stmt = $db->prepare("SELECT plan, max_rooms, max_staff FROM properties WHERE id = ?");
         $stmt->execute([$propertyId]);
         $prop = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -26,7 +27,6 @@ class SaaSBillingEngine {
     }
 
     public static function exportRowLimit(\PDO $db, int $propertyId): int {
-        require_once __DIR__ . '/../saas_plans.php';
         $stmt = $db->prepare("SELECT plan FROM properties WHERE id = ?");
         $stmt->execute([$propertyId]);
         $planKey = (string)($stmt->fetchColumn() ?: 'starter');

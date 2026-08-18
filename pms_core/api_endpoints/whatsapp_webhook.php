@@ -211,8 +211,6 @@ elseif ($raw_phone && $message_id) {
                 $insReply->execute([$conv_id, "🤖 [AI Concierge] " . $aiReply, $msgStatus]);
             }
 
-            require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
-
             $gName = '+' . $phone_number;
             $guestNameQuery = $db->prepare("SELECT g.name FROM wa_conversations c JOIN guests g ON c.guest_id = g.id WHERE c.id = ?");
             $guestNameQuery->execute([$conv_id]);

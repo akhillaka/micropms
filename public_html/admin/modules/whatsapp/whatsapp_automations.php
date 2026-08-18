@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 require_once __DIR__ . '/../../../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../../../pms_core/services/SaaSEntitlementsService.php';
@@ -66,8 +67,6 @@ foreach ($templates as &$t) {
     }
 }
 unset($t);
-
-
 
 // --- AUTOMATIONS DATA ---
 $globalVars = [
@@ -197,7 +196,7 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
                                     <?php if(!$eventData['is_system']): ?>
                                         <div class="mt-2 bg-brand-50 border border-brand-200 p-2 rounded-lg inline-block">
                                             <span class="text-[10px] font-bold text-brand-500 uppercase block mb-1">Webhook URL Trigger:</span>
-                                            <code class="text-[11px] font-mono text-brand-900 select-all">POST /api/trigger_automation.php {"event":"<?= htmlspecialchars((string)($eventKey), ENT_QUOTES, 'UTF-8') ?>","booking_id":123}</code>
+                                            <code class="text-[11px] font-mono text-brand-900 select-all">POST /api/system/trigger_automation {"event":"<?= htmlspecialchars((string)($eventKey), ENT_QUOTES, 'UTF-8') ?>","booking_id":123}</code>
                                         </div>
                                     <?php endif; ?>
                                 </div>
@@ -333,8 +332,6 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
                     <?php endif; ?>
                 </div>
 
-
-
             </main>
         </div>
     </div>
@@ -358,8 +355,6 @@ while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {
             </div>
         </div>
     </div>
-
-
 
     <script>
         // Tab switching

@@ -1,5 +1,5 @@
 // Service Worker for Hotel Booking Assistant
-const CACHE_NAME = 'assistant-cache-v1';
+const CACHE_NAME = 'assistant-cache-v2';
 const ASSETS = [
   '/assistant/index.html',
   '/assistant/manifest.json',
@@ -41,9 +41,13 @@ self.addEventListener('activate', (event) => {
 
 // Fetch Event (Network-first fallback to cache for offline capabilities)
 self.addEventListener('fetch', (event) => {
-  // Only intercept GET requests under assistant/
   if (event.request.method !== 'GET') return;
-  
+
+  const url = new URL(event.request.url);
+  if (url.pathname.includes('/api/') || url.pathname.includes('/assistant/api/')) {
+    return;
+  }
+
   event.respondWith(
     fetch(event.request)
       .then((response) => {

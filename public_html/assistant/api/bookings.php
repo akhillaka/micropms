@@ -8,7 +8,10 @@ require_once __DIR__ . '/../../../pms_core/services/GuestService.php';
 require_once __DIR__ . '/../../../pms_core/services/RoomService.php';
 
 ApiHandler::run(function(\PDO $db) {
-    $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    $data = ApiHandler::getJsonInput();
+    if (!$data) {
+        $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    }
     $action = $data['action'] ?? $_GET['action'] ?? '';
 
     // Action: Calculate pricing
@@ -29,8 +32,8 @@ ApiHandler::run(function(\PDO $db) {
             
             $extraBedCost = 0.0;
             if ($extraBed) {
-                $days = max(1, (int)ceil((strtotime($checkOut) - strtotime($checkIn)) / 86400));
-                $extraBedCost = $days * 500.00;
+                $days = BookingService::calculateDays($checkIn, $checkOut);
+                $extraBedCost = $days * BookingService::extraBedNightlyRate($db, AuthHelper::getPropertyId());
             }
 
             ApiResponse::success([

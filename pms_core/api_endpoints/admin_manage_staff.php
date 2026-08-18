@@ -202,7 +202,6 @@ ApiHandler::run(function(\PDO $db) {
         
         $resolvedRole = $resolveRole($roleInput);
         
-        require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
         SaaSEntitlementsService::checkStaffLimit($db, $propertyId);
         
         $token = bin2hex(random_bytes(16));

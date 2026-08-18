@@ -33,42 +33,53 @@ try {
     }
     GuestAccessToken::denyIfInaccessible($booking);
 
-    $uploadDir = __DIR__ . '/../../public_html/uploads/';
-    if (!file_exists($uploadDir)) {
-        mkdir($uploadDir, 0755, true);
+    $uploadDir = realpath(__DIR__ . '/../uploads');
+    if (!$uploadDir) {
+        $uploadDir = __DIR__ . '/../uploads';
+        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
+            throw new Exception('Upload directory is not writable');
+        }
     }
 
     $uploadedFiles = [];
     $guestId = $booking['guest_id'];
     
-    // Check if files were uploaded
     if (!empty($_FILES['id_file']['tmp_name'])) {
         $fileTmp = $_FILES['id_file']['tmp_name'];
-        $fileName = preg_replace('/[^a-zA-Z0-9.\-_]/', '', basename($_FILES['id_file']['name']));
-        $uniqueName = 'guest_' . $guestId . '_id_' . time() . '_' . $fileName;
-        $destPath = $uploadDir . $uniqueName;
+        $ext = strtolower(pathinfo((string)($_FILES['id_file']['name'] ?? ''), PATHINFO_EXTENSION));
+        if (!in_array($ext, ['jpg', 'jpeg', 'png', 'pdf'], true)) {
+            throw new Exception('Unsupported file format. Use JPG, PNG, or PDF.');
+        }
 
         $docType = $_POST['document_type'] ?? 'id_proof';
-        if (!in_array($docType, ['id_proof_front', 'id_proof_back', 'id_proof'])) {
+        if (!in_array($docType, ['id_proof_front', 'id_proof_back', 'id_proof'], true)) {
             $docType = 'id_proof';
         }
 
-        if (move_uploaded_file($fileTmp, $destPath)) {
-            // Check if document record already exists for this guest
-            $chkStmt = $db->prepare("SELECT id FROM guest_documents WHERE guest_id = ? AND document_type = ?");
-            $chkStmt->execute([$guestId, $docType]);
-            $existing = $chkStmt->fetchColumn();
+        $savedFilename = uniqid($docType . '_') . '.' . $ext;
+        $destPath = rtrim($uploadDir, '/') . '/' . $savedFilename;
 
-            if ($existing) {
-                // Update
-                $updStmt = $db->prepare("UPDATE guest_documents SET file_path = ?, uploaded_at = NOW() WHERE id = ?");
-                $updStmt->execute(['uploads/' . $uniqueName, $existing]);
-            } else {
-                // Insert new
-                $docStmt = $db->prepare("INSERT INTO guest_documents (guest_id, document_type, file_path, uploaded_at) VALUES (?, ?, ?, NOW())");
-                $docStmt->execute([$guestId, $docType, 'uploads/' . $uniqueName]);
+        if (move_uploaded_file($fileTmp, $destPath)) {
+            $guestCol = $docType === 'id_proof_back' ? 'id_proof_back' : 'id_proof_front';
+            $gUpd = $db->prepare("UPDATE guests SET `{$guestCol}` = ? WHERE id = ?");
+            $gUpd->execute([$savedFilename, $guestId]);
+
+            try {
+                $chkStmt = $db->prepare("SELECT id FROM guest_documents WHERE guest_id = ? AND document_type = ?");
+                $chkStmt->execute([$guestId, $docType]);
+                $existing = $chkStmt->fetchColumn();
+
+                if ($existing) {
+                    $updStmt = $db->prepare("UPDATE guest_documents SET file_path = ?, uploaded_at = NOW() WHERE id = ?");
+                    $updStmt->execute([$savedFilename, $existing]);
+                } else {
+                    $docStmt = $db->prepare("INSERT INTO guest_documents (guest_id, document_type, file_path, uploaded_at) VALUES (?, ?, ?, NOW())");
+                    $docStmt->execute([$guestId, $docType, $savedFilename]);
+                }
+            } catch (\PDOException $e) {
+                // guests columns already hold the file; guest_documents is optional history
             }
-            $uploadedFiles[] = 'uploads/' . $uniqueName;
+            $uploadedFiles[] = $savedFilename;
         } else {
             throw new Exception("Failed to upload ID document.");
         }

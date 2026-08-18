@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 return array (
   'admin_actions.php' => '/api/admin/actions',
   'admin_add_automation_event.php' => '/api/admin/add_automation_event',
@@ -6,6 +7,7 @@ return array (
   'admin_add_folio.php' => '/api/admin/add_folio',
   'admin_booking_status.php' => '/api/admin/booking_status',
   'admin_calendar_data.php' => '/api/admin/calendar_data',
+  'admin_create_phonepe_payment.php' => '/api/admin/create_phonepe_payment',
   'admin_create_razorpay_order.php' => '/api/admin/create_razorpay_order',
   'admin_crm_dashboard.php' => '/api/admin/crm_dashboard',
   'admin_daily_summary.php' => '/api/admin/daily_summary',
@@ -72,6 +74,7 @@ return array (
   'guest_profile_api.php' => '/api/guest/profile',
   'guest_verify_otp.php' => '/api/guest/verify_otp',
   'ocr_google_vision.php' => '/api/system/ocr_google_vision',
+  'telegram_webhook.php' => '/api/telegram_webhook',
   'payment_gateway_config.php' => '/api/system/payment_gateway_config',
   'saas_subscription.php' => '/api/system/saas_subscription',
   'search_guests.php' => '/api/system/search_guests',

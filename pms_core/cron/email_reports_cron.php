@@ -62,7 +62,7 @@ try {
             $subject = "Weekly Revenue Report ({$lastWeekStart} to {$yesterday})";
             
             // Calculate weekly totals
-            $revStmt = $db->prepare("SELECT SUM(amount) as total FROM finance_transactions WHERE property_id = ? AND transaction_type = 'payment' AND recorded_at BETWEEN ? AND ?");
+            $revStmt = $db->prepare("SELECT COALESCE(SUM(-amount), 0) as total FROM folio_ledger WHERE property_id = ? AND transaction_type = 'payment' AND (is_refund = 0 OR is_refund IS NULL) AND recorded_at BETWEEN ? AND ?");
             $revStmt->execute([$propertyId, $lastWeekStart . ' 00:00:00', $yesterday . ' 23:59:59']);
             $weeklyRev = (float)$revStmt->fetchColumn();
             

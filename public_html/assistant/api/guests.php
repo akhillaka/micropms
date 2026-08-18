@@ -217,6 +217,40 @@ ApiHandler::run(function(\PDO $db) {
             $fieldsToUpdate[] = "pincode = :pincode";
             $params['pincode'] = trim($data['pincode']);
         }
+        $guestCols = [];
+        try {
+            $colStmt = $db->query("SHOW COLUMNS FROM guests");
+            while ($col = $colStmt->fetch(PDO::FETCH_ASSOC)) {
+                $guestCols[strtolower((string)$col['Field'])] = true;
+            }
+        } catch (\Throwable $e) {
+            $guestCols = [];
+        }
+
+        if (!empty($data['id_number']) && isset($guestCols['id_number'])) {
+            $fieldsToUpdate[] = "id_number = :id_number";
+            $params['id_number'] = trim((string)$data['id_number']);
+        }
+        if (!empty($data['id_type']) && isset($guestCols['id_type'])) {
+            $fieldsToUpdate[] = "id_type = :id_type";
+            $params['id_type'] = trim((string)$data['id_type']);
+        }
+        if (!empty($data['gender']) && isset($guestCols['gender'])) {
+            $fieldsToUpdate[] = "gender = :gender";
+            $params['gender'] = trim((string)$data['gender']);
+        }
+        if (!empty($data['age']) && (int)$data['age'] > 0) {
+            $fieldsToUpdate[] = "age = :age";
+            $params['age'] = (int)$data['age'];
+        }
+        $dobRaw = trim((string)($data['dob'] ?? $data['date_of_birth'] ?? ''));
+        if ($dobRaw !== '' && isset($guestCols['date_of_birth'])) {
+            $dobTs = strtotime(str_replace('/', '-', $dobRaw));
+            if ($dobTs) {
+                $fieldsToUpdate[] = "date_of_birth = :dob";
+                $params['dob'] = date('Y-m-d', $dobTs);
+            }
+        }
 
         if (empty($fieldsToUpdate)) {
             ApiResponse::success(['message' => 'No changes required']);

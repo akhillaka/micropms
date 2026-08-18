@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
@@ -191,21 +192,8 @@ $unpaidBookings = $unpaidStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $paymentMethods = get_payment_methods($db, (int)$propertyId);
 
-$incStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'FINANCE_INCOME_CATEGORIES' AND property_id = ?");
-$incStmt->execute([$propertyId]);
-$incVal = $incStmt->fetchColumn();
-$incomeCategories = $incVal ? array_map('trim', explode(',', $incVal)) : [];
-if (empty($incomeCategories)) {
-    $incomeCategories = ["F&B", "Laundry", "POS", "Misc", "Event", "Transport"];
-}
-
-$expStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'FINANCE_EXPENSE_CATEGORIES' AND property_id = ?");
-$expStmt->execute([$propertyId]);
-$expVal = $expStmt->fetchColumn();
-$expenseCategories = $expVal ? array_map('trim', explode(',', $expVal)) : [];
-if (empty($expenseCategories)) {
-    $expenseCategories = ["Salaries", "Utility Bills", "F&B Supplies", "Maintenance", "Refunds", "Marketing", "Misc"];
-}
+$incomeCategories = get_setting_list($db, 'FINANCE_INCOME_CATEGORIES', (int)$propertyId, ["F&B", "Laundry", "POS", "Misc", "Event", "Transport"]);
+$expenseCategories = get_setting_list($db, 'FINANCE_EXPENSE_CATEGORIES', (int)$propertyId, ["Salaries", "Utility Bills", "F&B Supplies", "Maintenance", "Refunds", "Marketing", "Misc"]);
 
 // Chart.js query for daily income vs expense
 $chartQuery = "

@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
@@ -115,6 +116,19 @@ try {
     }
 } catch (\PDOException $e) {}
 
+$rzSettingsKey = trim((string)(defined('RAZORPAY_KEY_ID') ? RAZORPAY_KEY_ID : ''));
+if (empty($pgConfigs['razorpay']['key_id']) && $rzSettingsKey !== '') {
+    $pgConfigs['razorpay'] = array_merge($pgConfigs['razorpay'] ?? [], [
+        'key_id' => $rzSettingsKey,
+        'mode' => $pgConfigs['razorpay']['mode'] ?? 'live',
+        'is_active' => 1,
+    ]);
+}
+$razorpayHasRow = !empty($pgConfigs['razorpay']['id']) || !empty($pgConfigs['razorpay']['key_id']);
+$razorpayIsActive = $razorpayHasRow && (int)($pgConfigs['razorpay']['is_active'] ?? 0) === 1;
+$phonepeHasRow = !empty($pgConfigs['phonepe']['id']) || !empty($pgConfigs['phonepe']['key_id']);
+$phonepeIsActive = $phonepeHasRow && (int)($pgConfigs['phonepe']['is_active'] ?? 0) === 1;
+
 $customRoles = [];
 try {
     AuthHelper::seedRolesForProperty($db, $propId);
@@ -178,7 +192,7 @@ $waToken = get_db_setting($db, 'WHATSAPP_TOKEN', $propertyId, (defined('WHATSAPP
 $waPhoneId = get_db_setting($db, 'WHATSAPP_PHONE_NUMBER_ID', $propertyId, (defined('WHATSAPP_PHONE_NUMBER_ID') ? WHATSAPP_PHONE_NUMBER_ID : ''));
 $waWabaId = get_db_setting($db, 'WHATSAPP_WABA_ID', $propertyId, (defined('WHATSAPP_WABA_ID') ? WHATSAPP_WABA_ID : ''));
 
-$otpEnabled = (get_db_setting($db, 'GUEST_PORTAL_OTP_ENABLED', $propertyId, 'false')) === 'true';
+$otpEnabled = (get_db_setting($db, 'GUEST_PORTAL_OTP_ENABLED', $propertyId, 'true')) === 'true';
 
 // New guest portal info settings
 $portalWifiSsid        = (string)get_db_setting($db, 'GUEST_PORTAL_WIFI_SSID', $propertyId, (defined('PROPERTY_WIFI_NAME') ? PROPERTY_WIFI_NAME : ''));
@@ -313,7 +327,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                         <i class="ph ph-receipt text-lg opacity-80"></i> Folio Items
                     </button>
                     <button onclick="switchTab('import')" id="tab-import" class="settings-tab-btn tab-inactive">
-                        <i class="ph ph-upload-simple text-lg opacity-80"></i> Booking Import
+                        <i class="ph ph-upload-simple text-lg opacity-80"></i> Sheet Import
                     </button>
                     <button onclick="switchTab('sequences')" id="tab-sequences" class="settings-tab-btn tab-inactive">
                         <i class="ph ph-hash text-lg opacity-80"></i> Custom Sequences
@@ -526,7 +540,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                             </div>
                             <div>
                                 <h2 class="font-bold text-brand-900">Razorpay Settings</h2>
-                                <p class="text-xs text-brand-900/70">Payment Gateway Configuration</p>
+                                <p class="text-xs text-brand-900/70">Also used for folio, guest portal, and WhatsApp payment links. Saving here activates Razorpay collection.</p>
                             </div>
                         </div>
                         <div class="space-y-4">
@@ -667,7 +681,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                             <div class="bg-sky-50 border border-sky-100 rounded-xl p-3 text-[11px] text-sky-900 leading-relaxed">
                                 <p class="font-bold mb-1">How Telegram works</p>
                                 <p><b>Notifier bot</b> only sends alerts (check-in, payment, folio, daily summary). It cannot change bookings. Requires a cron worker for the telegram job queue.</p>
-                                <p class="mt-1"><b>Operations bot</b> is a chat menu for authorized staff: room status, add payment, checkout (zero balance), extend stay dates, mark room clean, arrivals/departures, today’s revenue. Set webhook to <code class="font-mono">/api/telegram_webhook</code> with the webhook secret. Phone UI is Hotel Assistant, not a Mini App.</p>
+                                <p class="mt-1"><b>Operations bot</b> is a chat menu for authorized staff: new booking, edit stay, check-in/out, ID front/back photos, cash or Razorpay/PhonePe collect, extend stay, mark room clean, arrivals/departures, today’s revenue. Set webhook to <code class="font-mono">/api/telegram_webhook</code> with the webhook secret. Phone UI is Hotel Assistant, not a Mini App.</p>
                             </div>
                             <div>
                                 <h3 class="text-xs font-bold text-brand-900 bg-brand-100 px-3 py-1.5 rounded inline-block mb-1 mt-2">Notifier Bot (Outbound)</h3>
@@ -690,12 +704,12 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Authorized Chat IDs (Comma separated)</label>
                                 <input type="text" name="TELEGRAM_OPERATIONS_CHAT_IDS" value="<?= htmlspecialchars((string)(defined('TELEGRAM_OPERATIONS_CHAT_IDS') ? TELEGRAM_OPERATIONS_CHAT_IDS : '')) ?>" placeholder="e.g. 12345678,87654321" class="w-full bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono">
-                                <p class="text-[9px] text-slate-500 mt-1 font-semibold">Only these IDs can interact with the operations menu. Don't forget to set the webhook to `/api/telegram_webhook.php`.</p>
+                                <p class="text-[9px] text-slate-500 mt-1 font-semibold">Only these IDs can use the operations menu. Set the webhook to <code class="font-mono">https://YOUR-DOMAIN/api/telegram_webhook</code> with header secret <code class="font-mono">TELEGRAM_WEBHOOK_SECRET</code>. The <code class="font-mono">.php</code> URL also works.</p>
                             </div>
                             <div class="mt-4">
                                 <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Telegram Roles (JSON)</label>
                                 <textarea name="TELEGRAM_ROLES" rows="3" class="w-full bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono"><?= htmlspecialchars((string)(defined('TELEGRAM_ROLES') ? TELEGRAM_ROLES : '')) ?></textarea>
-                                <p class="text-[9px] text-slate-500 mt-1 font-semibold">Example: {"12345678": "admin", "87654321": "staff"}. Maps chat IDs to roles. "admin" role is required for /report command.</p>
+                                <p class="text-[9px] text-slate-500 mt-1 font-semibold">Maps Telegram chat IDs to roles. The bot does not read PMS staff users — you must paste IDs here. Example: <code class="font-mono">{"12345678":"admin","87654321":"staff","111":"housekeeping"}</code>. Roles: admin (all + /report), manager (front desk + revenue), staff (new booking, edit, check-in, ID photos, payments, checkout, extend), housekeeping (room status + mark clean). Chat IDs not listed here but present in Authorized Chat IDs are treated as staff.</p>
                             </div>
                         </div>
 
@@ -821,6 +835,49 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Expense Categories (Comma separated)</label>
                                 <input type="text" name="FINANCE_EXPENSE_CATEGORIES" value="<?= htmlspecialchars((string)(defined('FINANCE_EXPENSE_CATEGORIES') ? FINANCE_EXPENSE_CATEGORIES : 'Salaries, Utility Bills, F&B Supplies, Maintenance, Refunds, Marketing, Misc')) ?>" placeholder="Salaries, Utility Bills, F&B Supplies, Maintenance, Refunds, Marketing, Misc" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-brand-900 transition-all font-mono">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-minimal p-6 mb-6">
+                        <div class="flex items-center gap-3 mb-6 border-b border-brand-100 pb-4">
+                            <div class="w-12 h-12 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
+                                <i class="ph ph-envelope-simple text-2xl"></i>
+                            </div>
+                            <div>
+                                <h2 class="font-bold text-brand-900">SMTP email</h2>
+                                <p class="text-xs text-brand-900/70">Used for guest emails and scheduled reports. Leave host empty to use PHP mail().</p>
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">SMTP host</label>
+                                <input type="text" name="SMTP_HOST" value="<?= htmlspecialchars((string)(defined('SMTP_HOST') ? SMTP_HOST : '')) ?>" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Port</label>
+                                    <input type="number" name="SMTP_PORT" value="<?= htmlspecialchars((string)(defined('SMTP_PORT') ? SMTP_PORT : '587')) ?>" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Encryption</label>
+                                    <select name="SMTP_ENCRYPTION" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none">
+                                        <option value="tls" <?= (defined('SMTP_ENCRYPTION') && SMTP_ENCRYPTION === 'tls') ? 'selected' : '' ?>>TLS</option>
+                                        <option value="ssl" <?= (defined('SMTP_ENCRYPTION') && SMTP_ENCRYPTION === 'ssl') ? 'selected' : '' ?>>SSL</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Username</label>
+                                <input type="text" name="SMTP_USER" value="<?= htmlspecialchars((string)(defined('SMTP_USER') ? SMTP_USER : '')) ?>" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Password</label>
+                                <input type="password" name="SMTP_PASS" value="" autocomplete="new-password" placeholder="Leave blank to keep current password" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">From address</label>
+                                <input type="email" name="SMTP_FROM" value="<?= htmlspecialchars((string)(defined('SMTP_FROM') ? SMTP_FROM : '')) ?>" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none font-mono">
                             </div>
                         </div>
                     </div>
@@ -1175,7 +1232,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                         </div>
                         <div>
                             <h2 class="font-bold text-brand-900">Payment Gateways</h2>
-                            <p class="text-xs text-brand-900/70">Configure property-specific gateway credentials</p>
+                            <p class="text-xs text-brand-900/70">Must be Active <em>and saved</em> with keys. These buttons then appear on folio, assistant, and guest pay.</p>
                         </div>
                     </div>
                     
@@ -1183,7 +1240,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                         <div class="flex items-center justify-between">
                             <h3 class="font-bold text-slate-800">Razorpay</h3>
                             <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" name="is_active" class="sr-only peer" <?= htmlspecialchars((string)(($pgConfigs['razorpay']['is_active'] ?? 1) ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?>>
+                                <input type="checkbox" name="is_active" class="sr-only peer" <?= $razorpayIsActive ? 'checked' : '' ?>>
                                 <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
                                 <span class="ml-2 text-xs font-bold text-slate-600 uppercase tracking-wide">Active</span>
                             </label>
@@ -1212,7 +1269,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                         <div class="flex items-center justify-between">
                             <h3 class="font-bold text-slate-800">PhonePe</h3>
                             <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" name="is_active" class="sr-only peer" <?= htmlspecialchars((string)(($pgConfigs['phonepe']['is_active'] ?? 1) ? 'checked' : ''), ENT_QUOTES, 'UTF-8') ?>>
+                                <input type="checkbox" name="is_active" class="sr-only peer" <?= $phonepeIsActive ? 'checked' : '' ?>>
                                 <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
                                 <span class="ml-2 text-xs font-bold text-slate-600 uppercase tracking-wide">Active</span>
                             </label>
@@ -1431,7 +1488,18 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
 
                     <!-- Active Checklist Items List -->
                     <?php
-                    $hkItems = $db->query("SELECT * FROM housekeeping_checklist_items ORDER BY display_order ASC, id ASC")->fetchAll();
+                    $hkItems = [];
+                    try {
+                        $hkStmt = $db->prepare("SELECT * FROM housekeeping_checklist_items WHERE (property_id = ? OR property_id IS NULL) AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00') ORDER BY display_order ASC, id ASC");
+                        $hkStmt->execute([$propId]);
+                        $hkItems = $hkStmt->fetchAll(PDO::FETCH_ASSOC);
+                    } catch (\PDOException $e) {
+                        try {
+                            $hkItems = $db->query("SELECT * FROM housekeeping_checklist_items ORDER BY display_order ASC, id ASC")->fetchAll();
+                        } catch (\PDOException $e2) {
+                            $hkItems = [];
+                        }
+                    }
                     ?>
                     <div id="hk-checklist-items-admin" class="space-y-2">
                         <?php if (empty($hkItems)): ?>
@@ -1571,6 +1639,11 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                                     <input type="number" name="TAX_RATE" step="0.01" min="0" value="<?= htmlspecialchars((string)(defined('TAX_RATE') ? TAX_RATE : '12')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
                                 </div>
                             </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Extra bed rate (₹ / night)</label>
+                                <input type="number" name="EXTRA_BED_RATE" step="0.01" min="0" value="<?= htmlspecialchars((string)(defined('EXTRA_BED_RATE') ? EXTRA_BED_RATE : '500')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-bold">
+                                <p class="text-[11px] text-slate-500 mt-1">Used when a booking includes extra beds.</p>
+                            </div>
                         </div>
                     </div>
                     <!-- WhatsApp API Configuration -->
@@ -1647,27 +1720,31 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                             <i class="ph ph-upload-simple text-2xl"></i>
                         </div>
                         <div>
-                            <h2 class="font-bold text-brand-900">Import bookings</h2>
-                            <p class="text-xs text-brand-900/70">Download the CSV template, fill stays and optional folio lines, then preview and import.</p>
+                            <h2 class="font-bold text-brand-900">Import from Google Sheet</h2>
+                            <p class="text-xs text-brand-900/70">Use the same Bookings, Payments, and Expenses columns as the live Google Sheet sync.</p>
                         </div>
                     </div>
                     <ol class="text-xs text-slate-600 list-decimal pl-4 space-y-1">
-                        <li>Use <code class="font-mono">row_type=booking</code> for each stay. Match rooms by <code class="font-mono">room_number</code> and guests by phone.</li>
-                        <li>Add <code class="font-mono">row_type=folio</code> rows with the same <code class="font-mono">import_ref</code> for extra charges or payments.</li>
-                        <li>If folio rows exist for a stay, room rent is not auto-posted — put charges in the file.</li>
+                        <li>Download the ZIP template, or File → Download → CSV from each Google Sheet tab.</li>
+                        <li>Leave <code class="font-mono">Booking ID</code> / <code class="font-mono">Payment ID</code> / <code class="font-mono">Expense ID</code> empty for new rows. Filled IDs that already exist are skipped.</li>
+                        <li>Room No must match a room in this property. Phone No is required. Payments attach by Booking ID.</li>
+                        <li>Rate per night × nights becomes room rent. Extra money goes on the Payments tab, not Total Amount Collected.</li>
                     </ol>
                     <div class="flex flex-wrap gap-2">
                         <a href="/api/admin/import_bookings?action=template" class="inline-flex items-center gap-1 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg">
-                            <i class="ph ph-download-simple"></i> Download template
+                            <i class="ph ph-download-simple"></i> Download all tabs (ZIP)
                         </a>
+                        <a href="/api/admin/import_bookings?action=template&amp;sheet=bookings" class="inline-flex items-center gap-1 text-xs font-bold text-brand-800 bg-brand-100 hover:bg-brand-200 px-3 py-2 rounded-lg">Bookings.csv</a>
+                        <a href="/api/admin/import_bookings?action=template&amp;sheet=payments" class="inline-flex items-center gap-1 text-xs font-bold text-brand-800 bg-brand-100 hover:bg-brand-200 px-3 py-2 rounded-lg">Payments.csv</a>
+                        <a href="/api/admin/import_bookings?action=template&amp;sheet=expenses" class="inline-flex items-center gap-1 text-xs font-bold text-brand-800 bg-brand-100 hover:bg-brand-200 px-3 py-2 rounded-lg">Expenses.csv</a>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider mb-1">Upload CSV</label>
-                        <input type="file" id="bookingImportFile" accept=".csv,text/csv" class="w-full text-sm">
+                        <label class="block text-xs font-bold text-brand-900 uppercase tracking-wider mb-1">Upload CSV or ZIP</label>
+                        <input type="file" id="bookingImportFile" accept=".csv,.zip,text/csv,application/zip" class="w-full text-sm">
                     </div>
                     <button type="button" onclick="previewBookingImport()" class="w-full bg-brand-900 text-white font-bold py-3 rounded-xl">Preview import</button>
                     <div id="bookingImportPreview" class="text-sm"></div>
-                    <button type="button" id="bookingImportCommitBtn" onclick="commitBookingImport()" class="hidden w-full bg-teal-700 text-white font-bold py-3 rounded-xl">Import valid stays</button>
+                    <button type="button" id="bookingImportCommitBtn" onclick="commitBookingImport()" class="hidden w-full bg-teal-700 text-white font-bold py-3 rounded-xl">Import valid rows</button>
                 </div>
             </div>
 
@@ -2502,7 +2579,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
         if (!text) return;
 
         try {
-            const res = await fetch('../assistant/api/housekeeping.php', {
+            const res = await fetch('/api/admin/housekeeping', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'add_checklist_item', item_text: text, is_mandatory: isMandatory })
@@ -2522,7 +2599,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
     async function deleteHkChecklistItem(itemId) {
         if (!confirm('Delete this checklist item?')) return;
         try {
-            const res = await fetch('../assistant/api/housekeeping.php', {
+            const res = await fetch('/api/admin/housekeeping', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'delete_checklist_item', item_id: itemId })

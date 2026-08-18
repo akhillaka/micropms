@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../pms_core/config.php';
 require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
+require_once __DIR__ . '/../../pms_core/services/FolioService.php';
 
 $data = json_decode(file_get_contents('php://input'), true);
 $bookingId = (string)($data['booking_id'] ?? '');
@@ -61,17 +62,7 @@ if (!isset($catalog[$description])) {
 }
 $amount = $catalog[$description];
 
-$ins = $db->prepare("
-    INSERT INTO folio_ledger (booking_id, property_id, transaction_type, amount, description, payment_method, recorded_at) 
-    VALUES (:b_id, :p_id, 'charge', :amount, :desc, 'other', NOW())
-");
-$ins->execute([
-    'b_id' => $bookingId,
-    'p_id' => $propertyId,
-    'amount' => $amount,
-    'desc' => $description
-]);
-SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
+FolioService::postCharge($db, (int)$bookingId, $amount, $description, 'other');
 
 AuditLogger::log(null, 'ADD_FOLIO_CHARGE', 'FOLIO', $bookingId, [
     'amount' => $amount,

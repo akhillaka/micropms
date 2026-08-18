@@ -20,10 +20,12 @@ try {
     // Table doesn't exist yet — that's fine for first run
 }
 
-// Enforce owner login only if the system is already set up
+// Property owners and superadmins can apply schema updates
 if ($userCount > 0) {
     AuthHelper::requireLoginOrRedirect();
-    if (!AuthHelper::isSuperAdmin()) {
+    $role = AuthHelper::getRole();
+    $canMigrate = AuthHelper::isSuperAdmin() || in_array($role, ['owner', 'admin'], true);
+    if (!$canMigrate) {
         header('Location: /admin');
         exit;
     }
@@ -123,7 +125,7 @@ $migrationStatus = $runner->getStatus();
             </form>
         <?php else: ?>
             <div class="text-center py-4">
-                <a href="login.php" class="inline-flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-xl text-sm font-bold hover:bg-slate-800 transition-colors">
+                <a href="/login" class="inline-flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-xl text-sm font-bold hover:bg-slate-800 transition-colors">
                     <i class="ph ph-sign-in text-lg"></i> Go to Login
                 </a>
             </div>

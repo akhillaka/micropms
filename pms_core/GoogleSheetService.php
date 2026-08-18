@@ -1,6 +1,9 @@
 <?php
+declare(strict_types=1);
+
 require_once __DIR__ . '/Database.php';
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/services/QueueService.php';
 
 class GoogleSheetService {
 
@@ -94,7 +97,6 @@ class GoogleSheetService {
         $data = self::buildBookingData($pdo, $bookingId);
         if (!$data) return false;
 
-        require_once __DIR__ . '/services/QueueService.php';
         QueueService::push('google_sheets', [
             'action' => 'sync_row',
             'sheet_type' => 'booking',
@@ -110,7 +112,6 @@ class GoogleSheetService {
         $data = self::buildPaymentData($pdo, $ledgerId);
         if (!$data) return false;
 
-        require_once __DIR__ . '/services/QueueService.php';
         QueueService::push('google_sheets', [
             'action' => 'sync_row',
             'sheet_type' => 'payment',
@@ -126,7 +127,6 @@ class GoogleSheetService {
         $data = self::buildExpenseData($pdo, $expenseId);
         if (!$data) return false;
 
-        require_once __DIR__ . '/services/QueueService.php';
         QueueService::push('google_sheets', [
             'action' => 'sync_row',
             'sheet_type' => 'expense',
@@ -183,7 +183,6 @@ class GoogleSheetService {
         $chunks = array_chunk($items, 50);
         $totalSynced = 0;
 
-        require_once __DIR__ . '/services/QueueService.php';
         foreach ($chunks as $chunk) {
             QueueService::push('google_sheets', [
                 'action' => 'bulk_sync',

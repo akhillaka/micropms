@@ -2,12 +2,12 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../Database.php';
+require_once __DIR__ . '/../AuthHelper.php';
 
 class DeadLetterQueue {
     public static function getFailedJobs(?int $propertyId = null): array {
         $db = Database::getInstance()->getConnection();
         if ($propertyId === null) {
-            require_once __DIR__ . '/../AuthHelper.php';
             $propertyId = AuthHelper::getPropertyId();
         }
         
@@ -19,7 +19,6 @@ class DeadLetterQueue {
     public static function retryJob(int $jobId, ?int $propertyId = null): bool {
         $db = Database::getInstance()->getConnection();
         if ($propertyId === null) {
-            require_once __DIR__ . '/../AuthHelper.php';
             $propertyId = AuthHelper::getPropertyId();
         }
         
@@ -30,7 +29,6 @@ class DeadLetterQueue {
     public static function deleteJob(int $jobId, ?int $propertyId = null): bool {
         $db = Database::getInstance()->getConnection();
         if ($propertyId === null) {
-            require_once __DIR__ . '/../AuthHelper.php';
             $propertyId = AuthHelper::getPropertyId();
         }
         
