@@ -62,8 +62,13 @@ class CheckoutService {
             $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ? AND property_id = ?")->execute([$roomId, $propertyId]);
 
             try {
-                $db->prepare("UPDATE guest_service_requests SET status = 'completed', resolved_at = NOW() WHERE booking_id = ? AND status != 'completed' AND status != 'rejected'")
-                   ->execute([$bookingId]);
+                $db->prepare("
+                    UPDATE guest_service_requests
+                    SET status = 'completed', resolved_at = NOW()
+                    WHERE booking_id = ?
+                      AND status NOT IN ('completed', 'rejected')
+                      AND service_type NOT IN ('Housekeeping', 'Stayover Clean', 'Room Service', 'Extra Towels', 'Toiletries')
+                ")->execute([$bookingId]);
             } catch (\PDOException $e) {
             }
 
@@ -146,6 +151,13 @@ class CheckoutService {
             ];
             NotificationRelay::sendTelegram($tgMsg, 'check_out', $context);
             NotificationRelay::triggerAutomation('guest_check_out', PhoneHelper::toE164($guest['phone'] ?? ''), (int)$booking['id']);
+            NotificationRelay::sendInAppNotification(
+                (int)$booking['property_id'],
+                'Guest Checked Out',
+                "{$guestName} checked out of Room {$roomNum}",
+                'check_out',
+                '/admin/folio?id=' . (int)$booking['id']
+            );
         } catch (\Throwable $t) {
         }
     }

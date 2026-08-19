@@ -17,7 +17,10 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::error('POS module is not enabled for your subscription.', 403);
     }
     
-    $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    $data = ApiHandler::getJsonInput();
+    if (!$data && !empty($_POST)) {
+        $data = $_POST;
+    }
     $action = $data['action'] ?? $_GET['action'] ?? '';
 
     if (empty($action)) {
@@ -74,7 +77,9 @@ try {
         $configs = [
             'POS_DEFAULT_TAX' => $data['POS_DEFAULT_TAX'] ?? '0',
             'POS_LOW_STOCK_DEFAULT' => $data['POS_LOW_STOCK_DEFAULT'] ?? '5',
-            'POS_AUTO_POST_ROOM' => $data['POS_AUTO_POST_ROOM'] ?? 'true'
+            'POS_AUTO_POST_ROOM' => $data['POS_AUTO_POST_ROOM'] ?? 'true',
+            'POS_COUNTER_ENABLED' => $data['POS_COUNTER_ENABLED'] ?? 'true',
+            'POS_COUNTER_LABEL' => $data['POS_COUNTER_LABEL'] ?? 'Walk-up counter',
         ];
         
         $stmt = $db->prepare("
@@ -498,6 +503,22 @@ try {
         $outletId = isset($data['outlet_id']) ? (int)$data['outlet_id'] : null;
         $bookingId = isset($data['booking_id']) ? (int)$data['booking_id'] : null;
         $items = $data['items'] ?? [];
+
+        if ($method !== 'room_charge') {
+            $counterOn = 'true';
+            try {
+                $cStmt = $db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'POS_COUNTER_ENABLED'");
+                $cStmt->execute([$propertyId]);
+                $cVal = $cStmt->fetchColumn();
+                if ($cVal !== false && $cVal !== null && $cVal !== '') {
+                    $counterOn = (string)$cVal;
+                }
+            } catch (\PDOException $e) {
+            }
+            if ($counterOn === 'false') {
+                throw new Exception('Counter sales are disabled. Charge this order to a guest folio.');
+            }
+        }
 
         if (empty($items)) {
             throw new Exception("No products in order.");

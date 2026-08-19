@@ -166,6 +166,8 @@ ApiHandler::run(function(\PDO $db) {
 
         if ($stmt->rowCount() > 0) {
             $staffId = (int)($_SESSION['user_id'] ?? 0);
+            require_once __DIR__ . '/../../../pms_core/services/HousekeepingFlow.php';
+            HousekeepingFlow::afterRoomClean($db, AuthHelper::getPropertyId(), $roomId, false);
             
             // Log housekeeping record
             $logStmt = $db->prepare("

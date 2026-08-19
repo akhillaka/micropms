@@ -198,7 +198,8 @@ ApiHandler::run(function(\PDO $db) {
             'room_id' => $row['id'],
             'room_number' => $row['room_number'],
             'category_name' => $row['category_name'],
-            'action_url' => "index.php",
+            'action_kind' => 'mark_clean',
+            'action_url' => '/admin/modules/housekeeping/rooms_calendar',
             'action_label' => 'Mark Clean'
         ];
     }

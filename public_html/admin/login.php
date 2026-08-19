@@ -6,6 +6,11 @@ require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/ErrorTracker.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 
+if (!empty($_SESSION['user_id'])) {
+    header('Location: ' . ModuleHost::url('admin', '/group-dashboard'));
+    exit;
+}
+
 $db = Database::getInstance()->getConnection();
 
 // Seed default owner if no users exist
@@ -105,8 +110,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['role'] = $user['access_level']; // Normalize role
                 $_SESSION['access_level'] = $user['access_level']; // Ensure legacy check passes
                 $_SESSION['username'] = $user['username'];
+                $_SESSION['staff_user'] = $user['username'];
                 $_SESSION['primary_property_id'] = (int)($user['property_id'] ?? 0);
                 $_SESSION['property_id'] = (int)($user['property_id'] ?? 0);
+                if (!empty($_POST['remember'])) {
+                    AuthHelper::issueRememberToken($db, (int)$user['id']);
+                } else {
+                    AuthHelper::clearRememberCookie();
+                }
                 $isSuperadmin = ($user['access_level'] === 'superadmin' || ($user['role'] ?? '') === 'superadmin');
                 if ($_SESSION['property_id'] <= 0 && !$isSuperadmin) {
                     session_unset();
@@ -135,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
 
-                header("Location: /group-dashboard");
+                header('Location: ' . ModuleHost::url('admin', '/group-dashboard'));
                 exit;
                 }
             }
@@ -263,17 +274,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <label for="login-password" class="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">Password</label>
                 <div class="input-icon-wrap">
                     <input type="password" id="login-password" name="password"
-                        class="w-full border border-slate-200 rounded-xl py-3 text-sm focus:border-blue-700 focus:outline-none transition-all"
+                        class="w-full border border-slate-200 rounded-xl py-3 text-sm focus:border-blue-700 focus:outline-none transition-all pr-12"
                         placeholder="••••••••" required autocomplete="current-password">
                     <i class="ph ph-lock input-icon"></i>
+                    <button type="button" onclick="toggleLoginPassword('login-password', this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700" aria-label="Show password">
+                        <i class="ph ph-eye text-lg"></i>
+                    </button>
                 </div>
             </div>
+
+            <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" name="remember" value="1" class="rounded border-slate-300 text-blue-600 focus:ring-blue-600">
+                <span class="text-sm font-semibold text-slate-600">Remember me for 30 days</span>
+            </label>
 
             <button type="submit" class="login-btn">
                 <i class="ph ph-sign-in text-lg"></i>
                 Access Dashboard
             </button>
         </form>
+        <script>
+        function toggleLoginPassword(id, btn) {
+            const input = document.getElementById(id);
+            if (!input) return;
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            const icon = btn.querySelector('i');
+            if (icon) icon.className = show ? 'ph ph-eye-slash text-lg' : 'ph ph-eye text-lg';
+            btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        }
+        </script>
 
         <div class="mt-8 border-t border-slate-200 pt-5 text-center">
             <a href="<?= htmlspecialchars(ModuleHost::url('saas', '/saas-admin/login'), ENT_QUOTES, 'UTF-8') ?>" class="text-xs text-slate-400 hover:text-blue-600 transition-colors font-bold flex items-center justify-center gap-1.5">

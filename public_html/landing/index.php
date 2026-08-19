@@ -17,9 +17,6 @@ $featureLabels = SaaSPlans::featureLabels();
 $loginUrl = ModuleHost::url('admin', '/login');
 $saasLoginUrl = ModuleHost::url('saas', '/saas-admin/login');
 $registerUrl = ModuleHost::url('apex', '/register');
-if (ModuleHost::currentModule() !== 'path') {
-    $registerUrl = ModuleHost::url('saas', '/register');
-}
 
 $productFeatures = [
     ['icon' => 'ph-calendar-check', 'title' => 'Front desk & bookings', 'copy' => 'Walk-ins, reservations, stay dates, and room inventory in one board.'],

@@ -4,7 +4,7 @@ require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 AuthHelper::requireLoginOrRedirect();
 if (!AuthHelper::can('view_dashboard')) {
-    header('Location: /login');
+    header('Location: /group-dashboard');
     exit;
 }
 CsrfToken::checkTimeout();
@@ -234,7 +234,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                     </div>
                     <div>
                         <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Today's Revenue</p>
-                        <p class="text-xl font-extrabold text-slate-900 leading-tight">₹<?= htmlspecialchars((string)(number_format($revenueToday)), ENT_QUOTES, 'UTF-8') ?></p>
+                        <p class="text-xl font-extrabold text-slate-900 leading-tight">₹<?= htmlspecialchars(format_inr($revenueToday, 0), ENT_QUOTES, 'UTF-8') ?></p>
                         <p class="text-[10px] text-slate-400">collected today</p>
                     </div>
                 </div>
@@ -337,7 +337,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                                     <div class="flex items-center gap-2">
                                         <span class="text-[10px] font-semibold text-slate-400"><?= htmlspecialchars((string)($avail['occupied']), ENT_QUOTES, 'UTF-8') ?>/<?= htmlspecialchars((string)($avail['total']), ENT_QUOTES, 'UTF-8') ?></span>
                                         <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full <?= htmlspecialchars((string)($avail['available'] > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)($avail['available']), ENT_QUOTES, 'UTF-8') ?> free</span>
-                                        <span class="text-[10px] font-bold text-slate-500">₹<?= htmlspecialchars((string)(number_format($avail['price'])), ENT_QUOTES, 'UTF-8') ?></span>
+                                        <span class="text-[10px] font-bold text-slate-500">₹<?= htmlspecialchars(format_inr($avail['price'] ?? 0, 0), ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                 </div>
                                 <div class="occ-bar">
@@ -727,13 +727,30 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                 const shown = data.actions.slice(0, 3);
                 container.innerHTML = shown.map(a => {
                     const c = severityColors[a.severity] || severityColors.info;
-                    return `
-                        <a href="${a.action_url}" class="block ${c.bg} border ${c.border} rounded-xl p-3 hover:shadow-sm active:scale-[0.99] transition-all">
+                    const title = escHtml(a.title);
+                    const message = escHtml(a.message);
+                    const icon = String(a.icon || 'ph-bell').replace(/[^a-z0-9-]/gi, '');
+                    if (a.action_kind === 'mark_clean') {
+                        return `
+                        <div data-action-card class="block ${c.bg} border ${c.border} rounded-xl p-3">
                             <div class="flex items-start gap-2.5">
-                                <div class="mt-0.5"><i class="ph ${a.icon} ${c.icon} text-base"></i></div>
+                                <div class="mt-0.5"><i class="ph ${icon} ${c.icon} text-base"></i></div>
                                 <div class="flex-1 min-w-0">
-                                    <span class="text-[8px] font-bold uppercase tracking-wider ${c.badge} px-1.5 py-0.5 rounded-md inline-block mb-1">${a.title}</span>
-                                    <p class="text-[10px] font-semibold text-slate-600 leading-relaxed">${a.message}</p>
+                                    <span class="text-[8px] font-bold uppercase tracking-wider ${c.badge} px-1.5 py-0.5 rounded-md inline-block mb-1">${title}</span>
+                                    <p class="text-[10px] font-semibold text-slate-600 leading-relaxed">${message}</p>
+                                    <button type="button" onclick="pmsMarkRoomClean(${Number(a.room_id)}, this)" class="mt-2 text-[10px] font-bold text-emerald-700 bg-white border border-emerald-200 rounded-lg px-2.5 py-1 hover:bg-emerald-50">${escHtml(a.action_label || 'Mark Clean')}</button>
+                                </div>
+                            </div>
+                        </div>`;
+                    }
+                    const url = String(a.action_url || '/admin').replace(/"/g, '');
+                    return `
+                        <a href="${url}" class="block ${c.bg} border ${c.border} rounded-xl p-3 hover:shadow-sm active:scale-[0.99] transition-all">
+                            <div class="flex items-start gap-2.5">
+                                <div class="mt-0.5"><i class="ph ${icon} ${c.icon} text-base"></i></div>
+                                <div class="flex-1 min-w-0">
+                                    <span class="text-[8px] font-bold uppercase tracking-wider ${c.badge} px-1.5 py-0.5 rounded-md inline-block mb-1">${title}</span>
+                                    <p class="text-[10px] font-semibold text-slate-600 leading-relaxed">${message}</p>
                                 </div>
                                 <i class="ph ph-caret-right text-slate-400 mt-1"></i>
                             </div>

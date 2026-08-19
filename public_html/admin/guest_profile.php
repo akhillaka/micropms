@@ -134,7 +134,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                     <div class="card-minimal p-5 flex items-center justify-between bg-gradient-to-br from-brand-900 to-brand-800 text-white">
                         <div>
                             <div class="text-[10px] font-bold text-white/60 uppercase tracking-widest mb-1">Lifetime Spent</div>
-                            <div class="text-2xl font-black">₹<?= htmlspecialchars((string)(number_format($totalSpent, 2)), ENT_QUOTES, 'UTF-8') ?></div>
+                            <div class="text-2xl font-black">₹<?= htmlspecialchars(format_inr($totalSpent), ENT_QUOTES, 'UTF-8') ?></div>
                         </div>
                         <div class="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
                             <i class="ph-fill ph-money text-2xl"></i>
@@ -147,7 +147,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
                         <div class="card-minimal p-4 flex flex-col justify-center">
                             <div class="text-[10px] font-bold text-brand-500 uppercase tracking-widest mb-1">Avg Value</div>
-                            <div class="text-xl font-black text-brand-900">₹<?= htmlspecialchars((string)(number_format($avgBooking)), ENT_QUOTES, 'UTF-8') ?></div>
+                            <div class="text-xl font-black text-brand-900">₹<?= htmlspecialchars(format_inr($avgBooking), ENT_QUOTES, 'UTF-8') ?></div>
                         </div>
                     </div>
                 </div>
@@ -295,7 +295,7 @@ $bookings = $bookingsStmt->fetchAll(PDO::FETCH_ASSOC);
                                         <?php endif; ?>
                                     </td>
                                     <td class="px-6 py-4 text-right">
-                                        <div class="text-sm font-black text-brand-900">₹<?= htmlspecialchars((string)(number_format($b['total_amount'], 2)), ENT_QUOTES, 'UTF-8') ?></div>
+                                        <div class="text-sm font-black text-brand-900">₹<?= htmlspecialchars(format_inr($b['total_amount'] ?? 0), ENT_QUOTES, 'UTF-8') ?></div>
                                     </td>
                                     <td class="px-6 py-4 text-right">
                                         <a href="<?= htmlspecialchars(folio_href($b)) ?>" class="inline-flex items-center gap-1.5 text-brand-900 bg-white border border-brand-200 hover:border-brand-900 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm opacity-0 group-hover:opacity-100 focus:opacity-100">

@@ -1,15 +1,13 @@
 <?php
 declare(strict_types=1);
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
+require_once __DIR__ . '/../../pms_core/ModuleHost.php';
+ModuleHost::startSession();
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 
 if (!isset($_SESSION['user_id'])) {
-    header('Location: /login');
+    header('Location: ' . ModuleHost::url('admin', '/login'));
     exit;
 }
 
@@ -175,7 +173,7 @@ if (count($assignedHotels) === 0) {
 
                     <!-- Card footer button to open dashboard -->
                     <div class="p-6 pt-0">
-                        <a href="/admin?hotelId=<?= htmlspecialchars((string)($hotel['property_id']), ENT_QUOTES, 'UTF-8') ?>" class="block w-full text-center py-2.5 bg-slate-50 hover:bg-indigo-600 hover:text-white border border-slate-100 hover:border-indigo-600 text-slate-700 font-bold rounded-xl text-xs transition duration-200">
+                        <a href="<?= htmlspecialchars(ModuleHost::url('admin', '/admin?hotelId=' . (int)$hotel['property_id']), ENT_QUOTES, 'UTF-8') ?>" class="block w-full text-center py-2.5 bg-slate-50 hover:bg-indigo-600 hover:text-white border border-slate-100 hover:border-indigo-600 text-slate-700 font-bold rounded-xl text-xs transition duration-200">
                             Enter Dashboard
                         </a>
                     </div>

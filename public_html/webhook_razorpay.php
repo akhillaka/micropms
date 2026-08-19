@@ -134,7 +134,7 @@ try {
                         'room_number' => $roomNumber,
                         'check_in_date' => $booking['check_in'],
                         'check_out_date' => $booking['check_out'],
-                        'total_amount' => number_format($booking['total_amount'], 2),
+                        'total_amount' => number_format((float)$booking['total_amount'], 2),
                         'paid_amount' => number_format($amountPaid, 2)
                     ];
                     NotificationRelay::sendTelegram($tgMsg, 'booking_confirmed', $context, (int)$booking['property_id']);

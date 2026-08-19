@@ -36,7 +36,7 @@ Use paths on the preview host:
 - SaaS: `https://something.hostingersite.com/saas-admin`
 - Leads form: `https://something.hostingersite.com/register`
 
-Leave `APP_BASE_DOMAIN` empty until a real domain is connected. Then issue SSL on that domain and point `guest` / `admin` / `assistant` / `saas` at the same `public_html`.
+Leave `APP_BASE_DOMAIN` empty. All staff, guest, assistant, and SaaS screens are paths on this host (`/login`, `/admin`, `/guest-login`). Do not create module subdomains.
 
 ---
 
@@ -91,33 +91,34 @@ DB_PASS=your_db_password
 
 INVOICE_SECRET=long_random_string_here
 APP_ENV=production
-APP_BASE_DOMAIN=yourdomain.com
+# Unused. App is path-only.
+APP_BASE_DOMAIN=
 ```
 
 Replace `yourdomain.com` with the real apex (no `https://`, no `www`). Add Razorpay / WhatsApp / Telegram / SMTP later as needed.
 
-### F. Module subdomains (same public_html)
+### F. Same-host paths (no module subdomains)
 
-Create these in hPanel → **Domains** → **Subdomains**. Then set **each** document root to the **same** `public_html` as the primary domain.
+Do **not** create `admin.` / `guest.` / `assistant.` / `saas.` subdomains. One SSL certificate on the apex is enough. Nested Hostinger roots (`public_html/admin`) still break `../../pms_core`.
 
-Do **not** let Hostinger create `public_html/admin`, `public_html/guest`, or a second site folder. Nested roots break `../../pms_core`.
-
-| Host | What it serves |
+| Path | What it serves |
 |---|---|
-| `yourdomain.com` | Marketing landing (`/`). **Request access** saves a lead. |
-| `guest.yourdomain.com` | Guest portal |
-| `admin.yourdomain.com` | Staff admin |
-| `assistant.yourdomain.com` | Hotel Assistant |
-| `saas.yourdomain.com` | SaaS panel. Create accounts from **Leads**. |
+| `/` | Marketing landing. **Request access** saves a lead. |
+| `/login` | Staff login |
+| `/admin` | Staff dashboard |
+| `/guest-login` | Guest portal |
+| `/assistant` | Hotel Assistant |
+| `/saas-admin` | SaaS panel |
+| `/register` | Lead form |
 
-Issue SSL for the apex and each subdomain (or a wildcard). URLs have **no `.php`** (`/login`, `/admin`, `/register`).
+URLs have **no `.php`**.
 
 ### G. Schema and first check
 
 1. Open `https://yourdomain.com/` — landing page.
-2. If setup is not done, `/setup` runs. Otherwise log in at `https://admin.yourdomain.com/login` (or `/login` on localhost).
-3. Open `https://admin.yourdomain.com/admin/run_migration` and click run (applies pending SQL, including `028`–`031`). Safe to click again.
-4. SaaS: `https://saas.yourdomain.com/` — **Leads** tab for landing requests; **Onboarding** to create a property when you grant access.
+2. If setup is not done, `/setup` runs. Otherwise log in at `https://yourdomain.com/login`.
+3. Open `https://yourdomain.com/admin/run_migration` and click run (applies pending SQL, including `028`–`034`). Safe to click again.
+4. SaaS: `https://yourdomain.com/saas-admin` — **Leads** tab for landing requests; **Onboarding** to create a property when you grant access.
 
 ### H. Cron (not created by the Action)
 
@@ -137,7 +138,7 @@ hPanel → **Cron Jobs**. Add both if they are missing (adjust the PHP path Host
 1. Commit and `git push origin main`.
 2. GitHub → **Actions** → **Deploy to Hostinger** → **Run workflow**.
 3. If this release added files under `db_migrations/`, run `/admin/run_migration` on live.
-4. Smoke: landing `/`, staff `/login`, one guest stay on `guest.`, SaaS **Leads**.
+4. Smoke: landing `/`, staff `/login`, one guest stay on `/guest-login`, SaaS **Leads**.
 
 Red Action: open the failed step. Almost always `FTP_SERVER` / user / port / protocol.
 
@@ -154,7 +155,7 @@ GITHUB_DEPLOY_WORKFLOW=deploy-hostinger.yml
 GITHUB_DEPLOY_REF=main
 ```
 
-Then `https://saas.yourdomain.com/` → **Deploy**. Without this token, GitHub → Actions still works.
+Then `https://yourdomain.com/saas-admin` → **Deploy**. Without this token, GitHub → Actions still works.
 
 ---
 
@@ -187,4 +188,4 @@ php -S 127.0.0.1:8000 router.php
 | `http://localhost:8000/assistant` | Hotel Assistant |
 | `http://localhost:8000/saas-admin` | SaaS |
 
-To mimic Hostinger hosts: add `guest.localhost admin.localhost assistant.localhost saas.localhost` to `/etc/hosts`, set `APP_BASE_DOMAIN=localhost` in the **local** `.env`, keep the same `php -S 127.0.0.1:8000 router.php`.
+To mimic production locally, use the same `php -S` command. All surfaces are paths on that host.

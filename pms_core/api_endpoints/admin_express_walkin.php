@@ -212,6 +212,8 @@ ApiHandler::run(function(\PDO $db) {
         try {
             NotificationRelay::triggerAutomation('booking_confirmed', null, $bookingId);
             NotificationRelay::triggerAutomation('guest_check_in', null, $bookingId);
+            $folioUrl = '/admin/folio?id=' . rawurlencode((string)$displayId);
+            NotificationRelay::sendInAppNotification((int)$propertyId, 'Guest Checked In', "{$guestName} checked into Room {$room['room_number']}", 'check_in', $folioUrl);
         } catch (\Throwable $t) {
             // ignore
         }

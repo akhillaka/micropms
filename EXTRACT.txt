@@ -20,17 +20,17 @@ MicroPMS — extract this zip on Hostinger
 
 4. If .env does not exist yet, copy .env.example to .env in this
    same folder and fill DB_* plus INVOICE_SECRET.
-   On the Hostinger preview host (*.hostingersite.com) leave
-   APP_BASE_DOMAIN empty. Use /login not admin.preview...
+   Use paths on this host: /login /admin /guest-login /assistant /saas-admin.
 
 5. PHP 8.1+ with pdo_mysql, curl, mbstring, openssl.
 
 6. Open https://YOUR-HOST/admin/run_migration and click Run
-   (log in first at /login). This applies payment-gateway sync
-   (029), guest ID fields for OCR (030), and schema alignment
-   (031: import_ref, guest_documents, folio TAX type, and related columns).
+   (log in first at /login). This applies 029–034 (gateways, guest ID,
+   schema alignment, service-request channels, room DND, staff PWA push).
 
-Preview login (no subdomain SSL):
-  https://YOUR.hostingersite.com/login
-  https://YOUR.hostingersite.com/admin
-  https://YOUR.hostingersite.com/saas-admin
+Staff / guest / SaaS (same host, no subdomains):
+  https://YOUR-HOST/login
+  https://YOUR-HOST/admin
+  https://YOUR-HOST/saas-admin
+  https://YOUR-HOST/guest-login
+  https://YOUR-HOST/assistant

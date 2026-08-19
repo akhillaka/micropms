@@ -17,22 +17,6 @@ require_once __DIR__ . '/../../pms_core/config.php';
 $db = Database::getInstance()->getConnection();
 require_once __DIR__ . '/../../pms_core/saas_plans.php';
 
-// Enforce SaaS Subdomain Restriction if configured
-try {
-    $saasSubdomain = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'SAAS_PORTAL_SUBDOMAIN'")->fetchColumn();
-    if (!empty($saasSubdomain)) {
-        $currentHost = strtolower(trim($_SERVER['HTTP_HOST'] ?? ''));
-        $targetHost = strtolower(trim($saasSubdomain));
-        if ($currentHost !== $targetHost) {
-            http_response_code(404);
-            echo "<h1>404 Not Found</h1><p>The requested URL was not found on this server.</p>";
-            exit;
-        }
-    }
-} catch (\Exception $ex) {
-    // Graceful fallback if schema is not loaded yet
-}
-
 $message = '';
 $error = '';
 
@@ -453,7 +437,7 @@ try {
             $pId = (int)($_POST['property_id'] ?? 0);
             require_once __DIR__ . '/../../pms_core/services/DNSValidator.php';
 
-            $saasTarget = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'SAAS_PORTAL_SUBDOMAIN'")->fetchColumn() ?: ($_SERVER['HTTP_HOST'] ?? 'saas.micropms.com');
+            $saasTarget = $db->query("SELECT key_value FROM system_settings WHERE key_name = 'SAAS_PORTAL_SUBDOMAIN'")->fetchColumn() ?: ($_SERVER['HTTP_HOST'] ?? 'localhost');
 
             if ($pId <= 0) {
                 $error = 'Property is required to verify DNS.';
@@ -912,7 +896,7 @@ try {
             <div class="saas-kpi kpi-indigo">
                 <div>
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Projected MRR</p>
-                    <p class="text-2xl font-extrabold text-indigo-700 mt-1">₹<?= htmlspecialchars((string)(number_format($metrics['estimated_mrr'], 0)), ENT_QUOTES, 'UTF-8') ?></p>
+                    <p class="text-2xl font-extrabold text-indigo-700 mt-1">₹<?= htmlspecialchars((string)(number_format((float)$metrics['estimated_mrr'], 0)), ENT_QUOTES, 'UTF-8') ?></p>
                     <p class="text-xs text-slate-400 mt-1 font-medium">monthly recurring</p>
                 </div>
                 <div class="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
@@ -1366,8 +1350,8 @@ try {
                             <input type="email" name="SAAS_SUPPORT_EMAIL" value="<?= htmlspecialchars((string)($settings['SAAS_SUPPORT_EMAIL'] ?? '')) ?>" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Designated SaaS Domain</label>
-                            <input type="text" name="SAAS_PORTAL_SUBDOMAIN" value="<?= htmlspecialchars((string)($settings['SAAS_PORTAL_SUBDOMAIN'] ?? '')) ?>" placeholder="saas.yourdomain.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono">
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">SaaS panel (unused subdomain)</label>
+                            <input type="text" name="SAAS_PORTAL_SUBDOMAIN" value="<?= htmlspecialchars((string)($settings['SAAS_PORTAL_SUBDOMAIN'] ?? '')) ?>" placeholder="Leave empty — use /saas-admin on this host" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none font-mono">
                         </div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>

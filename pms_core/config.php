@@ -33,6 +33,16 @@ define('DB_NAME', getenv('DB_NAME') ?: ($_ENV['DB_NAME'] ?? 'pms_db'));
 define('DB_USER', getenv('DB_USER') ?: ($_ENV['DB_USER'] ?? 'root'));
 define('DB_PASS', (getenv('DB_PASS') !== false ? getenv('DB_PASS') : ($_ENV['DB_PASS'] ?? '')));
 
+if (!defined('VAPID_PUBLIC_KEY')) {
+    define('VAPID_PUBLIC_KEY', getenv('VAPID_PUBLIC_KEY') ?: ($_ENV['VAPID_PUBLIC_KEY'] ?? ''));
+}
+if (!defined('VAPID_PRIVATE_KEY')) {
+    define('VAPID_PRIVATE_KEY', getenv('VAPID_PRIVATE_KEY') ?: ($_ENV['VAPID_PRIVATE_KEY'] ?? ''));
+}
+if (!defined('VAPID_SUBJECT')) {
+    define('VAPID_SUBJECT', getenv('VAPID_SUBJECT') ?: ($_ENV['VAPID_SUBJECT'] ?? 'mailto:ops@localhost'));
+}
+
 // Helper to define constant from DB or fallback
 if (!function_exists('define_setting')) {
     function define_setting($key, $default) {
@@ -443,6 +453,10 @@ if (!function_exists('load_db_settings')) {
         define_setting('GUEST_PORTAL_EXTEND_STAY_ENABLED', 'true');
         define_setting('GUEST_PORTAL_UPGRADE_ENABLED', 'true');
         define_setting('GUEST_PORTAL_CONTACT_ENABLED', 'true');
+        define_setting('POS_COUNTER_ENABLED', 'true');
+        define_setting('POS_COUNTER_LABEL', 'Counter / table');
+        define_setting('STAYOVER_CLEAN_ENABLED', 'true');
+        define_setting('STAYOVER_CLEAN_NIGHTS', '1');
     }
 }
 
@@ -452,6 +466,28 @@ if (!function_exists('pms_is_safe_upload_filename')) {
             && strpbrk($file, "/\\") === false
             && !str_contains($file, '..')
             && (bool)preg_match('/^[A-Za-z0-9._-]+$/', $file);
+    }
+}
+
+if (!function_exists('money_float')) {
+    /** PDO returns DECIMAL/SUM as strings; PHP 8 + strict_types rejects those in number_format/abs. */
+    function money_float(mixed $value): float {
+        if ($value === null || $value === false || $value === '') {
+            return 0.0;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (float)$value;
+        }
+        if (is_numeric($value)) {
+            return (float)$value;
+        }
+        return 0.0;
+    }
+}
+
+if (!function_exists('format_inr')) {
+    function format_inr(mixed $value, int $decimals = 2): string {
+        return number_format(money_float($value), $decimals);
     }
 }
 

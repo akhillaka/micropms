@@ -85,7 +85,7 @@ $kpiOccupancyPct = $kpiTotalRooms > 0 ? round(($kpiOccupiedCount / $kpiTotalRoom
         </div>
         <div>
             <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Today's Rev</p>
-            <p class="text-lg font-extrabold text-slate-900 leading-tight">₹<?= htmlspecialchars((string)(number_format($kpiRevenueToday)), ENT_QUOTES, 'UTF-8') ?></p>
+            <p class="text-lg font-extrabold text-slate-900 leading-tight">₹<?= htmlspecialchars(format_inr($kpiRevenueToday, 0), ENT_QUOTES, 'UTF-8') ?></p>
             <p class="text-[9px] text-slate-500 font-semibold">collected today</p>
         </div>
     </div>

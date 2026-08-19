@@ -6,6 +6,7 @@ ModuleHost::startSession();
 
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/ErrorTracker.php';
+require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 
 $db = Database::getInstance()->getConnection();
 
@@ -64,6 +65,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['saas_admin_id']       = $user['id'];
             $_SESSION['saas_admin_username']  = $user['username'];
             $_SESSION['saas_admin_role']      = 'superadmin';
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['role'] = 'superadmin';
+            $_SESSION['access_level'] = 'superadmin';
+            $_SESSION['username'] = $user['username'];
+            $_SESSION['staff_user'] = $user['username'];
+            if (!empty($_POST['remember'])) {
+                AuthHelper::issueRememberToken($db, (int)$user['id']);
+            } else {
+                AuthHelper::clearRememberCookie();
+            }
 
             header('Location: ' . ModuleHost::url('saas', '/saas-admin/index'));
             exit;
@@ -191,16 +202,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="input-icon-wrap">
                     <input type="password" id="saas-password" name="password"
                         placeholder="••••••••"
-                        required autocomplete="current-password">
+                        required autocomplete="current-password" style="padding-right:2.75rem">
                     <i class="ph ph-lock input-icon"></i>
+                    <button type="button" onclick="toggleLoginPassword('saas-password', this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700" aria-label="Show password">
+                        <i class="ph ph-eye text-lg"></i>
+                    </button>
                 </div>
             </div>
+            <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" name="remember" value="1" class="rounded border-slate-300 text-blue-600 focus:ring-blue-600">
+                <span class="text-sm font-semibold text-slate-600">Remember me for 30 days</span>
+            </label>
 
             <button type="submit" class="login-btn">
                 <i class="ph ph-shield-check text-lg"></i>
                 Authenticate &amp; Enter
             </button>
         </form>
+        <script>
+        function toggleLoginPassword(id, btn) {
+            const input = document.getElementById(id);
+            if (!input) return;
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            const icon = btn.querySelector('i');
+            if (icon) icon.className = show ? 'ph ph-eye-slash text-lg' : 'ph ph-eye text-lg';
+            btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        }
+        </script>
 
         <!-- Divider -->
         <div class="mt-7 pt-5 border-t border-slate-100 text-center relative">

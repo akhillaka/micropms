@@ -580,6 +580,7 @@ CREATE TABLE `rooms` (
   `room_number` varchar(10) NOT NULL,
   `category_id` int(11) NOT NULL,
   `state` enum('clean','dirty','out_of_order') DEFAULT 'clean',
+  `dnd` tinyint(1) NOT NULL DEFAULT 0,
   `last_deep_clean` timestamp NULL DEFAULT NULL,
   `property_id` int(11) NOT NULL,
   `deleted_at` datetime DEFAULT NULL,
@@ -754,9 +755,35 @@ CREATE TABLE IF NOT EXISTS admin_notifications (
     title VARCHAR(255) NOT NULL,
     message TEXT NOT NULL,
     type VARCHAR(50) DEFAULT 'info',
+    link_url VARCHAR(500) DEFAULT NULL,
     is_read TINYINT(1) DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX (property_id, is_read, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  staff_user_id INT NOT NULL,
+  property_id INT NOT NULL,
+  endpoint VARCHAR(768) NOT NULL,
+  p256dh VARCHAR(255) NOT NULL,
+  auth_key VARCHAR(255) NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY endpoint (endpoint(191)),
+  KEY staff_user_id (staff_user_id),
+  KEY property_id (property_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS staff_remember_tokens (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  staff_user_id INT NOT NULL,
+  selector CHAR(24) NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY selector (selector),
+  KEY staff_user_id (staff_user_id),
+  KEY expires_at (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `team_invitations` (
@@ -882,6 +909,11 @@ CREATE TABLE `guest_service_requests` (
   `booking_id` int(11) NOT NULL,
   `service_type` varchar(50) NOT NULL,
   `status` enum('pending','in_progress','completed','rejected') NOT NULL DEFAULT 'pending',
+  `source` varchar(20) NOT NULL DEFAULT 'guest',
+  `category` varchar(30) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `room_id` int(11) DEFAULT NULL,
+  `linked_pos_order_id` int(11) DEFAULT NULL,
   `resolved_at` datetime DEFAULT NULL,
 
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),

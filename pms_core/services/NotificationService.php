@@ -18,7 +18,7 @@ class NotificationService {
         if (!$booking) return;
 
         // In-App Notification
-        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "New Booking Confirmed", "Room {$booking['room_number']} booked for {$booking['guest_name']} (₹{$booking['total_amount']})", 'booking_confirmed');
+        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "New Booking Confirmed", "Room {$booking['room_number']} booked for {$booking['guest_name']} (₹{$booking['total_amount']})", 'booking_confirmed', self::folioLink($booking));
 
         // Telegram
         $tgMsg = "New Booking: Room {$booking['room_number']}, Guest: {$booking['guest_name']}, Amount: ₹{$booking['total_amount']}";
@@ -39,7 +39,7 @@ class NotificationService {
         if (!$booking) return;
 
         // In-App Notification
-        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Guest Checked In", "{$booking['guest_name']} checked into Room {$booking['room_number']}", 'check_in');
+        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Guest Checked In", "{$booking['guest_name']} checked into Room {$booking['room_number']}", 'check_in', self::folioLink($booking));
 
         $tgMsg = "Guest Checked In: {$booking['guest_name']} → Room {$booking['room_number']}";
         NotificationRelay::sendTelegram($tgMsg, 'check_in', $booking);
@@ -61,7 +61,7 @@ class NotificationService {
         $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?")->execute([$booking['room_id']]);
 
         // In-App Notification
-        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Guest Checked Out", "{$booking['guest_name']} checked out of Room {$booking['room_number']}", 'check_out');
+        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Guest Checked Out", "{$booking['guest_name']} checked out of Room {$booking['room_number']}", 'check_out', self::folioLink($booking));
 
         $tgMsg = "Guest Checked Out: {$booking['guest_name']} from Room {$booking['room_number']}, Total Paid: ₹{$booking['paid_amount']}";
         NotificationRelay::sendTelegram($tgMsg, 'check_out', $booking);
@@ -83,7 +83,7 @@ class NotificationService {
         $booking['method'] = $method;
 
         // In-App Notification
-        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Payment Received", "₹{$booking['amount']} received via {$method} for Room {$booking['room_number']}", 'payment_received');
+        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Payment Received", "₹{$booking['amount']} received via {$method} for Room {$booking['room_number']}", 'payment_received', self::folioLink($booking));
 
         $tgMsg = "Payment Received: ₹{$booking['amount']} ({$method}) for Room {$booking['room_number']}, Guest: {$booking['guest_name']}";
         NotificationRelay::sendTelegram($tgMsg, 'payment_received', $booking);
@@ -97,7 +97,7 @@ class NotificationService {
         if (!$booking) return;
 
         // In-App Notification
-        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Overstay Alert", "{$booking['guest_name']} in Room {$booking['room_number']} has overstayed", 'overstay');
+        NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Overstay Alert", "{$booking['guest_name']} in Room {$booking['room_number']} has overstayed", 'overstay', self::folioLink($booking));
 
         $tgMsg = "Overstay Alert: {$booking['guest_name']} in Room {$booking['room_number']}, Checkout was: {$booking['check_out']}";
         NotificationRelay::sendTelegram($tgMsg, 'overstay', $booking);
@@ -128,6 +128,13 @@ class NotificationService {
         $booking['hotel_name'] = defined('PROPERTY_NAME') ? PROPERTY_NAME : 'Hotel';
 
         return $booking;
+    }
+
+    private static function folioLink(array $booking): string {
+        if (function_exists('folio_href')) {
+            return folio_href(['id' => $booking['booking_id'] ?? $booking['id'] ?? 0, 'display_id' => $booking['display_id'] ?? '']);
+        }
+        return '/admin/folio?id=' . rawurlencode((string)($booking['booking_id'] ?? ''));
     }
 
     private static function getPaidAmount(\PDO $db, int $bookingId): float {

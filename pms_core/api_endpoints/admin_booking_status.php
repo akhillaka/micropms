@@ -81,6 +81,9 @@ ApiHandler::run(function(\PDO $db) {
         // Trigger WhatsApp automation
         NotificationRelay::triggerAutomation('guest_check_in', null, (int)$bookingId);
 
+        $folioUrl = '/admin/folio?id=' . rawurlencode((string)($booking['display_id'] ?? $bookingId));
+        NotificationRelay::sendInAppNotification($propertyId, 'Guest Checked In', "{$guestName} checked into Room {$roomNum}", 'check_in', $folioUrl);
+
         try {
             GoogleSheetService::syncBooking($db, (int)$bookingId);
         } catch (\Throwable $t) {

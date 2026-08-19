@@ -133,7 +133,7 @@ class DashboardService {
             $total = $roomCounts[$catId] ?? 0;
             $occupied = $occCounts[$catId] ?? 0;
             $avail = $total - $occupied;
-            $price = $prices[$catId] ?? $cat['base_price'];
+            $price = $prices[$catId] ?? (float)($cat['base_price'] ?? 0);
             $data[] = [
                 'id' => $catId,
                 'name' => $cat['name'],

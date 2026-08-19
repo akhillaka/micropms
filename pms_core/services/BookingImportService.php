@@ -319,6 +319,7 @@ class BookingImportService {
                             $line['category'] !== '' ? $line['category'] : 'booking',
                             null,
                             false,
+                            true,
                             true
                         );
                     }
@@ -337,6 +338,7 @@ class BookingImportService {
                             'booking',
                             null,
                             false,
+                            true,
                             true
                         );
                     }
@@ -372,6 +374,7 @@ class BookingImportService {
                     ($pay['category'] ?? '') !== '' ? (string)$pay['category'] : 'booking',
                     $pay['recorded_at'] ?? null,
                     false,
+                    true,
                     true
                 );
                 if (($pay['payment_id'] ?? '') !== '') {

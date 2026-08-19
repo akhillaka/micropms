@@ -126,9 +126,9 @@ $ordersStmt = $db->prepare("
     FROM pos_orders o
     JOIN bookings b ON o.booking_id = b.id
     JOIN rooms r ON b.room_id = r.id
-    JOIN guests g ON b.guest_id = g.id
+    LEFT JOIN guests g ON b.guest_id = g.id
     LEFT JOIN pos_outlets ot ON o.outlet_id = ot.id
-    WHERE o.property_id = ? AND o.delivery_status = 'pending'
+    WHERE o.property_id = ? AND o.delivery_status = 'pending' AND o.deleted_at IS NULL
     ORDER BY o.recorded_at DESC
 ");
 $ordersStmt->execute([$propertyId]);
@@ -173,6 +173,8 @@ $posAuditLogs = $auditStmt->fetchAll(PDO::FETCH_ASSOC);
 $posTax = get_db_setting($db, 'POS_DEFAULT_TAX', (int)$propertyId, '0');
 $posAutoCharge = get_db_setting($db, 'POS_AUTO_POST_ROOM', (int)$propertyId, 'true');
 $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, '5');
+$posCounterEnabled = get_db_setting($db, 'POS_COUNTER_ENABLED', (int)$propertyId, 'true');
+$posCounterLabel = get_db_setting($db, 'POS_COUNTER_LABEL', (int)$propertyId, 'Walk-up counter');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -429,6 +431,17 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                                 <option value="false" <?= htmlspecialchars((string)($posAutoCharge === 'false' ? 'selected' : ''), ENT_QUOTES, 'UTF-8') ?>>Manual Review Required</option>
                             </select>
                         </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Walk-up / Counter sales</label>
+                            <select id="cfg_counter" class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-bold cursor-pointer">
+                                <option value="true" <?= $posCounterEnabled === 'true' ? 'selected' : '' ?>>Allow counter / table orders (no room)</option>
+                                <option value="false" <?= $posCounterEnabled === 'false' ? 'selected' : '' ?>>In-room folio charge only</option>
+                            </select>
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Counter label (reports)</label>
+                            <input type="text" id="cfg_counter_label" value="<?= htmlspecialchars((string)$posCounterLabel) ?>" class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-semibold">
+                        </div>
                         <div class="sm:col-span-3 flex justify-end">
                             <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase px-5 py-3 rounded-xl transition shadow cursor-pointer">Save Settings</button>
                         </div>
@@ -552,7 +565,8 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                 
                 <div class="flex gap-2 bg-white p-2 rounded-xl border border-slate-100 shadow-sm items-center">
                     <select id="ordersReportFilter" class="p-2 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 outline-none focus:border-indigo-600" onchange="toggleCustomDate('orders'); fetchOrderReports()">
-                        <option value="monthly">This Month</option>
+                        <option value="today">Today</option>
+                        <option value="monthly" selected>This Month</option>
                         <option value="quarterly">This Quarter</option>
                         <option value="yearly">This Year</option>
                         <option value="custom">Custom Date Range</option>
@@ -565,14 +579,19 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
                     <div class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
                         <p class="text-[10px] font-bold text-slate-400 uppercase">Total Orders</p>
                         <h3 class="text-2xl font-black text-slate-800" id="ordersTotalCount">0</h3>
                     </div>
                     <div class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase">Total Sales (Completed)</p>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Total Sales</p>
                         <h3 class="text-2xl font-black text-indigo-600 font-mono" id="ordersTotalSales">₹0.00</h3>
+                        <p class="text-[10px] text-slate-400 mt-1" id="ordersPeriodLabel"></p>
+                    </div>
+                    <div class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">In-room / Counter-table</p>
+                        <h3 class="text-lg font-black text-slate-800"><span id="ordersRoomCount">0</span> / <span id="ordersCounterCount">0</span></h3>
                     </div>
                 </div>
 
@@ -583,6 +602,8 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                                 <tr>
                                     <th class="p-3">Order ID</th>
                                     <th class="p-3">Date</th>
+                                    <th class="p-3">Channel</th>
+                                    <th class="p-3">Room / Counter</th>
                                     <th class="p-3">Total Amount</th>
                                     <th class="p-3">Status</th>
                                 </tr>
@@ -603,7 +624,7 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                 
                 <div class="flex gap-2 bg-white p-2 rounded-xl border border-slate-100 shadow-sm items-center">
                     <select id="restockReportFilter" class="p-2 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 outline-none focus:border-indigo-600" onchange="toggleCustomDate('restock'); fetchRestockReports()">
-                        <option value="monthly">This Month</option>
+                        <option value="monthly" selected>This Month</option>
                         <option value="quarterly">This Quarter</option>
                         <option value="yearly">This Year</option>
                         <option value="custom">Custom Date Range</option>
@@ -755,6 +776,7 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                         <select id="checkout_method" onchange="toggleCheckoutMethod(this.value)" class="w-full focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 p-3 rounded-xl text-xs font-bold cursor-pointer">
                             <?php $renderPosPaymentOptions($posPaymentMethods); ?>
                         </select>
+                        <p class="text-[10px] text-slate-400">Cash / card / UPI with no room is a <strong>counter / table</strong> order. Charge to folio is an <strong>in-room</strong> order.</p>
                     </div>
 
                     <!-- Room search picker -->
@@ -768,7 +790,7 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                         </select>
                     </div>
 
-                    <button onclick="submitCheckout()" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition shadow flex items-center justify-center gap-1.5 cursor-pointer">
+                    <button type="button" id="btn-complete-checkout" onclick="submitCheckout()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2">
                         <i class="ph ph-shopping-cart"></i> Complete Checkout
                     </button>
                 </div>
@@ -929,6 +951,8 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
             const activeSec = document.getElementById('posSec-' + tabId);
             if (activeSec) activeSec.classList.remove('hidden');
             if (activeBtn) activeBtn.className = 'flex-1 py-2 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 shrink-0 px-3 cursor-pointer transition';
+            if (tabId === 'reports_orders') fetchOrderReports();
+            if (tabId === 'reports_restock') fetchRestockReports();
         }
 
         function filterOutlet(outletId) {
@@ -1089,9 +1113,14 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
 
             const method = document.getElementById('checkout_method').value;
             const bookingId = document.getElementById('checkout_booking_id').value;
+            const btn = document.getElementById('btn-complete-checkout');
 
             if (method === 'room_charge' && !bookingId) {
                 showToast('Please select a room to charge', 'error');
+                return;
+            }
+            if (method !== 'room_charge' && <?= $posCounterEnabled === 'false' ? 'true' : 'false' ?>) {
+                showToast('Counter sales are disabled. Charge to a room folio.', 'error');
                 return;
             }
 
@@ -1106,6 +1135,10 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
             };
 
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('opacity-75');
+            }
 
             try {
                 const res = await fetch('/api/admin/pos_actions', {
@@ -1113,15 +1146,28 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify(payload)
                 });
-                const data = await res.json();
+                const raw = await res.text();
+                let data = {};
+                try {
+                    data = raw ? JSON.parse(raw) : {};
+                } catch (parseErr) {
+                    throw new Error('Checkout failed: invalid server response');
+                }
+                const errObj = data.error;
+                const errText = (errObj && typeof errObj === 'object' ? (errObj.message || '') : '') || (typeof errObj === 'string' ? errObj : '') || data.message || 'Checkout failed';
                 if (data.success) {
                     showToast('POS Order created successfully!', 'success');
                     setTimeout(() => location.reload(), 1000);
                 } else {
-                    showToast(data.message || 'Checkout failed', 'error');
+                    showToast(errText, 'error');
                 }
             } catch(e) {
-                showToast('Network error during checkout', 'error');
+                showToast(e && e.message ? e.message : 'Network error during checkout', 'error');
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-75');
+                }
             }
         }
 
@@ -1319,6 +1365,8 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
             const tax = document.getElementById('cfg_tax').value;
             const alertLevel = document.getElementById('cfg_alert').value;
             const autoCharge = document.getElementById('cfg_autocharge').value;
+            const counterEnabled = document.getElementById('cfg_counter')?.value || 'true';
+            const counterLabel = document.getElementById('cfg_counter_label')?.value || 'Walk-up counter';
             
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             try {
@@ -1329,7 +1377,9 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                         action: 'save_pos_settings',
                         POS_DEFAULT_TAX: tax,
                         POS_LOW_STOCK_DEFAULT: alertLevel,
-                        POS_AUTO_POST_ROOM: autoCharge
+                        POS_AUTO_POST_ROOM: autoCharge,
+                        POS_COUNTER_ENABLED: counterEnabled,
+                        POS_COUNTER_LABEL: counterLabel
                     })
                 });
                 const data = await res.json();
@@ -1547,19 +1597,35 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                 if (data.success) {
                     document.getElementById('ordersTotalCount').textContent = data.summary.total_orders;
                     document.getElementById('ordersTotalSales').textContent = '₹' + parseFloat(data.summary.total_sales).toFixed(2);
+                    const roomEl = document.getElementById('ordersRoomCount');
+                    const counterEl = document.getElementById('ordersCounterCount');
+                    if (roomEl) roomEl.textContent = data.summary.room_orders ?? 0;
+                    if (counterEl) counterEl.textContent = data.summary.counter_orders ?? 0;
+                    const periodEl = document.getElementById('ordersPeriodLabel');
+                    if (periodEl) periodEl.textContent = data.summary.period || '';
                     
                     const tbody = document.getElementById('ordersReportTableBody');
                     tbody.innerHTML = '';
+                    if (!data.data || data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-xs text-slate-400 font-semibold">No orders in this period.</td></tr>';
+                    } else {
                     data.data.forEach(o => {
+                        const channel = o.order_channel === 'room' ? 'In-room' : 'Counter / table';
+                        const where = o.order_channel === 'room' ? ('Room ' + (o.room_number || '—')) : (o.outlet_name || 'Counter / table');
                         tbody.innerHTML += `
                             <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
-                                <td class="p-3 font-mono font-bold text-slate-800">#${o.id}</td>
-                                <td class="p-3 text-xs text-slate-500">${new Date(o.created_at).toLocaleString()}</td>
+                                <td class="p-3 font-mono font-bold text-slate-800">${o.display_id || ('#' + o.id)}</td>
+                                <td class="p-3 text-xs text-slate-500">${o.created_at || o.recorded_at || ''}</td>
+                                <td class="p-3 text-xs font-bold ${o.order_channel === 'room' ? 'text-indigo-600' : 'text-amber-700'}">${channel}</td>
+                                <td class="p-3 text-xs text-slate-600">${where}</td>
                                 <td class="p-3 font-bold text-indigo-600 font-mono">₹${parseFloat(o.total_amount).toFixed(2)}</td>
                                 <td class="p-3 text-xs uppercase font-bold text-slate-500">${o.status}</td>
                             </tr>
                         `;
                     });
+                    }
+                } else if (typeof showToast === 'function') {
+                    showToast(data.message || 'Could not load order reports', 'error');
                 }
             } catch (e) {
                 console.error(e);
@@ -1587,6 +1653,9 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                     
                     const tbody = document.getElementById('restockReportTableBody');
                     tbody.innerHTML = '';
+                    if (!data.data || data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center text-xs text-slate-400 font-semibold">No restocks in this period.</td></tr>';
+                    } else {
                     data.data.forEach(r => {
                         tbody.innerHTML += `
                             <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
@@ -1601,6 +1670,9 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
                             </tr>
                         `;
                     });
+                    }
+                } else if (typeof showToast === 'function') {
+                    showToast(data.message || 'Could not load restock history', 'error');
                 }
             } catch (e) {
                 console.error(e);
@@ -1624,29 +1696,21 @@ $posAlertLevel = get_db_setting($db, 'POS_LOW_STOCK_DEFAULT', (int)$propertyId, 
         let lastOrderId = <?= htmlspecialchars((string)(!empty($pendingOrders) ? (int)$pendingOrders[0]['id'] : (!empty($orderHistory) ? (int)$orderHistory[0]['id'] : 0)), ENT_QUOTES, 'UTF-8') ?>;
         
         function playNotificationBeep() {
+            if (typeof window.playStaffAlertSound === 'function') {
+                window.playStaffAlertSound();
+                return;
+            }
             try {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const osc = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
                 osc.connect(gain);
                 gain.connect(audioCtx.destination);
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
-                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.45, audioCtx.currentTime);
                 osc.start(audioCtx.currentTime);
-                osc.stop(audioCtx.currentTime + 0.15);
-                
-                setTimeout(() => {
-                    const osc2 = audioCtx.createOscillator();
-                    const gain2 = audioCtx.createGain();
-                    osc2.connect(gain2);
-                    gain2.connect(audioCtx.destination);
-                    osc2.type = 'sine';
-                    osc2.frequency.setValueAtTime(659.25, audioCtx.currentTime); // E5
-                    gain2.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                    osc2.start(audioCtx.currentTime);
-                    osc2.stop(audioCtx.currentTime + 0.2);
-                }, 200);
+                osc.stop(audioCtx.currentTime + 1.6);
             } catch(e) { console.error('Beep failed', e); }
         }
 

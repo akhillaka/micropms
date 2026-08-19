@@ -17,7 +17,7 @@ try {
         $propId = AuthHelper::getPropertyId();
         $db = Database::getInstance()->getConnection();
         $stmt = $db->prepare("
-            SELECT a.*, r.room_number, g.name as guest_name 
+            SELECT a.*, r.room_number, g.name as guest_name, b.display_id AS booking_display_id
             FROM night_audit_actions a 
             JOIN bookings b ON a.booking_id = b.id 
             JOIN rooms r ON b.room_id = r.id 
@@ -38,6 +38,11 @@ try {
 <!-- Google Fonts: Plus Jakarta Sans -->
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <link href="/css/app_theme.css" rel="stylesheet">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="theme-color" content="#1e3a8a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MicroPMS">
 
 <!-- Tailwind Config -->
 <script>
@@ -502,6 +507,37 @@ try {
     window.PMS_HOTEL_NAME = <?= json_encode($_pms_hotel_name) ?>;
     window.PMS_HOTEL_LOGO = <?= json_encode($_pms_hotel_logo) ?>;
 
+    async function pmsMarkRoomClean(roomId, btn) {
+        if (!roomId) return false;
+        if (btn) btn.disabled = true;
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        const propertyId = document.querySelector('meta[name="property-id"]')?.getAttribute('content');
+        try {
+            const res = await fetch('/api/admin/room_action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '', 'X-Tenant-Id': propertyId || '' },
+                body: JSON.stringify({ room_id: Number(roomId), action: 'mark_clean' })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (typeof showToast === 'function') showToast('Room marked clean', 'success');
+                const card = btn ? btn.closest('[data-action-card], [id^="hk-room-"]') : null;
+                if (card) {
+                    card.style.opacity = '0.5';
+                    setTimeout(() => card.remove(), 250);
+                }
+                return true;
+            }
+            if (typeof showToast === 'function') showToast(data.message || data.error || 'Could not mark clean', 'error');
+            if (btn) btn.disabled = false;
+            return false;
+        } catch (e) {
+            if (typeof showToast === 'function') showToast('Connection error', 'error');
+            if (btn) btn.disabled = false;
+            return false;
+        }
+    }
+
     function formatCurrency(amount, showSymbol = true) {
         const num = parseFloat(amount) || 0;
         const formatted = num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -619,17 +655,22 @@ try {
 </script>
 <script src="/js/api-client.js"></script>
 <script src="/js/ui.js"></script>
+<script src="/js/staff-alert-sound.js"></script>
 <script src="/js/photo_capture.js"></script>
+<?php if (!empty($_SESSION['user_id'])): ?>
+<script>window.PMS_STAFF_PUSH = true;</script>
+<?php endif; ?>
+<script src="/js/pwa.js" defer></script>
 
 <?php if (!empty($nightAuditActions)): ?>
 <?php
-    $canBypass = false;
-    if (class_exists('AuthHelper') && in_array(AuthHelper::getRole(), ['admin', 'owner'])) {
-        $canBypass = true;
-    }
-    $isFolioPage = str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/folio/');
+    $canBypass = class_exists('AuthHelper') && (AuthHelper::can('run_night_audit') || AuthHelper::isSuperAdmin());
+    $canCheckout = class_exists('AuthHelper') && AuthHelper::can('check_in_out');
+    $canPay = class_exists('AuthHelper') && AuthHelper::can('record_payment');
+    $reqPath = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?: '');
+    $isFolioPage = str_contains($reqPath, '/folio');
 ?>
-<?php if (!$isFolioPage || $canBypass): ?>
+<?php if (!$isFolioPage): ?>
 <!-- Night Audit Action Center Modal -->
 <div id="night-audit-action-center" class="fixed inset-0 z-[9999] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden transform transition-all">
@@ -646,7 +687,7 @@ try {
                 </div>
             </div>
             <?php if ($canBypass): ?>
-            <button onclick="document.getElementById('night-audit-action-center').remove()" class="text-slate-400 hover:text-slate-600 transition-colors">
+            <button type="button" onclick="document.getElementById('night-audit-action-center').remove()" class="text-slate-400 hover:text-slate-600 transition-colors">
                 <i class="ph ph-x text-xl"></i>
             </button>
             <?php endif; ?>
@@ -655,23 +696,40 @@ try {
         <!-- Body -->
         <div class="p-6 overflow-y-auto bg-slate-50 flex-1">
             <div class="space-y-4">
-                <?php foreach ($nightAuditActions as $action): ?>
-                <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <?php foreach ($nightAuditActions as $action):
+                    $issue = (string)($action['issue_type'] ?? '');
+                    $folioUrl = function_exists('folio_href')
+                        ? folio_href(['id' => $action['booking_id'], 'display_id' => $action['booking_display_id'] ?? ''])
+                        : '/admin/folio?id=' . rawurlencode((string)$action['booking_id']);
+                    $howTo = 'Open the folio, collect or refund, then check the guest out. That clears this item.';
+                    if ($issue === 'overstay_zero_balance') {
+                        $howTo = 'Balance is already zero. Open the folio and check the guest out.';
+                    } elseif ($issue === 'overstay_refund_due') {
+                        $howTo = 'Open the folio and process the refund, then check the guest out.';
+                    }
+                ?>
+                <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4" data-audit-booking="<?= (int)$action['booking_id'] ?>">
                     <div>
                         <div class="flex items-center gap-2 mb-1">
                             <span class="px-2 py-0.5 rounded text-xs font-semibold bg-warning-100 text-warning-700">
-                                <?= htmlspecialchars(str_replace('_', ' ', strtoupper($action['issue_type']))) ?>
+                                <?= htmlspecialchars(str_replace('_', ' ', strtoupper($issue))) ?>
                             </span>
-                            <span class="text-sm font-semibold text-slate-900">Room <?= htmlspecialchars($action['room_number']) ?></span>
+                            <span class="text-sm font-semibold text-slate-900">Room <?= htmlspecialchars((string)$action['room_number']) ?></span>
                         </div>
-                        <p class="text-sm text-slate-700"><strong>Guest:</strong> <?= htmlspecialchars($action['guest_name'] ?? 'Unknown') ?></p>
-                        <p class="text-sm text-slate-600"><?= htmlspecialchars($action['description']) ?></p>
+                        <p class="text-sm text-slate-700"><strong>Guest:</strong> <?= htmlspecialchars((string)($action['guest_name'] ?? 'Unknown')) ?></p>
+                        <p class="text-sm text-slate-600"><?= htmlspecialchars((string)$action['description']) ?></p>
+                        <p class="text-xs text-slate-500 mt-1"><?= htmlspecialchars($howTo) ?></p>
                     </div>
-                    <div class="flex-shrink-0">
-                        <a href="/folio/<?= $action['booking_id'] ?>" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
-                            <span>Open Folio</span>
+                    <div class="flex-shrink-0 flex flex-col gap-2">
+                        <a href="<?= htmlspecialchars($folioUrl, ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
+                            <span><?= $canPay || $issue !== 'overstay_zero_balance' ? 'Open folio' : 'View folio' ?></span>
                             <i class="ph ph-arrow-right"></i>
                         </a>
+                        <?php if ($canCheckout && $issue === 'overstay_zero_balance'): ?>
+                        <button type="button" onclick="nightAuditCheckout(<?= (int)$action['booking_id'] ?>, this)" class="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+                            Check out guest
+                        </button>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <?php endforeach; ?>
@@ -680,21 +738,42 @@ try {
             <div class="mt-6 rounded-lg bg-blue-50 p-4 flex items-start gap-3 border border-blue-100">
                 <i class="ph ph-info text-blue-500 text-lg mt-0.5"></i>
                 <div class="text-sm text-blue-800">
-                    <p class="font-semibold mb-1">Why am I seeing this?</p>
-                    <p>The system prevents new bookings from being created until overnight issues are resolved. Please settle the folios and check out the guests.</p>
+                    <p class="font-semibold mb-1">How staff resolve this</p>
+                    <p>New bookings stay blocked until each stay is settled and checked out. Open folio on this tab (the overlay hides on the folio page), collect or refund, then Check out. The item disappears after checkout succeeds.</p>
                 </div>
             </div>
         </div>
         
         <?php if ($canBypass): ?>
-        <!-- Footer -->
         <div class="px-6 py-4 border-t border-slate-100 bg-white flex justify-end">
-            <button onclick="document.getElementById('night-audit-action-center').remove()" class="text-sm font-medium text-slate-500 hover:text-slate-700 underline underline-offset-4">
-                Bypass & Continue (Admin)
+            <button type="button" onclick="document.getElementById('night-audit-action-center').remove()" class="text-sm font-medium text-slate-500 hover:text-slate-700 underline underline-offset-4">
+                Bypass &amp; Continue (does not clear the items)
             </button>
         </div>
         <?php endif; ?>
     </div>
 </div>
+<script>
+async function nightAuditCheckout(bookingId, btn) {
+    if (!bookingId) return;
+    btn.disabled = true;
+    try {
+        const res = await fetch('/api/admin/booking_status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '' },
+            body: JSON.stringify({ id: bookingId, action: 'check_out' })
+        });
+        const data = await res.json();
+        if (data.success) {
+            location.reload();
+            return;
+        }
+        alert(data.message || data.error || 'Checkout failed. Open the folio and settle it first.');
+    } catch (e) {
+        alert('Checkout failed. Open the folio.');
+    }
+    btn.disabled = false;
+}
+</script>
 <?php endif; ?>
 <?php endif; ?>

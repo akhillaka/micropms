@@ -6,6 +6,7 @@ require_once __DIR__ . '/../pms_core/config.php';
 require_once __DIR__ . '/../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../pms_core/GuestAccessToken.php';
 require_once __DIR__ . '/../pms_core/services/CheckoutService.php';
+require_once __DIR__ . '/../pms_core/NotificationRelay.php';
 
 $db = Database::getInstance()->getConnection();
 load_db_settings($db);
@@ -205,8 +206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $postStmt->execute([(int)$booking['property_id'], $bookingId]);
 
             // Notify admin
-            $db->prepare("INSERT INTO admin_notifications (property_id, type, title, message) VALUES (?, 'service_request', 'Late Checkout Request', ?)")
-               ->execute([(int)$booking['property_id'], "Room {$booking['room_number']} requested late checkout"]);
+            NotificationRelay::sendInAppNotification((int)$booking['property_id'], 'Late Checkout Request', "Room {$booking['room_number']} requested late checkout", 'service_request', '/admin/modules/housekeeping/service_requests');
 
             AuditLogger::log(0, 'PORTAL_LATE_CHECKOUT_REQUEST', 'BOOKING', $booking['id'], [
                 'guest' => $booking['guest_name'],
@@ -626,6 +626,7 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                 <?php if ($housekeepingEnabled): ?>
                 <button type="button" class="quick-chip" onclick="askService('Extra Towels','housekeeping')"><i class="ph ph-drop"></i> Towels</button>
                 <button type="button" class="quick-chip" onclick="askService('Housekeeping','housekeeping')"><i class="ph ph-broom"></i> Cleaning</button>
+                <button type="button" class="quick-chip" onclick="askService('Do Not Disturb','housekeeping')"><i class="ph ph-bell-slash"></i> DND</button>
                 <?php endif; ?>
                 <?php if ($wakeupEnabled): ?>
                 <button type="button" class="quick-chip" onclick="askService('Wake-up Call','Reception')"><i class="ph ph-alarm"></i> Wake-up</button>

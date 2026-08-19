@@ -42,7 +42,7 @@ if (!$rz) {
 }
 
 $receipt = 'gst_' . $bookingId . '_' . time();
-$result = $rz->createOrder(round($amount * 100), 'INR', $receipt, [
+$result = $rz->createOrder((int)round($amount * 100), 'INR', $receipt, [
     'booking_id' => (string)$bookingId,
     'property_id' => (string)$propertyId,
 ]);

@@ -28,29 +28,20 @@ class GoogleSheetService {
         $webhookUrl = $settings['GOOGLE_SHEETS_WEBHOOK_URL'] ?? (defined('GOOGLE_SHEETS_WEBHOOK_URL') ? GOOGLE_SHEETS_WEBHOOK_URL : '');
         $isEnabled = isset($settings['GOOGLE_SHEETS_ENABLED']) ? ($settings['GOOGLE_SHEETS_ENABLED'] === 'true' || $settings['GOOGLE_SHEETS_ENABLED'] === '1') : (defined('GOOGLE_SHEETS_ENABLED') ? (GOOGLE_SHEETS_ENABLED === 'true' || GOOGLE_SHEETS_ENABLED === true || GOOGLE_SHEETS_ENABLED === '1') : false);
 
-        if (!$isEnabled || empty($webhookUrl) || filter_var($webhookUrl, FILTER_VALIDATE_URL) === false) {
+        if (!$isEnabled) {
+            return false;
+        }
+        $webhookUrl = self::normalizeWebhookUrl((string)$webhookUrl);
+        if ($webhookUrl === '') {
             return false;
         }
 
-        $ch = curl_init($webhookUrl);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 8); // Max 8 sec
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        curl_close($ch);
-
-        if ($error || $httpCode < 200 || $httpCode >= 400) {
-            error_log("GoogleSheetService Webhook Error: " . ($error ?: "HTTP $httpCode - $response"));
+        $res = self::postToAppsScript($webhookUrl, is_array($payload) ? $payload : ['payload' => $payload]);
+        if (empty($res['ok'])) {
+            error_log('GoogleSheetService Webhook Error: ' . ($res['message'] ?? 'unknown'));
             return false;
         }
-
-        return json_decode($response, true) ?: true;
+        return $res['data'] ?? true;
     }
 
     /**
@@ -61,33 +52,156 @@ class GoogleSheetService {
             return ['success' => false, 'message' => 'Invalid Webhook URL provided.'];
         }
 
-        $ch = curl_init($webhookUrl);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['action' => 'ping']));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        $webhookUrl = self::normalizeWebhookUrl($webhookUrl);
+        if ($webhookUrl === '') {
+            return ['success' => false, 'message' => 'Paste the Web app URL that ends with /exec (not the Library URL). Example: https://script.google.com/macros/s/AKfycb…/exec'];
+        }
 
+        $pingPayload = [
+            'action' => 'ping',
+            'sheets' => self::fieldCatalog(),
+        ];
+        $res = self::postToAppsScript($webhookUrl, $pingPayload);
+        if (empty($res['ok']) && str_contains(strtolower((string)($res['message'] ?? '')), '405')) {
+            $res = self::getAppsScriptPing($webhookUrl);
+            if (!empty($res['ok'])) {
+                $setup = self::postToAppsScript($webhookUrl, ['action' => 'setup', 'sheets' => self::fieldCatalog()]);
+                if (!empty($setup['ok'])) {
+                    $res = $setup;
+                }
+            }
+        }
+        if (empty($res['ok'])) {
+            return ['success' => false, 'message' => $res['message'] ?? 'Could not reach Google Apps Script.'];
+        }
+        $data = is_array($res['data'] ?? null) ? $res['data'] : [];
+        if (($data['status'] ?? '') === 'success') {
+            return ['success' => true, 'message' => $data['message'] ?? 'Successfully connected to Google Sheets!'];
+        }
+        if (($data['status'] ?? '') === 'error') {
+            return ['success' => false, 'message' => (string)($data['message'] ?? 'Apps Script returned an error')];
+        }
+        return ['success' => false, 'message' => 'Unexpected response from Webhook. Redeploy the script from Extensions → Apps Script → Deploy → New deployment (Execute as: Me, Who has access: Anyone).'];
+    }
+
+    /**
+     * Google web apps 401 if access is not "Anyone", and application/json POSTs often fail.
+     * Send JSON as text/plain and keep POST across 302 redirects.
+     *
+     * @return array{ok: bool, message?: string, data?: mixed}
+     */
+    public static function postToAppsScript(string $webhookUrl, array $payload): array {
+        $webhookUrl = self::normalizeWebhookUrl($webhookUrl);
+        if ($webhookUrl === '') {
+            return ['ok' => false, 'message' => 'Paste the Web app URL that ends with /exec, not the Library URL.'];
+        }
+        $body = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        $ch = curl_init($webhookUrl);
+        if ($ch === false) {
+            return ['ok' => false, 'message' => 'Could not start HTTP request to Google.'];
+        }
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $body,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: text/plain;charset=utf-8',
+                'Accept: application/json, text/plain, */*',
+            ],
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 8,
+            // Google 302s /exec to script.googleusercontent.com. That hop must be GET (default).
+            // Forcing POST on the redirect returns HTTP 405.
+            CURLOPT_POSTREDIR => 0,
+            CURLOPT_USERAGENT => 'MicroPMS-GoogleSheets/1.0',
+        ]);
         $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $finalUrl = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
         $error = curl_error($ch);
         curl_close($ch);
 
         if ($error) {
-            return ['success' => false, 'message' => "cURL Error: " . $error];
+            return ['ok' => false, 'message' => 'cURL Error: ' . $error];
         }
 
+        $decoded = json_decode((string)$response, true);
+        if (is_array($decoded) && $httpCode >= 200 && $httpCode < 400) {
+            return ['ok' => true, 'data' => $decoded];
+        }
+
+        return ['ok' => false, 'message' => self::explainAppsScriptFailure($httpCode, (string)$response, $finalUrl)];
+    }
+
+    public static function normalizeWebhookUrl(string $webhookUrl): string {
+        $url = trim($webhookUrl);
+        if ($url === '') {
+            return '';
+        }
+        $url = preg_replace('/\s+/', '', $url) ?? $url;
+        $lower = strtolower($url);
+        if (str_contains($lower, '/library/') || str_contains($lower, 'script.google.com/d/')) {
+            return '';
+        }
+        if (str_ends_with($lower, '/dev') || str_contains($lower, '/dev?')) {
+            return '';
+        }
+        if (!preg_match('#^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec/?(\?.*)?$#i', $url)) {
+            if (preg_match('#^(https://script\.google\.com/macros/s/[A-Za-z0-9_-]+)(?:/)?$#i', $url, $m)) {
+                $url = $m[1] . '/exec';
+            } else {
+                return '';
+            }
+        }
+        return rtrim($url, '/');
+    }
+
+    private static function getAppsScriptPing(string $webhookUrl): array {
+        $ch = curl_init($webhookUrl);
+        if ($ch === false) {
+            return ['ok' => false, 'message' => 'Could not start HTTP request to Google.'];
+        }
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 8,
+            CURLOPT_USERAGENT => 'MicroPMS-GoogleSheets/1.0',
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $finalUrl = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        $error = curl_error($ch);
+        curl_close($ch);
+        if ($error) {
+            return ['ok' => false, 'message' => 'cURL Error: ' . $error];
+        }
+        $decoded = json_decode((string)$response, true);
+        if (is_array($decoded) && $httpCode >= 200 && $httpCode < 400) {
+            return ['ok' => true, 'data' => $decoded];
+        }
+        return ['ok' => false, 'message' => self::explainAppsScriptFailure($httpCode, (string)$response, $finalUrl)];
+    }
+
+    public static function explainAppsScriptFailure(int $httpCode, string $response, string $finalUrl = ''): string {
+        $blob = strtolower($response . ' ' . $finalUrl);
+        if ($httpCode === 405) {
+            return 'Google returned HTTP 405 (method not allowed). Use the Web app URL that ends with /exec — not the Library URL, not /dev. After changing Code.gs, Deploy → Manage deployments → pencil → New version so doPost is included.';
+        }
+        if ($httpCode === 401 || $httpCode === 403
+            || str_contains($blob, 'accounts.google.com')
+            || str_contains($blob, 'unable to open the file')
+            || str_contains($blob, 'signin')
+        ) {
+            return 'Google blocked the webhook (HTTP ' . ($httpCode ?: '401') . '). Deploy as a Web app (not Library / API executable). Execute as: Me. Who has access: Anyone. Then paste the Web app URL ending in /exec.';
+        }
         if ($httpCode >= 400) {
-            return ['success' => false, 'message' => "Google Apps Script returned HTTP status $httpCode"];
+            $plain = trim(preg_replace('/\s+/', ' ', strip_tags($response)) ?? '');
+            return 'Google Apps Script returned HTTP ' . $httpCode . ($plain !== '' ? (': ' . substr($plain, 0, 160)) : '');
         }
-
-        $data = json_decode($response, true);
-        if (isset($data['status']) && $data['status'] === 'success') {
-            return ['success' => true, 'message' => $data['message'] ?? 'Successfully connected to Google Sheets!'];
-        }
-
-        return ['success' => false, 'message' => 'Unexpected response from Webhook: ' . substr($response, 0, 200)];
+        return 'Unexpected response from Google Apps Script: ' . substr(trim(strip_tags($response)), 0, 200);
     }
 
     /**
@@ -139,59 +253,115 @@ class GoogleSheetService {
      * Bulk sync bookings, payments, or expenses
      */
     public static function bulkSync($pdo, $propertyId, $type = 'all') {
-        $items = [];
+        try {
+            $items = [];
 
-        if ($type === 'all' || $type === 'booking') {
-            $stmt = $pdo->prepare("SELECT id FROM bookings WHERE property_id = ? ORDER BY id ASC");
-            $stmt->execute([$propertyId]);
-            while ($row = $stmt->fetch()) {
-                $bData = self::buildBookingData($pdo, $row['id']);
-                if ($bData) {
-                    $items[] = ['sheet_type' => 'booking', 'data' => $bData];
+            if ($type === 'all' || $type === 'booking') {
+                $stmt = $pdo->prepare("SELECT id FROM bookings WHERE property_id = ? ORDER BY id ASC");
+                $stmt->execute([$propertyId]);
+                while ($row = $stmt->fetch()) {
+                    try {
+                        $bData = self::buildBookingData($pdo, (int)$row['id']);
+                        if ($bData) {
+                            $items[] = ['sheet_type' => 'booking', 'data' => $bData];
+                        }
+                    } catch (\Throwable $e) {
+                        error_log('GoogleSheet booking row skipped: ' . $e->getMessage());
+                    }
                 }
             }
-        }
 
-        if ($type === 'all' || $type === 'payment') {
-            // Need to join bookings to get property_id
-            $stmt = $pdo->prepare("SELECT l.id FROM folio_ledger l JOIN bookings b ON l.booking_id = b.id WHERE b.property_id = ? AND l.transaction_type IN ('cash','card','online','payment') ORDER BY l.id ASC");
-            $stmt->execute([$propertyId]);
-            while ($row = $stmt->fetch()) {
-                $pData = self::buildPaymentData($pdo, $row['id']);
-                if ($pData) {
-                    $items[] = ['sheet_type' => 'payment', 'data' => $pData];
+            if ($type === 'all' || $type === 'payment') {
+                $stmt = $pdo->prepare("SELECT l.id FROM folio_ledger l JOIN bookings b ON l.booking_id = b.id WHERE b.property_id = ? AND (l.amount < 0 OR l.transaction_type IN ('cash','card','online','upi','bank_transfer','payment')) ORDER BY l.id ASC");
+                $stmt->execute([$propertyId]);
+                while ($row = $stmt->fetch()) {
+                    try {
+                        $pData = self::buildPaymentData($pdo, (int)$row['id']);
+                        if ($pData) {
+                            $items[] = ['sheet_type' => 'payment', 'data' => $pData];
+                        }
+                    } catch (\Throwable $e) {
+                        error_log('GoogleSheet payment row skipped: ' . $e->getMessage());
+                    }
                 }
             }
-        }
 
-        if ($type === 'all' || $type === 'expense') {
-            $stmt = $pdo->prepare("SELECT id FROM finance_transactions WHERE property_id = ? AND type = 'expense' ORDER BY id ASC");
-            $stmt->execute([$propertyId]);
-            while ($row = $stmt->fetch()) {
-                $eData = self::buildExpenseData($pdo, $row['id']);
-                if ($eData) {
-                    $items[] = ['sheet_type' => 'expense', 'data' => $eData];
+            if ($type === 'all' || $type === 'expense') {
+                $stmt = $pdo->prepare("SELECT id FROM finance_transactions WHERE property_id = ? AND type = 'expense' ORDER BY id ASC");
+                $stmt->execute([$propertyId]);
+                while ($row = $stmt->fetch()) {
+                    try {
+                        $eData = self::buildExpenseData($pdo, (int)$row['id']);
+                        if ($eData) {
+                            $items[] = ['sheet_type' => 'expense', 'data' => $eData];
+                        }
+                    } catch (\Throwable $e) {
+                        error_log('GoogleSheet expense row skipped: ' . $e->getMessage());
+                    }
                 }
             }
+        } catch (\PDOException $e) {
+            error_log('GoogleSheet bulkSync query failed: ' . $e->getMessage());
+            return ['success' => false, 'count' => 0, 'message' => 'Could not load records for Google Sheets sync.'];
         }
 
         if (empty($items)) {
             return ['success' => true, 'count' => 0, 'message' => 'No items found to sync.'];
         }
 
-        // Chunk bulk items into batches of 50 to avoid payload limits
-        $chunks = array_chunk($items, 50);
+        $webhookUrl = self::resolveWebhookUrl((int)$propertyId);
+        $chunks = array_chunk($items, 40);
         $totalSynced = 0;
+        $lastError = '';
 
         foreach ($chunks as $chunk) {
-            QueueService::push('google_sheets', [
-                'action' => 'bulk_sync',
-                'items' => $chunk
-            ], 0, $propertyId);
-            $totalSynced += count($chunk);
+            $posted = false;
+            if ($webhookUrl !== '') {
+                $res = self::postToAppsScript($webhookUrl, [
+                    'action' => 'bulk_sync',
+                    'items' => $chunk,
+                ]);
+                if (!empty($res['ok'])) {
+                    $posted = true;
+                    $totalSynced += count($chunk);
+                } else {
+                    $lastError = (string)($res['message'] ?? 'Google Sheets webhook failed');
+                }
+            }
+            if (!$posted) {
+                try {
+                    QueueService::push('google_sheets', [
+                        'action' => 'bulk_sync',
+                        'items' => $chunk,
+                    ], 0, (int)$propertyId);
+                    $totalSynced += count($chunk);
+                } catch (\Throwable $e) {
+                    error_log('GoogleSheet queue push failed: ' . $e->getMessage());
+                    $lastError = $lastError !== '' ? $lastError : 'Could not queue Google Sheets sync.';
+                }
+            }
         }
 
-        return ['success' => true, 'count' => $totalSynced, 'message' => "Synced $totalSynced records to Google Sheets."];
+        if ($totalSynced === 0) {
+            return ['success' => false, 'count' => 0, 'message' => $lastError !== '' ? $lastError : 'Bulk sync failed.'];
+        }
+
+        $msg = "Synced {$totalSynced} records to Google Sheets.";
+        if ($lastError !== '') {
+            $msg .= ' Some batches were queued: ' . $lastError;
+        }
+        return ['success' => true, 'count' => $totalSynced, 'message' => $msg];
+    }
+
+    private static function resolveWebhookUrl(int $propertyId): string {
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT key_value FROM system_settings WHERE property_id = ? AND key_name = 'GOOGLE_SHEETS_WEBHOOK_URL'");
+        $stmt->execute([$propertyId]);
+        $url = (string)($stmt->fetchColumn() ?: '');
+        if ($url === '' && defined('GOOGLE_SHEETS_WEBHOOK_URL')) {
+            $url = (string)GOOGLE_SHEETS_WEBHOOK_URL;
+        }
+        return self::normalizeWebhookUrl($url);
     }
 
     /**
@@ -249,7 +419,8 @@ class GoogleSheetService {
             "Duration in hrs"        => (int)$hrs,
             "Total Amount Collected" => (float)$totalCollected,
             "Check-in/Check-Out"     => ucfirst(str_replace('_', ' ', $b['booking_status'])),
-            "user"                   => $staffUser
+            "user"                   => $staffUser,
+            "User"                   => $staffUser
         ];
         return self::applyFieldFilter($pdo, (int)$b['property_id'], 'booking', $row);
     }
@@ -286,12 +457,13 @@ class GoogleSheetService {
             "Month"        => date('M-Y', $recTs),
             "Payment Date" => date('Y-m-d H:i:s', $recTs),
             "Category"     => $l['description'] ?: ucfirst($l['transaction_type']),
-            "user"         => $staffUser
+            "user"         => $staffUser,
+            "User"         => $staffUser
         ]);
     }
 
     private static function buildExpenseData($pdo, $expenseId) {
-        $sql = "SELECT f.*, s.username, s.full_name as staff_name
+        $sql = "SELECT f.*, s.username
                 FROM finance_transactions f
                 LEFT JOIN staff_users s ON f.staff_id = s.id
                 WHERE f.id = :id AND f.type = 'expense'";
@@ -302,7 +474,7 @@ class GoogleSheetService {
         if (!$f) return null;
 
         $recTs = strtotime($f['recorded_at']);
-        $staffUser = $f['staff_name'] ?: ($f['username'] ?: 'Admin');
+        $staffUser = self::normalizeStaffUsername($f['username'] ?? '') ?: self::sessionStaffUsername($pdo);
 
         return self::applyFieldFilter($pdo, (int)$f['property_id'], 'expense', [
             "Expense ID"     => "EXP-" . $f['id'],
@@ -312,7 +484,8 @@ class GoogleSheetService {
             "Payment Method" => $f['payment_method'] ?: 'Cash',
             "Month"          => date('M-Y', $recTs),
             "Expense Date"   => date('Y-m-d H:i:s', $recTs),
-            "User"           => $staffUser
+            "User"           => $staffUser,
+            "user"           => $staffUser,
         ]);
     }
 
@@ -365,31 +538,125 @@ class GoogleSheetService {
         return $out !== [] ? $out : $row;
     }
 
-    private static function getBookingStaffUser($pdo, $bookingId) {
-        if (!empty($_SESSION['staff_user'])) {
-            return $_SESSION['staff_user'];
+    private static function normalizeStaffUsername($value): string {
+        $name = trim((string)$value);
+        if ($name === '') {
+            return '';
         }
+        return $name;
+    }
+
+    private static function staffUsernameById($pdo, $staffId): string {
+        $staffId = (int)$staffId;
+        if ($staffId <= 0) {
+            return '';
+        }
+        try {
+            $stmt = $pdo->prepare('SELECT username FROM staff_users WHERE id = ? LIMIT 1');
+            $stmt->execute([$staffId]);
+            return self::normalizeStaffUsername((string)($stmt->fetchColumn() ?: ''));
+        } catch (\Throwable $e) {
+            return '';
+        }
+    }
+
+    private static function sessionStaffUsername($pdo): string {
+        $fromSession = self::normalizeStaffUsername($_SESSION['username'] ?? $_SESSION['staff_user'] ?? '');
+        if ($fromSession !== '') {
+            return $fromSession;
+        }
+        return self::staffUsernameById($pdo, (int)($_SESSION['user_id'] ?? 0));
+    }
+
+    private static function getBookingStaffUser($pdo, $bookingId) {
+        $fromSession = self::sessionStaffUsername($pdo);
         try {
             $stmt = $pdo->prepare("SELECT s.username FROM audit_logs a JOIN staff_users s ON a.staff_id = s.id WHERE a.entity_type = 'BOOKING' AND a.entity_id = :bid ORDER BY a.id ASC LIMIT 1");
             $stmt->execute(['bid' => $bookingId]);
-            $row = $stmt->fetch();
-            if ($row) return $row['username'];
-        } catch (Exception $e) {}
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $fromAudit = self::normalizeStaffUsername($row['username'] ?? '');
+            if ($fromAudit !== '') {
+                return $fromAudit;
+            }
+        } catch (\Throwable $e) {
+        }
 
-        return 'Admin';
+        return $fromSession;
     }
 
     private static function getLedgerStaffUser($pdo, $ledgerId) {
-        if (!empty($_SESSION['staff_user'])) {
-            return $_SESSION['staff_user'];
+        $fromSession = self::sessionStaffUsername($pdo);
+        if ($fromSession !== '') {
+            return $fromSession;
         }
+        $entry = [];
         try {
-            $stmt = $pdo->prepare("SELECT s.username FROM audit_logs a JOIN staff_users s ON a.staff_id = s.id WHERE a.details LIKE :lid ORDER BY a.id DESC LIMIT 1");
-            $stmt->execute(['lid' => '%"ledger_id":' . $ledgerId . '%']);
-            $row = $stmt->fetch();
-            if ($row) return $row['username'];
-        } catch (Exception $e) {}
+            $led = $pdo->prepare('SELECT booking_id, amount, recorded_at FROM folio_ledger WHERE id = ? LIMIT 1');
+            $led->execute([(int)$ledgerId]);
+            $entry = $led->fetch(PDO::FETCH_ASSOC) ?: [];
+            $bookingId = (int)($entry['booking_id'] ?? 0);
+            $absAmt = abs((float)($entry['amount'] ?? 0));
 
-        return 'Admin';
+            if ($bookingId > 0) {
+                $pay = $pdo->prepare("
+                    SELECT s.username
+                    FROM finance_transactions f
+                    JOIN staff_users s ON s.id = f.staff_id
+                    WHERE f.booking_id = :bid
+                      AND f.type = 'income'
+                      AND ABS(ABS(f.amount) - :amt) < 0.05
+                    ORDER BY ABS(TIMESTAMPDIFF(SECOND, f.recorded_at, :rec)) ASC, f.id DESC
+                    LIMIT 1
+                ");
+                $pay->execute([
+                    'bid' => $bookingId,
+                    'amt' => $absAmt,
+                    'rec' => (string)($entry['recorded_at'] ?? date('Y-m-d H:i:s')),
+                ]);
+                $fromFinance = self::normalizeStaffUsername((string)($pay->fetchColumn() ?: ''));
+                if ($fromFinance !== '') {
+                    return $fromFinance;
+                }
+
+                $audit = $pdo->prepare("
+                    SELECT a.details, s.username
+                    FROM audit_logs a
+                    LEFT JOIN staff_users s ON s.id = a.staff_id
+                    WHERE a.entity_id = :bid
+                      AND a.entity_type IN ('FOLIO', 'BOOKING', 'PAYMENT')
+                      AND a.action IN ('RECORD_PAYMENT', 'ADD_FOLIO_PAYMENT', 'RAZORPAY_PAYMENT', 'PORTAL_PAYMENT_RECORDED')
+                    ORDER BY a.id DESC
+                    LIMIT 8
+                ");
+                $audit->execute(['bid' => $bookingId]);
+                while ($row = $audit->fetch(PDO::FETCH_ASSOC)) {
+                    $fromJoin = self::normalizeStaffUsername($row['username'] ?? '');
+                    if ($fromJoin !== '') {
+                        return $fromJoin;
+                    }
+                    $details = json_decode((string)($row['details'] ?? ''), true);
+                    if (is_array($details)) {
+                        $fromDetails = self::normalizeStaffUsername($details['staff'] ?? $details['username'] ?? '');
+                        if ($fromDetails !== '') {
+                            return $fromDetails;
+                        }
+                    }
+                }
+            }
+
+            $like = $pdo->prepare("SELECT s.username FROM audit_logs a JOIN staff_users s ON a.staff_id = s.id WHERE a.details LIKE :lid ORDER BY a.id DESC LIMIT 1");
+            $like->execute(['lid' => '%"ledger_id":' . (int)$ledgerId . '%']);
+            $fromLike = self::normalizeStaffUsername((string)($like->fetchColumn() ?: ''));
+            if ($fromLike !== '') {
+                return $fromLike;
+            }
+        } catch (\Throwable $e) {
+        }
+
+        if ($fromSession !== '') {
+            return $fromSession;
+        }
+
+        return self::getBookingStaffUser($pdo, (int)($entry['booking_id'] ?? 0));
     }
 }

@@ -10,11 +10,169 @@ class NotificationRelay {
      * Check if a specific notification event is enabled.
      */
     public static function isEnabled(string $eventKey): bool {
-        if (!defined('NOTIFY_EVENTS')) {
+        $key = self::normalizeNotifyEventKey($eventKey);
+        $defaults = [
+            'booking_confirmed' => true,
+            'check_in' => true,
+            'check_out' => true,
+            'overstay' => true,
+            'payment_received' => true,
+            'room_dirty' => true,
+            'daily_summary' => true,
+            'pre_departure' => false,
+            'folio_activity' => true,
+        ];
+        $events = $defaults;
+        if (defined('NOTIFY_EVENTS')) {
+            $decoded = json_decode((string)NOTIFY_EVENTS, true);
+            if (is_array($decoded) && $decoded !== []) {
+                $events = $decoded;
+            }
+        }
+        if (!array_key_exists($key, $events)) {
+            return true;
+        }
+        $val = $events[$key];
+        return $val === true || $val === 1 || $val === '1' || $val === 'true';
+    }
+
+    private static function normalizeNotifyEventKey(string $eventKey): string {
+        return match ($eventKey) {
+            'new_booking' => 'booking_confirmed',
+            'room_service_order' => 'folio_activity',
+            default => $eventKey,
+        };
+    }
+
+    /**
+     * @return array{token: string, chat_ids: list<string>}
+     */
+    private static function resolveTelegramConfig(\PDO $db, int $propertyId): array {
+        $settings = [];
+        if ($propertyId > 0) {
+            $stmt = $db->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ? AND key_name IN ('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID')");
+            $stmt->execute([$propertyId]);
+            while ($row = $stmt->fetch()) {
+                $settings[$row['key_name']] = $row['key_value'];
+            }
+        }
+        $token = trim((string)($settings['TELEGRAM_BOT_TOKEN'] ?? ''));
+        $chats = (string)($settings['TELEGRAM_CHAT_ID'] ?? '');
+        if ($token === '' && defined('TELEGRAM_BOT_TOKEN')) {
+            $token = trim((string)TELEGRAM_BOT_TOKEN);
+        }
+        if (trim($chats) === '' && defined('TELEGRAM_CHAT_ID')) {
+            $chats = (string)TELEGRAM_CHAT_ID;
+        }
+        $ids = preg_split('/[\s,]+/', $chats, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $ids = array_values(array_unique(array_filter(array_map('trim', $ids))));
+        return ['token' => $token, 'chat_ids' => $ids];
+    }
+
+    private static function telegramRequestSucceeded(array|false $res): bool {
+        if (!is_array($res)) {
             return false;
         }
-        $events = json_decode(NOTIFY_EVENTS, true) ?? [];
-        return isset($events[$eventKey]) && $events[$eventKey] === true;
+        if (isset($res['data']) && is_array($res['data']) && array_key_exists('ok', $res['data'])) {
+            return !empty($res['data']['ok']);
+        }
+        return !empty($res['ok']);
+    }
+
+    private static function telegramErrorMessage(array|false $res): string {
+        if (!is_array($res)) {
+            return 'Could not reach Telegram';
+        }
+        $msg = (string)($res['error_message'] ?? $res['description'] ?? '');
+        if ($msg === '' && isset($res['data']['description'])) {
+            $msg = (string)$res['data']['description'];
+        }
+        if ($msg === '') {
+            $msg = 'Telegram rejected the request';
+        }
+        $lower = strtolower($msg);
+        if (str_contains($lower, 'chat not found') || str_contains($lower, 'chat_id')) {
+            $msg .= '. Open the bot in Telegram, tap Start, then paste your numeric chat ID from @userinfobot (groups start with -).';
+        } elseif (str_contains($lower, 'unauthorized')) {
+            $msg .= '. The bot token is invalid.';
+        }
+        return $msg;
+    }
+
+    /**
+     * @return array{ok: bool, error?: string}
+     */
+    private static function deliverTelegram(string $token, array $chatIds, string $text): array {
+        $url = 'https://api.telegram.org/bot' . $token . '/sendMessage';
+        $sent = 0;
+        $lastError = '';
+        foreach ($chatIds as $id) {
+            $res = self::makePostRequest($url, [
+                'chat_id' => $id,
+                'text' => $text,
+                'parse_mode' => 'HTML',
+            ]);
+            if (!self::telegramRequestSucceeded($res)) {
+                $err = self::telegramErrorMessage($res);
+                if (str_contains(strtolower($err), 'parse')) {
+                    $res = self::makePostRequest($url, [
+                        'chat_id' => $id,
+                        'text' => html_entity_decode(strip_tags($text), ENT_QUOTES, 'UTF-8'),
+                    ]);
+                }
+            }
+            if (self::telegramRequestSucceeded($res)) {
+                $sent++;
+            } else {
+                $lastError = self::telegramErrorMessage($res);
+            }
+        }
+        if ($sent > 0) {
+            return ['ok' => true];
+        }
+        return ['ok' => false, 'error' => $lastError !== '' ? $lastError : 'Telegram send failed'];
+    }
+
+    public static function sendTelegramDocument(string $filePath, string $caption, ?int $propertyId = null): bool {
+        if ($filePath === '' || !is_readable($filePath)) {
+            return false;
+        }
+        require_once __DIR__ . '/Database.php';
+        $db = Database::getInstance()->getConnection();
+        if ($propertyId === null) {
+            require_once __DIR__ . '/AuthHelper.php';
+            $propertyId = AuthHelper::getPropertyId();
+        }
+        $cfg = self::resolveTelegramConfig($db, (int)$propertyId);
+        if ($cfg['token'] === '' || $cfg['token'] === 'your_telegram_bot_token' || $cfg['chat_ids'] === []) {
+            return false;
+        }
+        $url = 'https://api.telegram.org/bot' . $cfg['token'] . '/sendDocument';
+        $sent = 0;
+        foreach ($cfg['chat_ids'] as $chatId) {
+            $ch = curl_init($url);
+            if ($ch === false) {
+                continue;
+            }
+            $doc = new \CURLFile($filePath, 'application/pdf', basename($filePath));
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 45,
+                CURLOPT_POSTFIELDS => [
+                    'chat_id' => $chatId,
+                    'caption' => substr($caption, 0, 1024),
+                    'document' => $doc,
+                ],
+            ]);
+            $raw = @curl_exec($ch);
+            curl_close($ch);
+            $decoded = is_string($raw) ? json_decode($raw, true) : null;
+            if (is_array($decoded) && !empty($decoded['ok'])) {
+                $sent++;
+            }
+        }
+        return $sent > 0;
     }
 
     /**
@@ -40,7 +198,7 @@ class NotificationRelay {
     }
 
     /**
-     * Send Telegram message by queueing it to jobs_queue.
+     * Send Telegram to the property chat now (does not wait for cron_worker).
      */
     public static function sendTelegram(string $fallbackMessage, ?string $eventKey = null, array $context = [], ?int $propertyId = null): bool {
         require_once __DIR__ . '/Database.php';
@@ -50,11 +208,14 @@ class NotificationRelay {
             require_once __DIR__ . '/AuthHelper.php';
             $propertyId = AuthHelper::getPropertyId();
         }
+        $propertyId = (int)$propertyId;
 
-        if (!defined('TELEGRAM_BOT_TOKEN') || empty(TELEGRAM_BOT_TOKEN) || TELEGRAM_BOT_TOKEN === 'your_telegram_bot_token') {
+        if ($eventKey !== null && !self::isEnabled($eventKey)) {
             return false;
         }
-        if ($eventKey !== null && !self::isEnabled($eventKey)) {
+
+        $cfg = self::resolveTelegramConfig($db, $propertyId);
+        if ($cfg['token'] === '' || $cfg['token'] === 'your_telegram_bot_token' || $cfg['chat_ids'] === []) {
             return false;
         }
 
@@ -67,15 +228,19 @@ class NotificationRelay {
         }
 
         $formatted = self::formatTemplate($message, $context);
-        $payload = json_encode(['message' => $formatted]);
+        $delivered = self::deliverTelegram($cfg['token'], $cfg['chat_ids'], $formatted);
+        if (!empty($delivered['ok'])) {
+            return true;
+        }
 
         try {
             $stmt = $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('telegram', ?, ?)");
-            return $stmt->execute([$propertyId, $payload]);
+            $stmt->execute([$propertyId, json_encode(['message' => $formatted])]);
         } catch (\Exception $e) {
             error_log("Failed to queue telegram job: " . $e->getMessage());
-            return false;
         }
+        error_log('Telegram send failed: ' . ($delivered['error'] ?? 'unknown'));
+        return false;
     }
 
     /**
@@ -90,20 +255,13 @@ class NotificationRelay {
             $propertyId = AuthHelper::getPropertyId();
         }
 
-        $stmt = $db->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ? AND key_name IN ('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID')");
-        $stmt->execute([$propertyId]);
-        $settings = [];
-        while ($row = $stmt->fetch()) {
-            $settings[$row['key_name']] = $row['key_value'];
-        }
-
-        $token = $settings['TELEGRAM_BOT_TOKEN'] ?? (defined('TELEGRAM_BOT_TOKEN') ? TELEGRAM_BOT_TOKEN : null);
-        $chatIds = $settings['TELEGRAM_CHAT_ID'] ?? (defined('TELEGRAM_CHAT_ID') ? TELEGRAM_CHAT_ID : '');
-
-        if (empty($token) || $token === 'your_telegram_bot_token') {
+        $propertyId = (int)$propertyId;
+        if ($eventKey !== null && !self::isEnabled($eventKey)) {
             return false;
         }
-        if ($eventKey !== null && !self::isEnabled($eventKey)) {
+
+        $cfg = self::resolveTelegramConfig($db, $propertyId);
+        if ($cfg['token'] === '' || $cfg['token'] === 'your_telegram_bot_token' || $cfg['chat_ids'] === []) {
             return false;
         }
 
@@ -116,28 +274,8 @@ class NotificationRelay {
         }
 
         $formatted = self::formatTemplate($message, $context);
-
-        $url = 'https://api.telegram.org/bot' . $token . '/sendMessage';
-
-        $idList = array_filter(array_map('trim', explode(',', $chatIds)));
-        
-        if (empty($idList)) {
-            return false;
-        }
-
-        $allSuccess = true;
-        foreach ($idList as $id) {
-            $data = [
-                'chat_id'    => $id,
-                'text'       => $formatted,
-                'parse_mode' => 'HTML'
-            ];
-            $res = self::makePostRequest($url, $data);
-            if ($res === false) {
-                $allSuccess = false;
-            }
-        }
-        return $allSuccess;
+        $delivered = self::deliverTelegram($cfg['token'], $cfg['chat_ids'], $formatted);
+        return !empty($delivered['ok']);
     }
 
     /**
@@ -152,59 +290,26 @@ class NotificationRelay {
             $propertyId = (int)AuthHelper::getPropertyId();
         }
 
-        $stmt = $db->prepare("SELECT key_name, key_value FROM system_settings WHERE property_id = ? AND key_name IN ('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID')");
-        $stmt->execute([$propertyId]);
-        $settings = [];
-        while ($row = $stmt->fetch()) {
-            $settings[$row['key_name']] = $row['key_value'];
-        }
-
-        $token = trim((string)($settings['TELEGRAM_BOT_TOKEN'] ?? (defined('TELEGRAM_BOT_TOKEN') ? TELEGRAM_BOT_TOKEN : '')));
-        $chatIds = (string)($settings['TELEGRAM_CHAT_ID'] ?? (defined('TELEGRAM_CHAT_ID') ? TELEGRAM_CHAT_ID : ''));
+        $cfg = self::resolveTelegramConfig($db, (int)$propertyId);
+        $token = $cfg['token'];
+        $idList = $cfg['chat_ids'];
 
         if ($token === '' || $token === 'your_telegram_bot_token') {
-            return ['ok' => false, 'success' => false, 'error' => 'Bot token not configured'];
+            return ['ok' => false, 'success' => false, 'error' => 'Bot token not configured. Save Settings → Integrations first.'];
         }
-
-        $idList = array_values(array_filter(array_map('trim', explode(',', $chatIds))));
         if ($idList === []) {
-            return ['ok' => false, 'success' => false, 'error' => 'Chat ID not configured'];
+            return ['ok' => false, 'success' => false, 'error' => 'Chat ID not configured. Message your bot, then paste the numeric ID from @userinfobot.'];
         }
 
         $msg = "✅ <b>MicroPMS Telegram Test</b>\n\n"
              . "Bot is connected and working!\n"
              . "Time: " . date('d M Y, h:i A');
 
-        $url = 'https://api.telegram.org/bot' . $token . '/sendMessage';
-        $sent = 0;
-        $lastError = '';
-
-        foreach ($idList as $id) {
-            $res = self::makePostRequest($url, [
-                'chat_id'    => $id,
-                'text'       => $msg,
-                'parse_mode' => 'HTML',
-            ]);
-            if (is_array($res) && !empty($res['ok'])) {
-                $sent++;
-            } else {
-                $lastError = is_array($res)
-                    ? (string)($res['error_message'] ?? $res['description'] ?? 'Telegram rejected the request')
-                    : 'Could not reach Telegram';
-            }
+        $delivered = self::deliverTelegram($token, $idList, $msg);
+        if (!empty($delivered['ok'])) {
+            return ['ok' => true, 'success' => true, 'message' => 'Test message sent'];
         }
-
-        if ($sent > 0) {
-            return [
-                'ok' => true,
-                'success' => true,
-                'message' => $sent === count($idList)
-                    ? 'Test message sent'
-                    : "Sent to {$sent} of " . count($idList) . ' chats' . ($lastError !== '' ? ": {$lastError}" : ''),
-            ];
-        }
-
-        return ['ok' => false, 'success' => false, 'error' => $lastError !== '' ? $lastError : 'Telegram test failed'];
+        return ['ok' => false, 'success' => false, 'error' => $delivered['error'] ?? 'Telegram test failed'];
     }
 
     public static function sendWhatsApp(string $phoneNumber, array|string $payloadData, bool $isTemplate = true, ?int $propertyId = null): array {
@@ -340,26 +445,49 @@ class NotificationRelay {
             }
 
             curl_setopt($ch, CURLOPT_POST, 1);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data, JSON_UNESCAPED_UNICODE));
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
             curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-            
-            $response = curl_exec($ch);
-            
-            if (curl_errno($ch)) {
-                $errStr = curl_error($ch);
-                curl_close($ch);
-                error_log("PMS cURL Connection Error: " . $errStr);
-                return ['ok' => false, 'error_message' => 'cURL Error: ' . $errStr];
+            $caBundle = self::curlCaBundlePath();
+            if ($caBundle !== null) {
+                curl_setopt($ch, CURLOPT_CAINFO, $caBundle);
             }
-            
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch); // FIX: Close handle after reading response
+
+            $response = @curl_exec($ch);
+            $curlErr = curl_errno($ch) ? curl_error($ch) : '';
+            if ($curlErr !== '' && (stripos($curlErr, 'ssl') !== false || stripos($curlErr, 'certificate') !== false)) {
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+                $response = @curl_exec($ch);
+                $curlErr = curl_errno($ch) ? curl_error($ch) : '';
+            }
+
+            if ($curlErr !== '') {
+                curl_close($ch);
+                error_log("PMS cURL Connection Error: " . $curlErr);
+                return ['ok' => false, 'error_message' => 'cURL Error: ' . $curlErr];
+            }
+
+            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
 
             $decoded = json_decode((string)$response, true);
             $isDecodedArray = is_array($decoded);
+
+            if ($isDecodedArray && array_key_exists('ok', $decoded) && (isset($decoded['result']) || isset($decoded['description']) || isset($decoded['error_code']))) {
+                if (!empty($decoded['ok'])) {
+                    return ['ok' => true, 'data' => $decoded];
+                }
+                return [
+                    'ok' => false,
+                    'error_code' => $decoded['error_code'] ?? $httpCode,
+                    'error_message' => (string)($decoded['description'] ?? 'Telegram rejected the request'),
+                    'description' => $decoded['description'] ?? null,
+                    'data' => $decoded,
+                ];
+            }
 
             if ($httpCode >= 200 && $httpCode < 300) {
                 if ($isDecodedArray && array_key_exists('success', $decoded) && $decoded['success'] === false) {
@@ -423,13 +551,48 @@ class NotificationRelay {
                 return ['ok' => false, 'error_code' => $errorCode, 'error_message' => $errorMsg];
             }
             
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             if (isset($ch) && $ch !== false && (is_resource($ch) || $ch instanceof \CurlHandle)) {
                 curl_close($ch);
             }
             error_log("PMS Exception in API request: " . $e->getMessage());
             return ['ok' => false, 'error_message' => $e->getMessage()];
         }
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     * @return array{ok:bool,error_message?:string,description?:string,data?:mixed}
+     */
+    public static function callTelegramBot(string $token, string $method, array $params = []): array
+    {
+        $token = trim($token);
+        $method = trim($method, '/');
+        if ($token === '' || $method === '') {
+            return ['ok' => false, 'error_message' => 'Bot token or method is empty'];
+        }
+        $url = 'https://api.telegram.org/bot' . $token . '/' . $method;
+        $res = self::makePostRequest($url, $params);
+        if ($res === false) {
+            return ['ok' => false, 'error_message' => 'Could not reach Telegram'];
+        }
+        return $res;
+    }
+
+    private static function curlCaBundlePath(): ?string {
+        $candidates = [
+            ini_get('curl.cainfo') ?: '',
+            ini_get('openssl.cafile') ?: '',
+            '/Applications/XAMPP/xamppfiles/share/curl/curl-ca-bundle.crt',
+            '/Applications/XAMPP/xamppfiles/etc/ssl/certs/ca-bundle.crt',
+            '/etc/ssl/certs/ca-certificates.crt',
+        ];
+        foreach ($candidates as $path) {
+            if (is_string($path) && $path !== '' && is_readable($path)) {
+                return $path;
+            }
+        }
+        return null;
     }
 
     /**
@@ -682,11 +845,10 @@ class NotificationRelay {
         }
         if (!empty($auto['is_telegram_active']) && $telegramBody !== '') {
             $body = self::formatTemplate($telegramBody, $context);
-            
-            $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('telegram', ?, ?)")
-               ->execute([$propertyId, json_encode([
-                   'message' => $body
-               ])]);
+            if (!self::sendTelegramSync($body, null, [], $propertyId)) {
+                $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('telegram', ?, ?)")
+                   ->execute([$propertyId, json_encode(['message' => $body])]);
+            }
             $anyTriggered = true;
         }
 
@@ -778,16 +940,31 @@ class NotificationRelay {
     /**
      * Send In-App Notification to Admin Dashboard
      */
-    public static function sendInAppNotification(int $propertyId, string $title, string $message, string $type = 'info'): bool {
+    public static function sendInAppNotification(int $propertyId, string $title, string $message, string $type = 'info', string $linkUrl = ''): bool {
         require_once __DIR__ . '/Database.php';
         $db = Database::getInstance()->getConnection();
-        
+        $ok = false;
+
         try {
-            $stmt = $db->prepare("INSERT INTO admin_notifications (property_id, title, message, type) VALUES (?, ?, ?, ?)");
-            return $stmt->execute([$propertyId, $title, $message, $type]);
+            $stmt = $db->prepare("INSERT INTO admin_notifications (property_id, title, message, type, link_url) VALUES (?, ?, ?, ?, ?)");
+            $ok = $stmt->execute([$propertyId, $title, $message, $type, $linkUrl]);
         } catch (\Exception $e) {
-            error_log("Failed to insert admin notification: " . $e->getMessage());
-            return false;
+            try {
+                $stmt = $db->prepare("INSERT INTO admin_notifications (property_id, title, message, type) VALUES (?, ?, ?, ?)");
+                $ok = $stmt->execute([$propertyId, $title, $message, $type]);
+            } catch (\Exception $e2) {
+                error_log("Failed to insert admin notification: " . $e2->getMessage());
+                return false;
+            }
         }
+
+        if ($ok) {
+            try {
+                require_once __DIR__ . '/services/WebPushService.php';
+                WebPushService::notifyProperty($db, $propertyId, $title, $message, $linkUrl !== '' ? $linkUrl : '/admin');
+            } catch (\Throwable $t) {
+            }
+        }
+        return $ok;
     }
 }

@@ -110,8 +110,8 @@ $billedStmt = $db->prepare("
 ");
 $billedStmt->execute(['p' => $propertyId, 's' => $start, 'e' => $end]);
 $billedData = $billedStmt->fetch(PDO::FETCH_ASSOC);
-$totalBilled = $billedData['billed'] ?: 0;
-$totalTax = $billedData['tax'] ?: 0;
+$totalBilled = money_float($billedData['billed'] ?? 0);
+$totalTax = money_float($billedData['tax'] ?? 0);
 
 $folioCollStmt = $db->prepare("
     SELECT SUM(ABS(fl.amount)) as coll 
@@ -123,7 +123,7 @@ $folioCollStmt = $db->prepare("
     AND DATE(fl.recorded_at) <= :e
 ");
 $folioCollStmt->execute(['p' => $propertyId, 's' => $start, 'e' => $end]);
-$folioColl = $folioCollStmt->fetchColumn() ?: 0;
+$folioColl = money_float($folioCollStmt->fetchColumn());
 
 $financeMetricsStmt = $db->prepare("
     SELECT 
@@ -137,15 +137,15 @@ $financeMetricsStmt = $db->prepare("
 ");
 $financeMetricsStmt->execute(['p' => $propertyId, 's' => $start, 'e' => $end]);
 $finMetrics = $financeMetricsStmt->fetch(PDO::FETCH_ASSOC);
-$totalMiscIncome = $finMetrics['income'] ?: 0;
-$totalExpense = $finMetrics['expense'] ?: 0;
+$totalMiscIncome = money_float($finMetrics['income'] ?? 0);
+$totalExpense = money_float($finMetrics['expense'] ?? 0);
 
 $totalCollections = $folioColl + $totalMiscIncome;
 $netProfit = $totalCollections - $totalExpense;
 
 $duesStmt = $db->prepare("SELECT SUM(fl.amount) FROM folio_ledger fl JOIN bookings b ON fl.booking_id = b.id WHERE b.property_id = ?");
 $duesStmt->execute([(int)$propertyId]);
-$totalDues = $duesStmt->fetchColumn() ?: 0;
+$totalDues = money_float($duesStmt->fetchColumn());
 
 $payMethodQuery = "
     SELECT payment_method, SUM(amount) as total FROM (
@@ -313,7 +313,7 @@ $totalCatExpenses = array_sum($catSummary);
                         </div>
                         <h3 class="text-brand-900/70 text-[10px] font-bold uppercase tracking-wider">Total Billed</h3>
                     </div>
-                    <p class="text-2xl font-semibold text-purple-700">₹<?= htmlspecialchars((string)(number_format($totalBilled, 2)), ENT_QUOTES, 'UTF-8') ?></p>
+                    <p class="text-2xl font-semibold text-purple-700">₹<?= htmlspecialchars(format_inr($totalBilled), ENT_QUOTES, 'UTF-8') ?></p>
                 </div>
                 <div class="card-minimal p-4 flex flex-col justify-center">
                     <div class="flex items-center gap-3 mb-2">
@@ -322,7 +322,7 @@ $totalCatExpenses = array_sum($catSummary);
                         </div>
                         <h3 class="text-brand-900/70 text-[10px] font-bold uppercase tracking-wider">Taxes Billed</h3>
                     </div>
-                    <p class="text-2xl font-semibold text-slate-700">₹<?= htmlspecialchars((string)(number_format($totalTax, 2)), ENT_QUOTES, 'UTF-8') ?></p>
+                    <p class="text-2xl font-semibold text-slate-700">₹<?= htmlspecialchars(format_inr($totalTax), ENT_QUOTES, 'UTF-8') ?></p>
                 </div>
                 <div class="card-minimal p-4 flex flex-col justify-center">
                     <div class="flex items-center gap-3 mb-2">
@@ -331,7 +331,7 @@ $totalCatExpenses = array_sum($catSummary);
                         </div>
                         <h3 class="text-brand-900/70 text-[10px] font-bold uppercase tracking-wider">Collections</h3>
                     </div>
-                    <p class="text-2xl font-semibold text-emerald-700">₹<?= htmlspecialchars((string)(number_format($totalCollections, 2)), ENT_QUOTES, 'UTF-8') ?></p>
+                    <p class="text-2xl font-semibold text-emerald-700">₹<?= htmlspecialchars(format_inr($totalCollections), ENT_QUOTES, 'UTF-8') ?></p>
                 </div>
                 <div class="card-minimal p-4 flex flex-col justify-center">
                     <div class="flex items-center gap-3 mb-2">
@@ -340,7 +340,7 @@ $totalCatExpenses = array_sum($catSummary);
                         </div>
                         <h3 class="text-brand-900/70 text-[10px] font-bold uppercase tracking-wider">Net Profit</h3>
                     </div>
-                    <p class="text-2xl font-semibold <?= $netProfit >= 0 ? 'text-blue-600' : 'text-error-600' ?>">₹<?= htmlspecialchars((string)(number_format($netProfit, 2)), ENT_QUOTES, 'UTF-8') ?></p>
+                    <p class="text-2xl font-semibold <?= $netProfit >= 0 ? 'text-blue-600' : 'text-error-600' ?>">₹<?= htmlspecialchars(format_inr($netProfit), ENT_QUOTES, 'UTF-8') ?></p>
                 </div>
                 <div class="card-minimal p-4 flex flex-col justify-center cursor-pointer hover:bg-orange-50/50 transition-colors group" onclick="openUnpaidModal()">
                     <div class="flex items-center gap-3 mb-2">
@@ -349,7 +349,7 @@ $totalCatExpenses = array_sum($catSummary);
                         </div>
                         <h3 class="text-brand-900/70 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">Total Dues <i class="ph ph-info text-orange-600/70"></i></h3>
                     </div>
-                    <p class="text-2xl font-semibold text-orange-600">₹<?= htmlspecialchars((string)(number_format(max(0, $totalDues), 2)), ENT_QUOTES, 'UTF-8') ?></p>
+                    <p class="text-2xl font-semibold text-orange-600">₹<?= htmlspecialchars(format_inr(max(0.0, money_float($totalDues))), ENT_QUOTES, 'UTF-8') ?></p>
                 </div>
             </div>
 
@@ -411,7 +411,7 @@ $totalCatExpenses = array_sum($catSummary);
                             <div>
                                 <div class="flex justify-between items-center text-xs font-bold text-brand-900 mb-1">
                                     <span><?= htmlspecialchars((string)($cat)) ?></span>
-                                    <span>₹<?= htmlspecialchars((string)(number_format($amt, 0)), ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars((string)($pct), ENT_QUOTES, 'UTF-8') ?>%)</span>
+                                    <span>₹<?= htmlspecialchars(format_inr($amt, 0), ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars((string)($pct), ENT_QUOTES, 'UTF-8') ?>%)</span>
                                 </div>
                                 <div class="w-full bg-brand-50 h-2 rounded-full overflow-hidden">
                                     <div class="bg-rose-500 h-full rounded-full transition-all duration-500" style="width: <?= htmlspecialchars((string)($pct), ENT_QUOTES, 'UTF-8') ?>%"></div>
@@ -429,13 +429,13 @@ $totalCatExpenses = array_sum($catSummary);
                         <div class="space-y-3.5">
                             <?php foreach($incomeCategoryBreakdown as $row): 
                                 $cat = $row['category'];
-                                $amt = $row['total'];
+                                $amt = money_float($row['total'] ?? 0);
                                 $pct = $totalCollections > 0 ? round(($amt / $totalCollections) * 100) : 0;
                             ?>
                             <div>
                                 <div class="flex justify-between items-center text-xs font-bold text-brand-900 mb-1">
                                     <span><?= htmlspecialchars($cat) ?></span>
-                                    <span>₹<?= number_format($amt, 2) ?> (<?= $pct ?>%)</span>
+                                    <span>₹<?= htmlspecialchars(format_inr($amt), ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars((string)$pct, ENT_QUOTES, 'UTF-8') ?>%)</span>
                                 </div>
                                 <div class="w-full bg-brand-50 h-2 rounded-full overflow-hidden">
                                     <div class="bg-emerald-500 h-full rounded-full transition-all duration-500" style="width: <?= $pct ?>%"></div>
@@ -453,13 +453,13 @@ $totalCatExpenses = array_sum($catSummary);
                         <div class="space-y-3.5">
                             <?php foreach($paymentMethodBreakdown as $row): 
                                 $pm = $row['payment_method'];
-                                $amt = $row['total'];
+                                $amt = money_float($row['total'] ?? 0);
                                 $pct = $totalCollections > 0 ? round(($amt / $totalCollections) * 100) : 0;
                             ?>
                             <div>
                                 <div class="flex justify-between items-center text-xs font-bold text-brand-900 mb-1">
                                     <span><?= htmlspecialchars($pm) ?></span>
-                                    <span>₹<?= number_format($amt, 2) ?></span>
+                                    <span>₹<?= htmlspecialchars(format_inr($amt), ENT_QUOTES, 'UTF-8') ?></span>
                                 </div>
                                 <div class="w-full bg-brand-50 h-2 rounded-full overflow-hidden">
                                     <div class="bg-indigo-500 h-full rounded-full transition-all duration-500" style="width: <?= $pct ?>%"></div>
@@ -591,7 +591,7 @@ $totalCatExpenses = array_sum($catSummary);
                                     <?php endif; ?>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-right font-semibold text-lg <?= htmlspecialchars((string)($t['type'] === 'expense' ? 'text-error-600' : ($t['type'] === 'due' ? 'text-orange-600' : 'text-emerald-600')), ENT_QUOTES, 'UTF-8') ?>">
-                                    <?= htmlspecialchars((string)($t['type'] === 'expense' ? '-' : ($t['type'] === 'due' ? '' : '+')), ENT_QUOTES, 'UTF-8') ?>₹<?= htmlspecialchars((string)(number_format($t['amount'], 2)), ENT_QUOTES, 'UTF-8') ?>
+                                    <?= htmlspecialchars((string)($t['type'] === 'expense' ? '-' : ($t['type'] === 'due' ? '' : '+')), ENT_QUOTES, 'UTF-8') ?>₹<?= htmlspecialchars(format_inr($t['amount']), ENT_QUOTES, 'UTF-8') ?>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-right space-x-1">
                                     <?php if($hasFolioLink && $bId): ?>
@@ -626,7 +626,7 @@ $totalCatExpenses = array_sum($catSummary);
                                     </span>
                                 </div>
                                 <div class="text-right font-semibold text-base <?= htmlspecialchars((string)($t['type'] === 'expense' ? 'text-error-600' : ($t['type'] === 'due' ? 'text-orange-600' : 'text-emerald-600')), ENT_QUOTES, 'UTF-8') ?>">
-                                    <?= htmlspecialchars((string)($t['type'] === 'expense' ? '-' : ($t['type'] === 'due' ? '' : '+')), ENT_QUOTES, 'UTF-8') ?>₹<?= htmlspecialchars((string)(number_format($t['amount'], 2)), ENT_QUOTES, 'UTF-8') ?>
+                                    <?= htmlspecialchars((string)($t['type'] === 'expense' ? '-' : ($t['type'] === 'due' ? '' : '+')), ENT_QUOTES, 'UTF-8') ?>₹<?= htmlspecialchars(format_inr($t['amount']), ENT_QUOTES, 'UTF-8') ?>
                                 </div>
                             </div>
                             <div class="text-sm text-brand-800 font-medium mb-1">
@@ -798,7 +798,7 @@ $totalCatExpenses = array_sum($catSummary);
                             <p class="text-xs text-brand-900/70 mt-1">Room <?= htmlspecialchars((string)($ub['room_number'])) ?> (Folio #<?= htmlspecialchars(booking_public_id($ub), ENT_QUOTES, 'UTF-8') ?>)</p>
                         </div>
                         <div class="text-right">
-                            <span class="text-lg font-bold text-orange-600">₹<?= htmlspecialchars((string)(number_format($ub['balance'], 2)), ENT_QUOTES, 'UTF-8') ?></span>
+                            <span class="text-lg font-bold text-orange-600">₹<?= htmlspecialchars(format_inr($ub['balance'] ?? 0), ENT_QUOTES, 'UTF-8') ?></span>
                         </div>
                     </div>
                     <?php endforeach; ?>

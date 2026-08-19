@@ -19,7 +19,7 @@ ApiHandler::run(function(\PDO $db) {
             FROM guest_service_requests gsr
             LEFT JOIN bookings b ON gsr.booking_id = b.id
             LEFT JOIN guests g ON b.guest_id = g.id
-            LEFT JOIN rooms r ON b.room_id = r.id
+            LEFT JOIN rooms r ON COALESCE(gsr.room_id, b.room_id) = r.id
             WHERE gsr.property_id = ? 
               AND (
                 gsr.status IN ('pending', 'in_progress')
@@ -43,9 +43,11 @@ ApiHandler::run(function(\PDO $db) {
         
         // Verify it belongs to this property
         $check = $db->prepare("
-            SELECT gsr.id, gsr.booking_id, gsr.service_type, gsr.status, b.check_out
+            SELECT gsr.id, gsr.booking_id, gsr.service_type, gsr.status, b.check_out,
+                   COALESCE(gsr.room_id, b.room_id) AS room_id,
+                   gsr.linked_pos_order_id
             FROM guest_service_requests gsr
-            JOIN bookings b ON gsr.booking_id = b.id
+            LEFT JOIN bookings b ON gsr.booking_id = b.id
             WHERE gsr.id = ? AND gsr.property_id = ?
         ");
         $check->execute([$id, $propertyId]);
@@ -56,13 +58,36 @@ ApiHandler::run(function(\PDO $db) {
         }
 
         $typeKey = strtolower(preg_replace('/[\s_\-]+/', '', (string)$req['service_type']));
-        if ($status === 'completed' && $typeKey === 'latecheckout' && ($req['status'] ?? '') !== 'completed') {
+        if ($status === 'completed' && $typeKey === 'latecheckout' && ($req['status'] ?? '') !== 'completed' && !empty($req['booking_id'])) {
             $feeStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name IN ('GUEST_PORTAL_EARLY_LATE_FEE', 'early_late_fee') AND property_id = ? ORDER BY key_name = 'GUEST_PORTAL_EARLY_LATE_FEE' DESC LIMIT 1");
             $feeStmt->execute([$propertyId]);
             $fee = (float)($feeStmt->fetchColumn() ?: 500);
             FolioService::postCharge($db, (int)$req['booking_id'], $fee, 'Late Checkout Fee (Approved)', 'other');
             $newCheckout = date('Y-m-d H:i:s', strtotime($req['check_out'] . ' +3 hours'));
             $db->prepare("UPDATE bookings SET check_out = ? WHERE id = ?")->execute([$newCheckout, $req['booking_id']]);
+        }
+
+        if ($status === 'completed' && in_array($typeKey, ['housekeeping', 'stayoverclean', 'extratowels', 'toiletries', 'blanket'], true)) {
+            $roomId = (int)($req['room_id'] ?? 0);
+            if ($roomId > 0) {
+                require_once dirname(__DIR__, 3) . '/pms_core/services/HousekeepingFlow.php';
+                HousekeepingFlow::afterRoomClean($db, $propertyId, $roomId, false);
+            }
+        }
+        if (in_array($status, ['completed', 'rejected'], true) && $typeKey === 'donotdisturb') {
+            $roomId = (int)($req['room_id'] ?? 0);
+            if ($roomId > 0) {
+                require_once dirname(__DIR__, 3) . '/pms_core/services/HousekeepingFlow.php';
+                HousekeepingFlow::setDoNotDisturb($db, $propertyId, $roomId, false);
+            }
+        }
+
+        if ($status === 'completed' && !empty($req['linked_pos_order_id'])) {
+            try {
+                $db->prepare("UPDATE pos_orders SET delivery_status = 'delivered' WHERE id = ? AND property_id = ?")
+                    ->execute([(int)$req['linked_pos_order_id'], $propertyId]);
+            } catch (\PDOException $e) {
+            }
         }
         
         if ($status === 'completed' || $status === 'rejected') {

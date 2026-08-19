@@ -112,16 +112,35 @@ CsrfToken::checkTimeout();
                 html += `<div class="mb-2"><span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${c.badge}">${c.label} (${actions.length})</span></div>`;
                 
                 actions.forEach(a => {
-                    html += `
-                        <a href="${a.action_url}" class="block ${c.bg} border ${c.border} rounded-2xl p-4 hover:shadow-sm active:scale-[0.99] transition-all">
+                    const title = String(a.title || '').replace(/[&<>"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[s]));
+                    const message = String(a.message || '').replace(/[&<>"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[s]));
+                    const icon = String(a.icon || 'ph-bell').replace(/[^a-z0-9-]/gi, '');
+                    const label = String(a.action_label || 'Open').replace(/[&<>"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[s]));
+                    if (a.action_kind === 'mark_clean') {
+                        html += `
+                        <div data-action-card class="${c.bg} border ${c.border} rounded-2xl p-4">
                             <div class="flex items-start gap-3">
-                                <div class="mt-0.5"><i class="ph ${a.icon} ${c.icon} text-xl"></i></div>
+                                <div class="mt-0.5"><i class="ph ${icon} ${c.icon} text-xl"></i></div>
                                 <div class="flex-1 min-w-0">
-                                    <p class="text-xs font-bold ${c.badge} inline-block px-2 py-0.5 rounded mb-1">${a.title}</p>
-                                    <p class="text-sm font-medium text-slate-900 leading-snug">${a.message}</p>
+                                    <p class="text-xs font-bold ${c.badge} inline-block px-2 py-0.5 rounded mb-1">${title}</p>
+                                    <p class="text-sm font-medium text-slate-900 leading-snug">${message}</p>
+                                    <button type="button" onclick="pmsMarkRoomClean(${Number(a.room_id)}, this)" class="mt-3 text-xs font-bold text-emerald-700 bg-white border border-emerald-200 rounded-lg px-3 py-1.5 hover:bg-emerald-50">${label}</button>
+                                </div>
+                            </div>
+                        </div>`;
+                        return;
+                    }
+                    const url = String(a.action_url || '/admin').replace(/"/g, '');
+                    html += `
+                        <a href="${url}" class="block ${c.bg} border ${c.border} rounded-2xl p-4 hover:shadow-sm active:scale-[0.99] transition-all">
+                            <div class="flex items-start gap-3">
+                                <div class="mt-0.5"><i class="ph ${icon} ${c.icon} text-xl"></i></div>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-xs font-bold ${c.badge} inline-block px-2 py-0.5 rounded mb-1">${title}</p>
+                                    <p class="text-sm font-medium text-slate-900 leading-snug">${message}</p>
                                 </div>
                                 <div class="flex-shrink-0 ml-2">
-                                    <span class="text-xs font-bold text-slate-500 bg-white border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors inline-block">${a.action_label}</span>
+                                    <span class="text-xs font-bold text-slate-500 bg-white border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors inline-block">${label}</span>
                                 </div>
                             </div>
                         </a>

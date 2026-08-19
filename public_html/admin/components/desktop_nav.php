@@ -174,36 +174,21 @@ $adminBaseUrl = '/admin/';
     }
 
     function playNotificationSound() {
+        if (typeof window.playStaffAlertSound === 'function') {
+            window.playStaffAlertSound();
+            return;
+        }
         try {
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            
-            // Note 1 (D5)
             const osc1 = audioCtx.createOscillator();
             const gain1 = audioCtx.createGain();
             osc1.connect(gain1);
             gain1.connect(audioCtx.destination);
-            osc1.type = 'sine';
-            osc1.frequency.setValueAtTime(587.33, audioCtx.currentTime);
-            gain1.gain.setValueAtTime(0.12, audioCtx.currentTime);
-            gain1.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
-            
+            osc1.type = 'square';
+            osc1.frequency.setValueAtTime(880, audioCtx.currentTime);
+            gain1.gain.setValueAtTime(0.45, audioCtx.currentTime);
             osc1.start();
-            osc1.stop(audioCtx.currentTime + 0.4);
-            
-            // Note 2 (A5, delayed)
-            setTimeout(() => {
-                const osc2 = audioCtx.createOscillator();
-                const gain2 = audioCtx.createGain();
-                osc2.connect(gain2);
-                gain2.connect(audioCtx.destination);
-                osc2.type = 'sine';
-                osc2.frequency.setValueAtTime(880.00, audioCtx.currentTime);
-                gain2.gain.setValueAtTime(0.12, audioCtx.currentTime);
-                gain2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
-                
-                osc2.start();
-                osc2.stop(audioCtx.currentTime + 0.5);
-            }, 100);
+            osc1.stop(audioCtx.currentTime + 1.6);
         } catch (e) {
             console.warn('AudioContext failed:', e);
         }
@@ -241,8 +226,10 @@ $adminBaseUrl = '/admin/';
                     const getNotificationLink = (nType) => {
                         if (nType === 'service_request' || nType === 'housekeeping') {
                             return '/admin/modules/housekeeping/service_requests';
-                        } else if (nType === 'booking') {
+                        } else if (nType === 'booking' || nType === 'booking_confirmed' || nType === 'check_in' || nType === 'check_out' || nType === 'payment_received' || nType === 'overstay') {
                             return '/admin';
+                        } else if (nType === 'pos_order') {
+                            return '/admin/modules/pos/pos';
                         }
                         return '#';
                     };
@@ -279,13 +266,18 @@ $adminBaseUrl = '/admin/';
                     list.innerHTML = data.notifications.map(n => {
                         let icon = 'ph-bell';
                         let color = 'text-brand-500';
-                        if (n.type === 'housekeeping') { icon = 'ph-broom'; color = 'text-amber-500'; }
-                        else if (n.type === 'booking') { icon = 'ph-calendar-check'; color = 'text-emerald-500'; }
+                        if (n.type === 'housekeeping' || n.type === 'service_request') { icon = 'ph-broom'; color = 'text-amber-500'; }
+                        else if (n.type === 'booking' || n.type === 'booking_confirmed') { icon = 'ph-calendar-check'; color = 'text-emerald-500'; }
+                        else if (n.type === 'check_in') { icon = 'ph-sign-in'; color = 'text-emerald-600'; }
+                        else if (n.type === 'check_out') { icon = 'ph-sign-out'; color = 'text-rose-500'; }
+                        else if (n.type === 'payment_received') { icon = 'ph-currency-inr'; color = 'text-indigo-500'; }
+                        else if (n.type === 'pos_order') { icon = 'ph-fork-knife'; color = 'text-orange-500'; }
+                        else if (n.type === 'overstay') { icon = 'ph-clock-warning'; color = 'text-rose-600'; }
                         else if (n.type === 'system' || n.type === 'error') { icon = 'ph-warning'; color = 'text-red-500'; }
                         else if (n.type === 'warning') { icon = 'ph-warning-circle'; color = 'text-amber-500'; }
                         else if (n.type === 'success') { icon = 'ph-check-circle'; color = 'text-emerald-500'; }
                         
-                        const link = getNotificationLink(n.type);
+                        const link = (n.link_url && n.link_url !== '') ? n.link_url : getNotificationLink(n.type);
                         
                         return `
                         <div class="px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer flex items-start gap-3 ${n.is_read == 0 ? 'bg-slate-50 border-l-2 border-brand-500' : ''}" onclick="handleNotificationClick(${n.id}, '${escHtml(link)}')">

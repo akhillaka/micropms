@@ -73,7 +73,8 @@ class AuthHelper {
             'view_dashboard', 'manage_pos', 'view_pos_reports'
         ],
         'night_auditor' => [
-            'view_dashboard', 'view_reports', 'view_finance', 'run_night_audit', 'view_pos_reports'
+            'view_dashboard', 'view_reports', 'view_finance', 'run_night_audit', 'view_pos_reports',
+            'view_folio', 'record_payment', 'refund_payment', 'check_in_out', 'generate_payment_link'
         ]
     ];
     
@@ -447,6 +448,135 @@ class AuthHelper {
             require_once __DIR__ . '/ModuleHost.php';
             header('Location: ' . ModuleHost::url('admin', '/login'));
             exit;
+        }
+    }
+
+    public static function rememberCookieName(): string {
+        return 'pms_remember';
+    }
+
+    public static function extendSessionCookie(int $lifetimeSeconds): void {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            return;
+        }
+        $params = session_get_cookie_params();
+        setcookie(session_name(), session_id(), [
+            'expires' => time() + $lifetimeSeconds,
+            'path' => $params['path'] ?: '/',
+            'domain' => $params['domain'] ?? '',
+            'secure' => (bool)$params['secure'],
+            'httponly' => true,
+            'samesite' => $params['samesite'] ?? 'Lax',
+        ]);
+    }
+
+    public static function issueRememberToken(\PDO $db, int $staffUserId): void {
+        self::clearRememberCookie();
+        $selector = bin2hex(random_bytes(12));
+        $validator = bin2hex(random_bytes(32));
+        $expires = date('Y-m-d H:i:s', time() + 2592000);
+        try {
+            $stmt = $db->prepare("INSERT INTO staff_remember_tokens (staff_user_id, selector, token_hash, expires_at) VALUES (?, ?, ?, ?)");
+            $stmt->execute([$staffUserId, $selector, hash('sha256', $validator), $expires]);
+        } catch (\PDOException $e) {
+            return;
+        }
+        $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        setcookie(self::rememberCookieName(), $selector . ':' . $validator, [
+            'expires' => time() + 2592000,
+            'path' => '/',
+            'secure' => $secure,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+        self::extendSessionCookie(2592000);
+    }
+
+    public static function clearRememberCookie(): void {
+        $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        setcookie(self::rememberCookieName(), '', [
+            'expires' => time() - 3600,
+            'path' => '/',
+            'secure' => $secure,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+    }
+
+    public static function revokeRememberTokens(\PDO $db, ?int $staffUserId = null): void {
+        $raw = (string)($_COOKIE[self::rememberCookieName()] ?? '');
+        if (str_contains($raw, ':')) {
+            [$selector] = explode(':', $raw, 2);
+            try {
+                $db->prepare("DELETE FROM staff_remember_tokens WHERE selector = ?")->execute([$selector]);
+            } catch (\PDOException $e) {
+            }
+        }
+        if ($staffUserId) {
+            try {
+                $db->prepare("DELETE FROM staff_remember_tokens WHERE staff_user_id = ?")->execute([$staffUserId]);
+            } catch (\PDOException $e) {
+            }
+        }
+        self::clearRememberCookie();
+    }
+
+    public static function resumeRememberedSession(): void {
+        if (!empty($_SESSION['user_id'])) {
+            return;
+        }
+        $raw = (string)($_COOKIE[self::rememberCookieName()] ?? '');
+        if (!str_contains($raw, ':')) {
+            return;
+        }
+        [$selector, $validator] = explode(':', $raw, 2);
+        if ($selector === '' || $validator === '') {
+            return;
+        }
+        try {
+            require_once __DIR__ . '/Database.php';
+            $db = Database::getInstance()->getConnection();
+            $stmt = $db->prepare("SELECT t.*, u.username, u.access_level, u.property_id, u.role_id, u.is_active
+                FROM staff_remember_tokens t
+                JOIN staff_users u ON u.id = t.staff_user_id
+                WHERE t.selector = ? AND t.expires_at > NOW()
+                LIMIT 1");
+            $stmt->execute([$selector]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$row || !hash_equals((string)$row['token_hash'], hash('sha256', $validator))) {
+                self::clearRememberCookie();
+                return;
+            }
+            if (isset($row['is_active']) && (int)$row['is_active'] !== 1) {
+                self::revokeRememberTokens($db, (int)$row['staff_user_id']);
+                return;
+            }
+            session_regenerate_id(true);
+            $_SESSION['user_id'] = (int)$row['staff_user_id'];
+            $_SESSION['role'] = $row['access_level'];
+            $_SESSION['access_level'] = $row['access_level'];
+            $_SESSION['username'] = $row['username'];
+            $_SESSION['staff_user'] = $row['username'];
+            $_SESSION['primary_property_id'] = (int)($row['property_id'] ?? 0);
+            $_SESSION['property_id'] = (int)($row['property_id'] ?? 0);
+            if ($row['access_level'] === 'superadmin') {
+                $_SESSION['saas_admin_id'] = (int)$row['staff_user_id'];
+                $_SESSION['saas_admin_username'] = $row['username'];
+                $_SESSION['saas_admin_role'] = 'superadmin';
+            }
+            if (!empty($row['role_id'])) {
+                try {
+                    $roleStmt = $db->prepare("SELECT permissions FROM roles WHERE id = ?");
+                    $roleStmt->execute([(int)$row['role_id']]);
+                    $roleData = $roleStmt->fetch();
+                    if ($roleData && !empty($roleData['permissions'])) {
+                        $_SESSION['custom_permissions'] = json_decode((string)$roleData['permissions'], true) ?? [];
+                    }
+                } catch (\PDOException $e) {
+                }
+            }
+            self::extendSessionCookie(2592000);
+        } catch (\Throwable $e) {
         }
     }
 }

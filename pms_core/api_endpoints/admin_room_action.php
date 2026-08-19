@@ -30,6 +30,9 @@ ApiHandler::run(function(\PDO $db) {
         if ($stmt->rowCount() === 0) {
             ApiResponse::error('Room is not dirty or not found');
         }
+
+        require_once __DIR__ . '/../services/HousekeepingFlow.php';
+        HousekeepingFlow::afterRoomClean($db, $propertyId, $roomId, $action === 'mark_deep_clean');
         
         AuditLogger::log($_SESSION['user_id'] ?? null, 'MARKED_ROOM_CLEAN', 'ROOM', $roomId, ['source' => 'admin']);
     } else {

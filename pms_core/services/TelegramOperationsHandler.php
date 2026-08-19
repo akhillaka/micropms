@@ -56,7 +56,7 @@ class TelegramOperationsHandler {
             }
         }
 
-        if ($text === '/start') {
+        if ($text === '/start' || str_starts_with($text, '/start@') || str_starts_with($text, '/start ')) {
             $this->clearSession($chatId);
             $this->sendMainMenu($chatId);
             return;

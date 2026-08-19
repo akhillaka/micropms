@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../pms_core/config.php';
 require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
+require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 
 ApiHandler::run(function(\PDO $db) {
     $data = json_decode(file_get_contents('php://input'), true) ?? [];
@@ -38,6 +39,7 @@ ApiHandler::run(function(\PDO $db) {
     if ($action === 'create') {
         $allowedTypes = [
             'Housekeeping', 'Extra Towels', 'Toiletries', 'Extra Bed', 'Blanket',
+            'Do Not Disturb',
             'Extend Stay', 'Room Upgrade', 'Room Service',
             'Late Checkout', 'Wake-up Call'
         ];
@@ -49,6 +51,8 @@ ApiHandler::run(function(\PDO $db) {
             'toiletries' => 'Toiletries',
             'extra_bed' => 'Extra Bed',
             'blanket' => 'Blanket',
+            'do_not_disturb' => 'Do Not Disturb',
+            'dnd' => 'Do Not Disturb',
             'extend_stay' => 'Extend Stay',
             'room_upgrade' => 'Room Upgrade',
             'room_service' => 'Room Service',
@@ -68,6 +72,7 @@ ApiHandler::run(function(\PDO $db) {
             'Toiletries' => 'GUEST_PORTAL_HOUSEKEEPING_ENABLED',
             'Extra Bed' => 'GUEST_PORTAL_HOUSEKEEPING_ENABLED',
             'Blanket' => 'GUEST_PORTAL_HOUSEKEEPING_ENABLED',
+            'Do Not Disturb' => 'GUEST_PORTAL_HOUSEKEEPING_ENABLED',
             'Wake-up Call' => 'GUEST_PORTAL_WAKEUP_ENABLED',
             'Extend Stay' => 'GUEST_PORTAL_EXTEND_STAY_ENABLED',
             'Room Upgrade' => 'GUEST_PORTAL_UPGRADE_ENABLED',
@@ -86,7 +91,7 @@ ApiHandler::run(function(\PDO $db) {
             }
         }
 
-        $housekeepingTypes = ['Housekeeping', 'Extra Towels', 'Toiletries', 'Extra Bed', 'Blanket'];
+        $housekeepingTypes = ['Housekeeping', 'Extra Towels', 'Toiletries', 'Extra Bed', 'Blanket', 'Do Not Disturb'];
         if (in_array($serviceType, $housekeepingTypes, true)) {
             require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
             if (!SaaSEntitlementsService::isFeatureEnabled($db, $propertyId, 'housekeeping_module')) {
@@ -101,11 +106,14 @@ ApiHandler::run(function(\PDO $db) {
         if ($serviceType === 'Housekeeping') {
             $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?")->execute([$booking['room_id']]);
         }
+        if ($serviceType === 'Do Not Disturb') {
+            require_once __DIR__ . '/../../pms_core/services/HousekeepingFlow.php';
+            HousekeepingFlow::setDoNotDisturb($db, $propertyId, (int)$booking['room_id'], true);
+        }
         
         // Notify PMS dashboard
         $roomNum = $booking['room_number'] ?? 'Unknown';
-        $db->prepare("INSERT INTO admin_notifications (property_id, type, title, message) VALUES (?, 'service_request', ?, ?)")
-           ->execute([$propertyId, 'New Service Request', "Guest in Room {$roomNum} requested {$serviceType}."]);
+        NotificationRelay::sendInAppNotification($propertyId, 'New Service Request', "Guest in Room {$roomNum} requested {$serviceType}.", 'service_request', '/admin/modules/housekeeping/service_requests');
         
         AuditLogger::log(0, 'PORTAL_SERVICE_REQUEST', 'BOOKING', $bookingId, [
             'service_type' => $serviceType

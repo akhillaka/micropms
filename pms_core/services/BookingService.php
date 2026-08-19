@@ -253,6 +253,11 @@ class BookingService {
                         'total_amount' => number_format($totalAmount, 2),
                         'source'       => $source,
                     ]);
+                    $folioUrl = '/admin/folio?id=' . rawurlencode((string)$bookingDisplayId);
+                    NotificationRelay::sendInAppNotification($propertyId, 'New Booking Confirmed', "Room {$roomNum} booked for {$guestName} (₹" . number_format($totalAmount, 2) . ")", 'booking_confirmed', $folioUrl);
+                    if ($bookingStatus === 'checked_in') {
+                        NotificationRelay::sendInAppNotification($propertyId, 'Guest Checked In', "{$guestName} checked into Room {$roomNum}", 'check_in', $folioUrl);
+                    }
                 } catch (\Throwable $t) {
                     // Ignore notification errors
                 }
@@ -759,6 +764,13 @@ class BookingService {
                 $bookingId,
                 [],
                 $propertyId
+            );
+            NotificationRelay::sendInAppNotification(
+                $propertyId,
+                'Guest Checked In',
+                "{$guestName} checked into Room {$roomNum}",
+                'check_in',
+                '/admin/folio?id=' . $bookingId
             );
         }
 

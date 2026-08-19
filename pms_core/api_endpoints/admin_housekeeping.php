@@ -88,6 +88,8 @@ ApiHandler::run(function(\PDO $db) {
             $stmt = $db->prepare("UPDATE rooms SET state = 'clean' WHERE id = ? AND property_id = ?");
         }
         $stmt->execute([$roomId, $propertyId]);
+        require_once __DIR__ . '/../services/HousekeepingFlow.php';
+        HousekeepingFlow::afterRoomClean($db, $propertyId, $roomId, $action === 'mark_deep_clean');
         
         AuditLogger::log((int)($_SESSION['user_id'] ?? 0), 'UPDATE_HK_STATUS', 'ROOMS', $roomId, ['status' => 'clean', 'deep_clean' => ($action === 'mark_deep_clean')]);
         ApiResponse::success();

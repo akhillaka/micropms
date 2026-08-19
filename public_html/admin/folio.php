@@ -71,6 +71,10 @@ $paymentCategories = get_payment_categories($db, $propertyId);
 $ledgerStmt = $db->prepare("SELECT * FROM folio_ledger WHERE booking_id = :id ORDER BY recorded_at ASC");
 $ledgerStmt->execute(['id' => $bookingPk]);
 $ledger = $ledgerStmt->fetchAll();
+foreach ($ledger as &$ledgerRow) {
+    $ledgerRow['amount'] = money_float($ledgerRow['amount'] ?? 0);
+}
+unset($ledgerRow);
 
 $taxEnabled = defined('TAX_ENABLED') && TAX_ENABLED === 'true';
 $taxRate = defined('TAX_RATE') ? (float)TAX_RATE : 0.0;
@@ -81,7 +85,7 @@ $totalPayments = 0;
 $refundsIssued = 0;
 
 foreach($ledger as $l) {
-    $val = (float)$l['amount'];
+    $val = money_float($l['amount']);
     $isRefund = ((int)($l['is_refund'] ?? 0) === 1)
         || str_contains(strtolower((string)($l['description'] ?? '')), 'refund');
     if ($isRefund) {
@@ -350,18 +354,18 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <div class="grid grid-cols-3 gap-4 w-full">
                         <div>
                             <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Total</span>
-                            <span class="font-extrabold text-slate-800 text-sm mt-1 block">₹<?= htmlspecialchars((string)(number_format($totalCharges, 2)), ENT_QUOTES, 'UTF-8') ?></span>
+                            <span class="font-extrabold text-slate-800 text-sm mt-1 block">₹<?= htmlspecialchars(format_inr($totalCharges), ENT_QUOTES, 'UTF-8') ?></span>
                         </div>
                         <div>
                             <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Due</span>
-                            <span class="font-extrabold <?= htmlspecialchars((string)($balanceColor), ENT_QUOTES, 'UTF-8') ?> text-sm mt-1 block <?= htmlspecialchars((string)($balance <= 0 ? 'line-through opacity-60' : ''), ENT_QUOTES, 'UTF-8') ?>">₹<?= htmlspecialchars((string)(number_format(abs($balance), 2)), ENT_QUOTES, 'UTF-8') ?></span>
+                            <span class="font-extrabold <?= htmlspecialchars((string)($balanceColor), ENT_QUOTES, 'UTF-8') ?> text-sm mt-1 block <?= htmlspecialchars((string)($balance <= 0 ? 'line-through opacity-60' : ''), ENT_QUOTES, 'UTF-8') ?>">₹<?= htmlspecialchars(format_inr(abs($balance)), ENT_QUOTES, 'UTF-8') ?></span>
                             <?php if($balance <= 0): ?>
                             <span class="text-[8px] font-bold text-emerald-600 uppercase">Settled</span>
                             <?php endif; ?>
                         </div>
                         <div>
                             <span class="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">Payments</span>
-                            <span class="font-extrabold text-emerald-600 text-sm mt-1 block">₹<?= htmlspecialchars((string)(number_format($totalPayments, 2)), ENT_QUOTES, 'UTF-8') ?></span>
+                            <span class="font-extrabold text-emerald-600 text-sm mt-1 block">₹<?= htmlspecialchars(format_inr($totalPayments), ENT_QUOTES, 'UTF-8') ?></span>
                         </div>
                     </div>
                     
@@ -495,10 +499,11 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                 $runningBalance = 0;
                                 $srNo = 1;
                                 foreach($ledger as $l): 
-                                    $isDebit = (float)$l['amount'] > 0;
+                                    $lineAmt = money_float($l['amount']);
+                                    $isDebit = $lineAmt > 0;
                                     $typeLabel = $isDebit ? 'DEBIT' : 'CREDIT';
                                     $typeColor = $isDebit ? 'text-rose-600 bg-rose-50' : 'text-emerald-600 bg-emerald-50';
-                                    $runningBalance += (float)$l['amount'];
+                                    $runningBalance += $lineAmt;
                                     $runBalColor = $runningBalance > 0 ? 'text-rose-600' : 'text-emerald-600';
                                     
                                     // Formatting the Category
@@ -524,7 +529,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                         $displayCat = $rawCat ? (ucfirst($rawCat) . ($isDebit ? ' Due' : ' Payments')) : '-';
                                     }
                                 ?>
-                                <tr class="hover:bg-slate-50/50 transition-colors" data-display-id="<?= htmlspecialchars((string)($l['display_id'] ?? '')) ?>" data-category="<?= htmlspecialchars((string)($l['category'] ?? '')) ?>" data-amount="<?= htmlspecialchars((string)(abs($l['amount'])), ENT_QUOTES, 'UTF-8') ?>">
+                                <tr class="hover:bg-slate-50/50 transition-colors" data-display-id="<?= htmlspecialchars((string)($l['display_id'] ?? '')) ?>" data-category="<?= htmlspecialchars((string)($l['category'] ?? '')) ?>" data-amount="<?= htmlspecialchars((string)(abs($lineAmt)), ENT_QUOTES, 'UTF-8') ?>">
                                     <td class="px-5 py-3 whitespace-nowrap text-xs text-slate-500 font-bold"><?= htmlspecialchars((string)($srNo++), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-xs text-slate-500 font-semibold"><?= htmlspecialchars((string)(date('d M Y g:i A', strtotime($l['recorded_at']))), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-xs font-bold text-slate-700">Room <?= htmlspecialchars((string)($booking['room_number'])) ?></td>
@@ -539,17 +544,17 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                     <td class="px-5 py-3 whitespace-nowrap text-xs font-semibold text-slate-500">
                                         <?= htmlspecialchars((string)($l['transaction_ref'] ?? '—')) ?>
                                     </td>
-                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-semibold text-slate-700">₹<?= htmlspecialchars((string)(number_format(abs($l['amount']), 2)), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-semibold text-slate-700">₹<?= htmlspecialchars(format_inr(abs($lineAmt)), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-semibold text-slate-400">—</td>
-                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-bold text-slate-800">₹<?= htmlspecialchars((string)(number_format(abs($l['amount']), 2)), ENT_QUOTES, 'UTF-8') ?></td>
-                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-bold <?= htmlspecialchars((string)($runBalColor), ENT_QUOTES, 'UTF-8') ?>">₹<?= htmlspecialchars((string)(number_format(abs($runningBalance), 2)), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-bold text-slate-800">₹<?= htmlspecialchars(format_inr(abs($lineAmt)), ENT_QUOTES, 'UTF-8') ?></td>
+                                    <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-bold <?= htmlspecialchars((string)($runBalColor), ENT_QUOTES, 'UTF-8') ?>">₹<?= htmlspecialchars(format_inr(abs($runningBalance)), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs">
                                         <?php if (!empty($l['transaction_ref']) && str_starts_with($l['transaction_ref'], 'pay_')): ?>
                                             <button onclick="refundRazorpay(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>)" class="px-2.5 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold border border-amber-200 transition-colors">Refund</button>
                                         <?php elseif (preg_match('/Order #(\d+)/', $l['description'], $matches) && strpos($l['description'], 'Reverse') === false): ?>
                                             <a href="/admin/modules/pos/pos?edit_order=<?= htmlspecialchars((string)($matches[1]), ENT_QUOTES, 'UTF-8') ?>" class="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 transition-colors text-[10px] uppercase tracking-wider inline-flex items-center gap-1" title="Edit POS Order"><i class="ph-bold ph-pencil-simple text-[10px]"></i> POS Order</a>
                                         <?php else: ?>
-                                            <button onclick="openEditLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['description'] ?? ''))) ?>', <?= htmlspecialchars((string)(abs($l['amount'])), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['payment_method'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['display_id'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['category'] ?? ''))) ?>', '<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime((string)$l['recorded_at']))), ENT_QUOTES, 'UTF-8') ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
+                                            <button onclick="openEditLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['description'] ?? ''))) ?>', <?= htmlspecialchars((string)(abs($lineAmt)), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['payment_method'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['display_id'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['category'] ?? ''))) ?>', '<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime((string)$l['recorded_at']))), ENT_QUOTES, 'UTF-8') ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
                                             <button onclick="deleteLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>)" class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-trash text-sm"></i></button>
                                         <?php endif; ?>
                                     </td>
@@ -569,17 +574,17 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <div class="space-y-2.5 text-xs">
                             <div class="flex justify-between">
                                 <span class="font-semibold text-slate-500">Subtotal (Ex. Tax)</span>
-                                <span class="font-bold text-slate-800">₹<?= htmlspecialchars((string)(number_format($taxPref === 'inclusive' ? $subtotalCharges - $taxAmount : $subtotalCharges, 2)), ENT_QUOTES, 'UTF-8') ?></span>
+                                <span class="font-bold text-slate-800">₹<?= htmlspecialchars(format_inr($taxPref === 'inclusive' ? $subtotalCharges - $taxAmount : $subtotalCharges), ENT_QUOTES, 'UTF-8') ?></span>
                             </div>
                             <?php if ($taxEnabled && $taxPref !== 'exempt'): ?>
                             <div class="flex justify-between">
                                 <span class="font-semibold text-slate-500"><?= htmlspecialchars((string)($taxLabel)) ?> (<?= htmlspecialchars((string)($taxRate)) ?>%)</span>
-                                <span class="font-bold text-slate-800">₹<?= htmlspecialchars((string)(number_format($taxAmount, 2)), ENT_QUOTES, 'UTF-8') ?></span>
+                                <span class="font-bold text-slate-800">₹<?= htmlspecialchars(format_inr($taxAmount), ENT_QUOTES, 'UTF-8') ?></span>
                             </div>
                             <?php endif; ?>
                             <div class="flex justify-between border-t border-slate-100 pt-2.5 text-sm font-bold text-slate-800">
                                 <span>Total Charges</span>
-                                <span>₹<?= htmlspecialchars((string)(number_format($totalCharges, 2)), ENT_QUOTES, 'UTF-8') ?></span>
+                                <span>₹<?= htmlspecialchars(format_inr($totalCharges), ENT_QUOTES, 'UTF-8') ?></span>
                             </div>
                         </div>
                     </div>
@@ -590,11 +595,11 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <div class="space-y-2.5 text-xs">
                             <div class="flex justify-between">
                                 <span class="font-semibold text-slate-500">Payments Received</span>
-                                <span class="font-bold text-slate-800">₹<?= htmlspecialchars((string)(number_format($totalPayments, 2)), ENT_QUOTES, 'UTF-8') ?></span>
+                                <span class="font-bold text-slate-800">₹<?= htmlspecialchars(format_inr($totalPayments), ENT_QUOTES, 'UTF-8') ?></span>
                             </div>
                             <div class="flex justify-between text-rose-600">
                                 <span class="font-semibold">Refunds Issued</span>
-                                <span class="font-bold">₹<?= htmlspecialchars((string)(number_format($refundsIssued, 2)), ENT_QUOTES, 'UTF-8') ?></span>
+                                <span class="font-bold">₹<?= htmlspecialchars(format_inr($refundsIssued), ENT_QUOTES, 'UTF-8') ?></span>
                             </div>
                             <div class="flex justify-between border-t border-slate-100 pt-2.5 font-bold text-slate-800">
                                 <span>Deposits Held</span>
@@ -607,7 +612,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <div class="bg-emerald-50/30 border border-emerald-100/50 rounded-2xl p-5 flex flex-col justify-between items-center text-center">
                         <div>
                             <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider block"><?= $balance < 0 ? 'Overpaid' : 'Balance Due' ?></span>
-                            <h3 class="text-3xl font-extrabold <?= $balance < 0 ? 'text-emerald-700' : 'text-slate-900' ?> mt-1 block">₹<?= htmlspecialchars((string)(number_format(abs($balance), 2)), ENT_QUOTES, 'UTF-8') ?></h3>
+                            <h3 class="text-3xl font-extrabold <?= $balance < 0 ? 'text-emerald-700' : 'text-slate-900' ?> mt-1 block">₹<?= htmlspecialchars(format_inr(abs($balance)), ENT_QUOTES, 'UTF-8') ?></h3>
                             <span class="text-[10px] font-bold <?= htmlspecialchars((string)($balance <= 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-amber-700 bg-amber-50 border-amber-100'), ENT_QUOTES, 'UTF-8') ?> px-2.5 py-0.5 rounded-full inline-block mt-2 border">
                                 <?= htmlspecialchars((string)($balance < 0 ? 'Overpaid' : ($balance === 0.0 ? 'Settled' : 'Unpaid Balance')), ENT_QUOTES, 'UTF-8') ?>
                             </span>
@@ -910,7 +915,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
             <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl transform transition-transform translate-y-full max-w-lg mx-auto p-6">
                 <div class="w-12 h-1 bg-slate-200 rounded-full mx-auto mb-6"></div>
                 <h2 class="text-lg font-bold text-slate-800 mb-2 font-display">Collect Payment</h2>
-                <p class="text-slate-400 font-semibold text-xs mb-6">Balance Due: ₹<span id="cp_amount_display"><?= htmlspecialchars((string)(number_format($balance, 2)), ENT_QUOTES, 'UTF-8') ?></span></p>
+                <p class="text-slate-400 font-semibold text-xs mb-6">Balance Due: ₹<span id="cp_amount_display"><?= htmlspecialchars(format_inr($balance), ENT_QUOTES, 'UTF-8') ?></span></p>
                 
                 <div class="space-y-4">
                     <div class="grid grid-cols-2 gap-3">

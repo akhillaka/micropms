@@ -2,9 +2,8 @@
 declare(strict_types=1);
 
 /**
- * Maps Hostinger module hostnames onto app surfaces.
- * Loopback and Hostinger preview (*.hostingersite.com) stay path-based: /admin, /assistant, /saas-admin.
- * Preview SSL is issued only for the apex preview host, not admin.preview.hostingersite.com.
+ * Path-only hosting. Staff, guest, assistant, and SaaS share one host:
+ * /login /admin /guest-login /assistant /saas-admin
  */
 class ModuleHost {
     public const MODULES = ['guest', 'admin', 'assistant', 'saas'];
@@ -33,86 +32,27 @@ class ModuleHost {
     }
 
     public static function isPathMode(?string $host = null): bool {
-        $host = $host ?? self::currentHost();
-        return self::isLoopbackHost($host) || self::isPreviewHost($host);
+        return true;
     }
 
     public static function baseDomain(?string $host = null): string {
-        $env = strtolower(trim((string)(getenv('APP_BASE_DOMAIN') ?: ($_ENV['APP_BASE_DOMAIN'] ?? ''))));
-        if ($env !== '') {
-            return self::normalizeHost($env);
-        }
-        $host = self::normalizeHost($host ?? self::currentHost());
-        if ($host === '' || self::isLoopbackHost($host) || self::isPreviewHost($host)) {
-            return '';
-        }
-        $parts = explode('.', $host);
-        if (isset($parts[0]) && in_array($parts[0], self::MODULES, true) && count($parts) >= 2) {
-            return implode('.', array_slice($parts, 1));
-        }
-        return $host;
+        return '';
     }
 
     /**
      * @return 'path'|'apex'|'guest'|'admin'|'assistant'|'saas'
      */
     public static function detectModule(string $host, string $baseDomain = ''): string {
-        $host = self::normalizeHost($host);
-        if (self::isLoopbackHost($host) || self::isPreviewHost($host)) {
-            return 'path';
-        }
-        $baseDomain = $baseDomain !== '' ? self::normalizeHost($baseDomain) : self::baseDomain($host);
-        if ($baseDomain !== '' && $host === $baseDomain) {
-            return 'apex';
-        }
-        $parts = explode('.', $host);
-        $first = $parts[0] ?? '';
-        if (in_array($first, self::MODULES, true)) {
-            if ($baseDomain === '' || $host === $first . '.' . $baseDomain || str_ends_with($host, '.' . $baseDomain)) {
-                return $first;
-            }
-        }
-        return 'apex';
+        return 'path';
     }
 
     public static function currentModule(): string {
-        return self::detectModule(self::currentHost(), self::baseDomain());
+        return 'path';
     }
 
     public static function applyHostPrefix(string $request, ?string $module = null): string {
-        $module = $module ?? self::currentModule();
         if ($request === '/index') {
-            $request = '/';
-        }
-        if ($module === 'path' || $module === 'apex') {
-            return $request;
-        }
-        if (self::isSharedPath($request)) {
-            return $request;
-        }
-        if ($module === 'guest') {
-            if ($request === '/' || $request === '/login' || $request === '/admin') {
-                return '/guest-login';
-            }
-            return $request;
-        }
-        if ($module === 'admin') {
-            if ($request === '/') {
-                return '/admin';
-            }
-            return $request;
-        }
-        if ($module === 'assistant') {
-            if ($request === '/' || $request === '/login') {
-                return '/assistant';
-            }
-            return $request;
-        }
-        if ($module === 'saas') {
-            if ($request === '/' || $request === '/login') {
-                return '/saas-admin';
-            }
-            return $request;
+            return '/';
         }
         return $request;
     }
@@ -127,7 +67,7 @@ class ModuleHost {
     }
 
     /**
-     * Absolute URL for a module, or a relative path on localhost.
+     * Always a same-host path. Subdomains are not used.
      */
     public static function url(string $module, string $path = '/', ?string $host = null): string {
         if ($path === '') {
@@ -136,40 +76,23 @@ class ModuleHost {
         if ($path[0] !== '/') {
             $path = '/' . $path;
         }
-        $rawHost = $host ?? (string)($_SERVER['HTTP_HOST'] ?? '');
-        $host = $host ?? self::currentHost();
-        if (self::isPathMode($host)) {
-            return $path;
+        return $path;
+    }
+
+    /**
+     * Staff URL on the admin module, keeping any current query string (e.g. hotelId).
+     */
+    public static function staffUrl(string $path, ?string $query = null): string {
+        $url = self::url('admin', $path);
+        $query = $query ?? (string)($_SERVER['QUERY_STRING'] ?? '');
+        if ($query === '') {
+            return $url;
         }
-        $base = self::baseDomain($host);
-        if ($base === '') {
-            return $path;
-        }
-        $scheme = self::requestScheme();
-        $port = self::requestPortSuffix($rawHost);
-        if ($module === 'apex' || $module === 'path') {
-            return $scheme . '://' . $base . $port . $path;
-        }
-        if (!in_array($module, self::MODULES, true)) {
-            return $scheme . '://' . $base . $port . $path;
-        }
-        return $scheme . '://' . $module . '.' . $base . $port . $path;
+        return $url . (str_contains($url, '?') ? '&' : '?') . $query;
     }
 
     public static function sessionCookieDomain(?string $module = null, ?string $baseDomain = null, ?string $host = null): string {
-        $host = self::normalizeHost($host ?? self::currentHost());
-        if (self::isLoopbackHost($host) || self::isPreviewHost($host)) {
-            return '';
-        }
-        $module = $module ?? self::detectModule($host, $baseDomain ?? self::baseDomain($host));
-        if ($module === 'guest' || $module === 'path') {
-            return '';
-        }
-        $baseDomain = $baseDomain ?? self::baseDomain($host);
-        if ($baseDomain === '' || !str_contains($baseDomain, '.')) {
-            return '';
-        }
-        return '.' . $baseDomain;
+        return '';
     }
 
     public static function startSession(): void {
@@ -177,7 +100,7 @@ class ModuleHost {
             return;
         }
         $params = [
-            'lifetime' => 86400,
+            'lifetime' => 0,
             'path' => '/',
             'secure' => self::requestScheme() === 'https',
             'httponly' => true,
@@ -189,6 +112,8 @@ class ModuleHost {
         }
         session_set_cookie_params($params);
         session_start();
+        require_once __DIR__ . '/AuthHelper.php';
+        AuthHelper::resumeRememberedSession();
     }
 
     public static function shouldKeepPhpInUrl(string $path): bool {

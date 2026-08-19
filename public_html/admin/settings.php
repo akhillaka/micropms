@@ -617,7 +617,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                             <div>
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Google Apps Script Webhook URL</label>
                                 <input type="text" id="gs_webhook_url" name="GOOGLE_SHEETS_WEBHOOK_URL" value="<?= htmlspecialchars((string)(defined('GOOGLE_SHEETS_WEBHOOK_URL') ? GOOGLE_SHEETS_WEBHOOK_URL : '')) ?>" placeholder="https://script.google.com/macros/s/.../exec" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
-                                <p class="text-[10px] text-slate-500 mt-2">Download the Apps Script, paste it into your Google Sheet (Extensions → Apps Script), deploy as a web app, then paste the /exec URL here.</p>
+                                <p class="text-[10px] text-slate-500 mt-2 leading-relaxed">Share the <b>Web app</b> URL only. It must look like <code class="font-mono">https://script.google.com/macros/s/AKfycb…/exec</code>. Do not use the Library URL, the script editor URL, or a link that ends with <code class="font-mono">/dev</code>.<br>Deploy type: <b>Web app</b>. Execute as: Me. Who has access: Anyone. After editing Code.gs, Manage deployments → pencil → New version, then copy Web app URL again.</p>
                                 <a href="/api/admin/download_google_sheets_script" class="inline-flex items-center gap-1 mt-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-lg">
                                     <i class="ph ph-download-simple"></i> Download Apps Script
                                 </a>
@@ -681,7 +681,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                             <div class="bg-sky-50 border border-sky-100 rounded-xl p-3 text-[11px] text-sky-900 leading-relaxed">
                                 <p class="font-bold mb-1">How Telegram works</p>
                                 <p><b>Notifier bot</b> only sends alerts (check-in, payment, folio, daily summary). It cannot change bookings. Requires a cron worker for the telegram job queue.</p>
-                                <p class="mt-1"><b>Operations bot</b> is a chat menu for authorized staff: new booking, edit stay, check-in/out, ID front/back photos, cash or Razorpay/PhonePe collect, extend stay, mark room clean, arrivals/departures, today’s revenue. Set webhook to <code class="font-mono">/api/telegram_webhook</code> with the webhook secret. Phone UI is Hotel Assistant, not a Mini App.</p>
+                                <p class="mt-1"><b>Operations bot</b> is a chat menu for authorized staff: new booking, edit stay, check-in/out, ID front/back photos, cash or Razorpay/PhonePe collect, extend stay, mark room clean, arrivals/departures, today’s revenue. Telegram only talks to a <b>public HTTPS</b> hotel URL — not localhost. After saving, click <b>Connect operations bot</b>, then type /start in that bot. Phone UI is Hotel Assistant, not a Mini App.</p>
                             </div>
                             <div>
                                 <h3 class="text-xs font-bold text-brand-900 bg-brand-100 px-3 py-1.5 rounded inline-block mb-1 mt-2">Notifier Bot (Outbound)</h3>
@@ -692,19 +692,28 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                             </div>
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Chat IDs (Comma separated)</label>
-                                <input type="text" name="TELEGRAM_CHAT_ID" value="<?= htmlspecialchars((string)(defined('TELEGRAM_CHAT_ID') ? TELEGRAM_CHAT_ID : '')) ?>" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <input type="text" name="TELEGRAM_CHAT_ID" value="<?= htmlspecialchars((string)(defined('TELEGRAM_CHAT_ID') ? TELEGRAM_CHAT_ID : '')) ?>" placeholder="e.g. 123456789" class="w-full bg-brand-50 border border-brand-200 p-3 rounded-xl text-sm outline-none focus:shadow-minimal transition-all font-mono">
+                                <p class="text-[9px] text-slate-500 mt-1 font-semibold">Open the bot, tap Start, then paste your numeric chat ID from @userinfobot. Groups start with <code class="font-mono">-</code>. Save Integrations before Test Bot.</p>
                             </div>
-                            <div class="pt-4 border-t border-brand-100">
+                            <div class="pt-4 border-t border-brand-100 flex items-center justify-between gap-2 flex-wrap">
                                 <h3 class="text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1.5 rounded inline-block mb-1 mt-1">Operations Bot (Two-Way Interactive)</h3>
+                                <button type="button" onclick="connectTelegramOps()" id="tg-ops-btn" class="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
+                                    <i class="ph ph-plugs-connected"></i> Connect operations bot
+                                </button>
                             </div>
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Operations Bot Token</label>
                                 <input type="text" name="TELEGRAM_OPERATIONS_BOT_TOKEN" value="<?= htmlspecialchars((string)(defined('TELEGRAM_OPERATIONS_BOT_TOKEN') ? TELEGRAM_OPERATIONS_BOT_TOKEN : '')) ?>" class="w-full bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono">
+                                <p class="text-[9px] text-slate-500 mt-1 font-semibold">Use a second bot from @BotFather, or paste the same token as the notifier. Open <b>this</b> bot in Telegram and tap Start — the notifier Test button does not register /start.</p>
                             </div>
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Authorized Chat IDs (Comma separated)</label>
                                 <input type="text" name="TELEGRAM_OPERATIONS_CHAT_IDS" value="<?= htmlspecialchars((string)(defined('TELEGRAM_OPERATIONS_CHAT_IDS') ? TELEGRAM_OPERATIONS_CHAT_IDS : '')) ?>" placeholder="e.g. 12345678,87654321" class="w-full bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono">
-                                <p class="text-[9px] text-slate-500 mt-1 font-semibold">Only these IDs can use the operations menu. Set the webhook to <code class="font-mono">https://YOUR-DOMAIN/api/telegram_webhook</code> with header secret <code class="font-mono">TELEGRAM_WEBHOOK_SECRET</code>. The <code class="font-mono">.php</code> URL also works.</p>
+                                <p class="text-[9px] text-slate-500 mt-1 font-semibold">Must match your numeric ID from @userinfobot (same as Start chat). Save Integrations, then Connect. If this is empty, the notifier Chat IDs are used.</p>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Webhook secret</label>
+                                <input type="text" name="TELEGRAM_WEBHOOK_SECRET" value="<?= htmlspecialchars((string)(defined('TELEGRAM_WEBHOOK_SECRET') ? TELEGRAM_WEBHOOK_SECRET : '')) ?>" placeholder="Leave blank — Connect will generate one" class="w-full bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono">
                             </div>
                             <div class="mt-4">
                                 <label class="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wider">Telegram Roles (JSON)</label>
@@ -2537,10 +2546,11 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                 body: JSON.stringify({ action: 'test', webhook_url: url })
             });
             const data = await res.json();
+            const msg = (data.error && data.error.message) || data.message || 'Unknown error';
             if (data.success) {
-                alert('Success: ' + data.data.message);
+                alert('Success: ' + msg);
             } else {
-                alert('Connection Failed: ' + (data.error || 'Unknown error'));
+                alert('Connection Failed: ' + msg);
             }
         } catch(e) {
             alert('Error testing connection: ' + e.message);
@@ -2562,10 +2572,11 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                 body: JSON.stringify({ action: 'bulk_sync', type: type })
             });
             const data = await res.json();
+            const msg = (data.error && data.error.message) || data.message || 'Unknown error';
             if (data.success) {
-                alert('Bulk Sync Successful: ' + data.data.message);
+                alert('Bulk Sync Successful: ' + msg);
             } else {
-                alert('Bulk Sync Failed: ' + (data.error || 'Unknown error'));
+                alert('Bulk Sync Failed: ' + msg);
             }
         } catch(e) {
             alert('Error during bulk sync: ' + e.message);

@@ -8,8 +8,7 @@ require_once __DIR__ . '/../../pms_core/GoogleSheetService.php';
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requirePermission('manage_settings');
 
-    $raw = file_get_contents('php://input');
-    $data = json_decode($raw, true) ?: [];
+    $data = CsrfToken::getJsonPayload();
     $action = $data['action'] ?? 'bulk_sync';
 
     $propertyId = AuthHelper::getPropertyId();

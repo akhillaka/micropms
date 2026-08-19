@@ -43,12 +43,6 @@ if (($request === '/' || $request === '') && isset($_GET['hotelId']) && (int)$_G
     $request = '/admin';
 }
 
-$module = ModuleHost::currentModule();
-if ($module === 'apex' && ($request === '/login' || $request === '/admin' || $request === '/admin/index')) {
-    header('Location: ' . ModuleHost::url('admin', $request === '/login' ? '/login' : '/admin'));
-    exit;
-}
-
 // ── API Router Interceptor ───────────────────────────────────────────────────
 if (str_starts_with($request, '/api/')) {
     $apiRoutes = require __DIR__ . '/../pms_core/api_routes.php';
@@ -104,9 +98,6 @@ if (isset($_GET['hotelId'])) {
         }
 
         if ($hasAccess) {
-            if (session_status() === PHP_SESSION_ACTIVE) {
-                session_regenerate_id(true);
-            }
             AuthHelper::setPropertyId($targetId);
         }
     }

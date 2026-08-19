@@ -423,6 +423,9 @@ async function submitIntegrations(e) {
     btn.classList.add('opacity-75');
     btn.disabled = true;
 
+    if (typeof syncNotifyEvents === 'function') {
+        syncNotifyEvents();
+    }
     const form = document.getElementById('integrationsForm');
     const data = {};
     
@@ -592,8 +595,11 @@ async function testTelegram() {
         try {
             data = raw ? JSON.parse(raw) : {};
         } catch (parseErr) {
-            throw new Error(raw ? 'Invalid response from server' : 'Empty response from server');
+            const snippet = (raw || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+            throw new Error(snippet ? ('Invalid response from server: ' + snippet) : 'Empty response from server');
         }
+        const errObj = data.error;
+        const errText = (errObj && typeof errObj === 'object' ? (errObj.message || '') : '') || (typeof errObj === 'string' ? errObj : '') || data.message || 'Unknown error';
         if (data.ok || data.success) {
             btn.innerHTML = '<i class="ph ph-check-circle"></i> Sent!';
             btn.classList.remove('bg-sky-50', 'text-sky-600');
@@ -606,7 +612,7 @@ async function testTelegram() {
             btn.classList.remove('bg-sky-50', 'text-sky-600');
             btn.classList.add('bg-red-50', 'text-red-600');
             if (typeof showToast === 'function') {
-                showToast('Test failed: ' + (data.error || data.message || 'Unknown error'), 'error');
+                showToast('Test failed: ' + errText, 'error');
             }
         }
     } catch(e) {
@@ -622,6 +628,79 @@ async function testTelegram() {
         btn.classList.remove('bg-green-50', 'text-green-600', 'bg-red-50', 'text-red-600');
         btn.classList.add('bg-sky-50', 'text-sky-600');
     }, 3000);
+}
+
+async function connectTelegramOps() {
+    const btn = document.getElementById('tg-ops-btn');
+    if (!btn) return;
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i> Connecting...';
+    btn.disabled = true;
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+    try {
+        if (typeof syncNotifyEvents === 'function') {
+            syncNotifyEvents();
+        }
+        const form = document.getElementById('integrationsForm');
+        if (form) {
+            const payload = {};
+            new FormData(form).forEach((val, key) => {
+                payload[key] = val;
+            });
+            payload._csrf_token = csrf;
+            await fetch('/api/admin/save_settings', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: getHeaders(),
+                body: JSON.stringify(payload)
+            });
+        }
+
+        const res = await fetch('/api/admin/telegram_ops', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: getHeaders(),
+            body: JSON.stringify({ action: 'connect', _csrf_token: csrf })
+        });
+        const raw = await res.text();
+        let data = {};
+        try {
+            data = raw ? JSON.parse(raw) : {};
+        } catch (parseErr) {
+            const snippet = (raw || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+            throw new Error(snippet ? ('Invalid response from server: ' + snippet) : 'Empty response from server');
+        }
+        const errObj = data.error;
+        const errText = (errObj && typeof errObj === 'object' ? (errObj.message || '') : '') || (typeof errObj === 'string' ? errObj : '') || data.message || 'Unknown error';
+        if (data.ok || data.success) {
+            btn.innerHTML = '<i class="ph ph-check-circle"></i> Connected';
+            btn.classList.remove('bg-emerald-50', 'text-emerald-700');
+            btn.classList.add('bg-green-50', 'text-green-600');
+            if (typeof showToast === 'function') {
+                showToast(data.message || 'Operations bot connected. Type /start in Telegram.', 'success');
+            }
+        } else {
+            btn.innerHTML = '<i class="ph ph-x-circle"></i> Failed';
+            btn.classList.remove('bg-emerald-50', 'text-emerald-700');
+            btn.classList.add('bg-red-50', 'text-red-600');
+            if (typeof showToast === 'function') {
+                showToast(errText, 'error');
+            }
+        }
+    } catch (e) {
+        btn.innerHTML = '<i class="ph ph-x-circle"></i> Error';
+        if (typeof showToast === 'function') {
+            showToast(e && e.message ? e.message : 'Could not connect the operations bot', 'error');
+        }
+    }
+
+    setTimeout(() => {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+        btn.classList.remove('bg-green-50', 'text-green-600', 'bg-red-50', 'text-red-600');
+        btn.classList.add('bg-emerald-50', 'text-emerald-700');
+    }, 4000);
 }
 
 function addPaymentMethodRow() {
@@ -812,10 +891,12 @@ async function sendDailySummary() {
             })
         });
         const data = await res.json();
+        const msg = (data.error && data.error.message) || data.message || '';
         if (data.success) {
             btn.innerHTML = '<i class="ph ph-check-circle"></i> Sent!';
             btn.classList.remove('bg-sky-600');
             btn.classList.add('bg-green-600');
+            if (typeof showToast === 'function') showToast(msg || 'Daily summary sent', 'success');
         } else {
             btn.innerHTML = '<i class="ph ph-x-circle"></i> Failed';
             btn.classList.remove('bg-sky-600');

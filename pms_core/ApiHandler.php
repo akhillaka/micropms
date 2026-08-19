@@ -80,6 +80,9 @@ class ApiHandler {
         bool $useTransaction = false
     ): void {
         header('Content-Type: application/json');
+        if (ob_get_level() === 0) {
+            ob_start();
+        }
 
         try {
             if ($requireAdmin) {
@@ -110,6 +113,9 @@ class ApiHandler {
                 $db->commit();
             }
             
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
             http_response_code($e->getStatusCode());
             $response = ['success' => true];
             if (!empty($e->getData())) {
@@ -122,17 +128,23 @@ class ApiHandler {
                 $db->rollBack();
             }
 
-            // Log error with complete request context
-            ErrorTracker::fromException($e);
+            try {
+                ErrorTracker::fromException($e);
+            } catch (\Throwable) {
+            }
 
             $message = $e instanceof \PDOException
                 ? 'A database error occurred. Please try again later.'
                 : $e->getMessage();
-            $code  = ($e->getCode() && is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600)
-                ? (int)$e->getCode()
+            $excCode = $e->getCode();
+            $code  = (is_numeric($excCode) && (int)$excCode >= 400 && (int)$excCode < 600)
+                ? (int)$excCode
                 : 500;
             $extra = $e instanceof ApiException ? $e->getExtra() : [];
 
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
             ApiResponse::sendErrorResponse($message, $code, $extra);
         }
     }

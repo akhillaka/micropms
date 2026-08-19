@@ -159,7 +159,7 @@ class FolioService {
      * Record a payment against a booking folio.
      * Standardized description format regardless of source (admin/assistant/API).
      */
-    public static function recordPayment(\PDO $db, int $bookingId, float $amount, string $method, string $ref = 'MANUAL', string $source = 'admin', string $category = 'booking', ?string $recordedAt = null, bool $isSplit = false, bool $skipGoogleSheets = false): int {
+    public static function recordPayment(\PDO $db, int $bookingId, float $amount, string $method, string $ref = 'MANUAL', string $source = 'admin', string $category = 'booking', ?string $recordedAt = null, bool $isSplit = false, bool $skipGoogleSheets = false, bool $skipNotify = false): int {
         if ($amount == 0) {
             throw new \InvalidArgumentException("Payment amount cannot be zero.");
         }
@@ -262,6 +262,24 @@ class FolioService {
                     GoogleSheetService::syncPayment($db, $entryId);
                 } catch (\Throwable $t) {
                     error_log('Google Sheets payment sync failed: ' . $t->getMessage());
+                }
+            }
+
+            if (!$skipNotify) {
+                try {
+                    require_once __DIR__ . '/../NotificationRelay.php';
+                    $roomStmt = $db->prepare("SELECT r.room_number, b.display_id FROM bookings b JOIN rooms r ON r.id = b.room_id WHERE b.id = ?");
+                    $roomStmt->execute([$bookingId]);
+                    $info = $roomStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+                    $roomNum = (string)($info['room_number'] ?? '');
+                    $folioUrl = '/admin/folio?id=' . rawurlencode((string)($info['display_id'] ?? $bookingId));
+                    $abs = number_format(abs($amount), 2);
+                    if ($isRefund) {
+                        NotificationRelay::sendInAppNotification($propertyId, 'Refund Posted', "₹{$abs} refunded via {$method} for Room {$roomNum}", 'payment_received', $folioUrl);
+                    } else {
+                        NotificationRelay::sendInAppNotification($propertyId, 'Payment Received', "₹{$abs} received via {$method} for Room {$roomNum}", 'payment_received', $folioUrl);
+                    }
+                } catch (\Throwable $t) {
                 }
             }
 

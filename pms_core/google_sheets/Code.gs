@@ -12,6 +12,15 @@
  * Rows upsert by Booking ID / Expense ID when that column exists.
  */
 
+function doGet(e) {
+  try {
+    var created = ensureTabs(SpreadsheetApp.getActiveSpreadsheet(), null);
+    return jsonOut({ status: 'success', message: 'MicroPMS Google Sheets webhook is live.', tabs: created });
+  } catch (err) {
+    return jsonOut({ status: 'error', message: String(err) });
+  }
+}
+
 function doPost(e) {
   try {
     var payload = {};
@@ -19,15 +28,28 @@ function doPost(e) {
       payload = JSON.parse(e.postData.contents);
     }
     var action = payload.action || '';
-    if (action === 'ping') {
-      return jsonOut({ status: 'success', message: 'Successfully connected to Google Sheets!' });
-    }
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+      return jsonOut({
+        status: 'error',
+        message: 'This script is not bound to a spreadsheet. Open the Google Sheet → Extensions → Apps Script, paste Code.gs there, then redeploy the web app.'
+      });
+    }
+    if (action === 'ping' || action === 'setup' || action === '') {
+      var created = ensureTabs(ss, payload.sheets || null);
+      return jsonOut({
+        status: 'success',
+        message: 'Connected. Tabs ready: ' + created.join(', '),
+        tabs: created
+      });
+    }
     if (action === 'sync_row') {
+      ensureTabs(ss, null);
       upsertRow(ss, payload.sheet_type, payload.data || {});
       return jsonOut({ status: 'success' });
     }
     if (action === 'bulk_sync') {
+      ensureTabs(ss, null);
       var items = payload.items || [];
       for (var i = 0; i < items.length; i++) {
         upsertRow(ss, items[i].sheet_type, items[i].data || {});
@@ -37,6 +59,72 @@ function doPost(e) {
     return jsonOut({ status: 'error', message: 'Unknown action' });
   } catch (err) {
     return jsonOut({ status: 'error', message: String(err) });
+  }
+}
+
+function defaultHeaders() {
+  return {
+    booking: ['Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Phone No', 'Rate per night', 'Month', 'Check-in Date', 'Check-In TIme', 'Check-Out-Date', 'Check-Out Time', 'Duration in days', 'Duration in hrs', 'Total Amount Collected', 'Check-in/Check-Out', 'user'],
+    payment: ['Payment ID', 'Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Amount Paid', 'Payment Type', 'Month', 'Payment Date', 'Category', 'user'],
+    expense: ['Expense ID', 'Category', 'Amount', 'Description', 'Payment Method', 'Month', 'Expense Date', 'User']
+  };
+}
+
+function ensureTabs(ss, catalogs) {
+  if (!ss) {
+    throw new Error('No active spreadsheet. Bind this script to the Sheet (Extensions → Apps Script from the spreadsheet).');
+  }
+  var defs = defaultHeaders();
+  if (catalogs) {
+    if (catalogs.booking) defs.booking = catalogs.booking;
+    if (catalogs.payment) defs.payment = catalogs.payment;
+    if (catalogs.expense) defs.expense = catalogs.expense;
+  }
+  var types = [
+    { type: 'booking', name: 'Bookings', headers: defs.booking },
+    { type: 'payment', name: 'Payments', headers: defs.payment },
+    { type: 'expense', name: 'Expenses', headers: defs.expense }
+  ];
+  var created = [];
+  for (var i = 0; i < types.length; i++) {
+    var spec = types[i];
+    var sheet = ss.getSheetByName(spec.name);
+    if (!sheet) {
+      sheet = ss.insertSheet(spec.name);
+    }
+    writeHeaders(sheet, spec.headers);
+    created.push(spec.name);
+  }
+  return created;
+}
+
+function writeHeaders(sheet, headers) {
+  if (!headers || headers.length === 0) return;
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var lastRow = sheet.getLastRow();
+  var existing = [];
+  if (lastRow >= 1 && lastCol >= 1) {
+    existing = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    existing = existing.map(function (h) { return String(h || '').trim(); });
+    while (existing.length && existing[existing.length - 1] === '') {
+      existing.pop();
+    }
+  }
+  if (existing.length === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    return;
+  }
+  var added = false;
+  for (var i = 0; i < headers.length; i++) {
+    if (existing.indexOf(headers[i]) === -1) {
+      existing.push(headers[i]);
+      added = true;
+    }
+  }
+  if (added) {
+    sheet.getRange(1, 1, 1, existing.length).setValues([existing]);
+    sheet.getRange(1, 1, 1, existing.length).setFontWeight('bold');
   }
 }
 

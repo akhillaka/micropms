@@ -139,9 +139,29 @@ try {
     $description = "POS Charge ({$orderDisplayId}): " . mb_substr(implode(', ', $itemSummaries), 0, 180);
     FolioService::postCharge($db, (int)$bookingId, $totalAmount, $description, 'F&B');
 
+    try {
+        $gsr = $db->prepare("
+            INSERT INTO guest_service_requests
+                (property_id, booking_id, service_type, status, source, category, room_id, notes, linked_pos_order_id)
+            VALUES (?, ?, 'Room Service', 'pending', 'guest', 'fnb', ?, ?, ?)
+        ");
+        $gsr->execute([
+            $propertyId,
+            (int)$bookingId,
+            (int)$booking['room_id'],
+            'Guest portal dining order ' . $orderDisplayId,
+            $orderId,
+        ]);
+    } catch (\PDOException $e) {
+        try {
+            $db->prepare("INSERT INTO guest_service_requests (property_id, booking_id, service_type, status) VALUES (?, ?, 'Room Service', 'pending')")
+                ->execute([$propertyId, (int)$bookingId]);
+        } catch (\PDOException $e2) {
+        }
+    }
+
     $roomNum = $booking['room_number'] ?? '?';
-    $db->prepare("INSERT INTO admin_notifications (property_id, type, title, message) VALUES (?, 'pos_order', ?, ?)")
-       ->execute([$propertyId, 'Guest dining order', "Room {$roomNum} ordered {$orderDisplayId} (₹" . number_format($totalAmount, 2) . ")"]);
+    NotificationRelay::sendInAppNotification($propertyId, 'Guest dining order', "Room {$roomNum} ordered {$orderDisplayId} (₹" . number_format($totalAmount, 2) . ")", 'pos_order', '/admin/modules/pos/pos');
 
     AuditLogger::log(0, 'PORTAL_POS_ORDER', 'POS_ORDER', $orderId, [
         'total' => $totalAmount,

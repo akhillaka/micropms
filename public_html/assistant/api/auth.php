@@ -136,6 +136,7 @@ ApiHandler::run(function(\PDO $db) {
             $_SESSION['user_id']          = $user['id'];
             $_SESSION['role']             = $user['access_level'] ?: 'manager';
             $_SESSION['username']         = $user['username'];
+            $_SESSION['staff_user']       = $user['username'];
             $_SESSION['assistant_role']   = $user['assistant_role'] ?? 'receptionist';
             $_SESSION['primary_property_id'] = (int)($user['property_id'] ?? 0);
             $_SESSION['property_id'] = (int)($user['property_id'] ?? 0);

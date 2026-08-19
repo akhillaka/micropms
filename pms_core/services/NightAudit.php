@@ -58,9 +58,11 @@ class NightAudit {
         try {
             // Check if audit already ran today
             if ($this->alreadyRunToday($today)) {
+                $stayover = $this->generateStayoverCleans($today);
                 return [
                     'status' => 'skipped',
-                    'message' => 'Night audit already completed for today'
+                    'message' => 'Night audit already completed for today',
+                    'stayover_cleans' => $stayover,
                 ];
             }
 
@@ -90,6 +92,7 @@ class NightAudit {
             $result['overdue_checkouts'] = $overdueResult['overdue_count'];
             $result['auto_checkout_count'] = $overdueResult['checkout_count'];
             $result['rooms_marked_dirty'] = $overdueResult['dirty_count'];
+            $result['stayover_cleans'] = $this->generateStayoverCleans($today);
 
             // 3. Revenue reconciliation
             $revenue = $this->calculateRevenue($today);
@@ -273,12 +276,20 @@ class NightAudit {
      * Send overdue notification via Telegram.
      */
     private function notifyOverdue(array $booking, float $hoursPast, bool $wasAutoCheckedOut): void {
-        $notify = $this->getSetting('night_audit_notify_telegram', 'true') === 'true';
-        if (!$notify) return;
-        
         $roomNum = $booking['room_number'];
         $guestName = $booking['guest_name'] ?? 'Unknown';
         $hoursStr = round($hoursPast, 1);
+        $title = $wasAutoCheckedOut ? 'Night Audit: Auto Checkout' : 'Overstay Alert';
+        NotificationRelay::sendInAppNotification(
+            $this->propertyId,
+            $title,
+            "{$guestName} in Room {$roomNum} — {$hoursStr}h overdue",
+            'overstay',
+            '/admin/folio?id=' . (int)$booking['id']
+        );
+
+        $notify = $this->getSetting('night_audit_notify_telegram', 'true') === 'true';
+        if (!$notify) return;
         
         if ($wasAutoCheckedOut) {
             $msg = "🕛 <b>Night Audit: Auto Checkout</b>\n\n"
@@ -402,8 +413,8 @@ class NightAudit {
         }
         
         if ($reportRevenue) {
-            $lines[] = "💰 <b>Revenue Collected:</b> ₹" . number_format($result['revenue_collected'], 2);
-            $lines[] = "⏳ <b>Revenue Pending:</b> ₹" . number_format($result['revenue_pending'], 2);
+            $lines[] = "💰 <b>Revenue Collected:</b> ₹" . number_format((float)$result['revenue_collected'], 2);
+            $lines[] = "⏳ <b>Revenue Pending:</b> ₹" . number_format((float)$result['revenue_pending'], 2);
         }
         
         if ($reportRoomStatus) {
@@ -448,6 +459,90 @@ class NightAudit {
             $htmlReport = nl2br(strip_tags($reportText, '<b><i>'));
             EmailHelper::send($email, "Night Audit Report - {$hotelName}", $htmlReport, true);
         }
+    }
+
+    /**
+     * Create a housekeeping ticket after N consecutive occupied nights.
+     */
+    private function generateStayoverCleans(string $today): int {
+        if ($this->getSetting('STAYOVER_CLEAN_ENABLED', 'true') !== 'true') {
+            return 0;
+        }
+        $nights = max(1, (int)$this->getSetting('STAYOVER_CLEAN_NIGHTS', '1'));
+        try {
+            $stmt = $this->db->prepare("
+                SELECT b.id, b.room_id, r.room_number
+                FROM bookings b
+                JOIN rooms r ON b.room_id = r.id
+                WHERE b.property_id = ?
+                  AND b.booking_status = 'checked_in'
+                  AND DATEDIFF(?, DATE(b.check_in)) >= ?
+                  AND COALESCE(r.dnd, 0) = 0
+            ");
+            $stmt->execute([$this->propertyId, $today, $nights]);
+        } catch (\PDOException $e) {
+            $stmt = $this->db->prepare("
+                SELECT b.id, b.room_id, r.room_number
+                FROM bookings b
+                JOIN rooms r ON b.room_id = r.id
+                WHERE b.property_id = ?
+                  AND b.booking_status = 'checked_in'
+                  AND DATEDIFF(?, DATE(b.check_in)) >= ?
+            ");
+            $stmt->execute([$this->propertyId, $today, $nights]);
+        }
+        $created = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $dnd = $this->db->prepare("
+                SELECT id FROM guest_service_requests
+                WHERE booking_id = ? AND service_type = 'Do Not Disturb'
+                  AND status IN ('pending', 'in_progress')
+            ");
+            $dnd->execute([(int)$row['id']]);
+            if ($dnd->fetchColumn()) {
+                continue;
+            }
+            $exists = $this->db->prepare("
+                SELECT id FROM guest_service_requests
+                WHERE booking_id = ? AND service_type = 'Stayover Clean'
+                  AND status IN ('pending', 'in_progress')
+            ");
+            $exists->execute([(int)$row['id']]);
+            if ($exists->fetchColumn()) {
+                continue;
+            }
+            try {
+                $ins = $this->db->prepare("
+                    INSERT INTO guest_service_requests
+                        (property_id, booking_id, service_type, status, source, category, room_id, notes)
+                    VALUES (?, ?, 'Stayover Clean', 'pending', 'system', 'housekeeping', ?, ?)
+                ");
+                $ins->execute([
+                    $this->propertyId,
+                    (int)$row['id'],
+                    (int)$row['room_id'],
+                    "Auto stayover clean after {$nights} occupied nights",
+                ]);
+            } catch (\PDOException $e) {
+                $ins = $this->db->prepare("
+                    INSERT INTO guest_service_requests (property_id, booking_id, service_type, status)
+                    VALUES (?, ?, 'Stayover Clean', 'pending')
+                ");
+                $ins->execute([$this->propertyId, (int)$row['id']]);
+            }
+            $this->db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ? AND property_id = ?")
+                ->execute([(int)$row['room_id'], $this->propertyId]);
+            $this->actions[] = "Stayover clean requested for Room {$row['room_number']}";
+            $created++;
+            NotificationRelay::sendInAppNotification(
+                $this->propertyId,
+                'Stayover Clean',
+                "Room {$row['room_number']} needs a stayover clean",
+                'housekeeping',
+                '/admin/modules/housekeeping/service_requests'
+            );
+        }
+        return $created;
     }
 
     /**

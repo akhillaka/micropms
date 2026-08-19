@@ -143,7 +143,7 @@ class ErrorTracker {
         if ($e instanceof \PDOException) {
             $severity = 'critical';
             $category = 'database';
-        } elseif ($e->getCode() >= 400 && $e->getCode() < 500) {
+        } elseif (is_numeric($e->getCode()) && (int)$e->getCode() >= 400 && (int)$e->getCode() < 500) {
             $severity = 'warning'; // 4xx = client/validation errors, not our bug
         } else {
             $severity = 'error';

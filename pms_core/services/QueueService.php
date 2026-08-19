@@ -12,7 +12,10 @@ class QueueService {
         $db = Database::getInstance()->getConnection();
         
         $availableAt = date('Y-m-d H:i:s', time() + $delaySeconds);
-        $payloadJson = json_encode($payload);
+        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($payloadJson === false) {
+            throw new \RuntimeException('Could not encode job payload as JSON');
+        }
         
         $stmt = $db->prepare("
             INSERT INTO jobs_queue (queue_name, property_id, payload_json, status, available_at)
