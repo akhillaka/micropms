@@ -57,33 +57,21 @@ class Database {
     /**
      * Executes a query and yields the results one by one (Memory Efficient)
      * Useful for large datasets or exports.
-     * 
+     *
+     * Always uses buffered mode. Toggling MYSQL_ATTR_USE_BUFFERED_QUERY on a
+     * persistent connection (ATTR_PERSISTENT) breaks prepare()/execute on some
+     * shared hosts (e.g. Hostinger MariaDB) with opaque PDOExceptions.
+     *
      * @param string $sql
      * @param array $params
      * @return \Generator
      */
     public function yieldQuery(string $sql, array $params = []): \Generator {
-        // Unbuffered query for maximum memory efficiency
-        if (defined('\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY')) {
-            $this->conn->setAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY, false);
-        } else {
-            @$this->conn->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
-        }
-        
-        try {
-            $stmt = $this->conn->prepare($sql);
-            $stmt->execute($params);
-            
-            while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
-                yield $row;
-            }
-        } finally {
-            // Restore buffered query mode for normal operations
-            if (defined('\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY')) {
-                $this->conn->setAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY, true);
-            } else {
-                @$this->conn->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
-            }
+        $stmt = $this->conn->prepare($sql);
+        $stmt->execute($params);
+
+        while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+            yield $row;
         }
     }
     public function beginTransaction(): bool {

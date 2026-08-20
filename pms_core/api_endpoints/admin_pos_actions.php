@@ -154,7 +154,7 @@ try {
             throw new Exception("Invalid outlet selection.");
         }
         // Safely detach products by settings their outlet_id to null instead of deleting them, preventing orphan integrity errors.
-        $db->prepare("UPDATE inventory_items SET outlet_id = NULL WHERE outlet_id = ?")->execute([$outletId]);
+        $db->prepare("UPDATE inventory_items SET outlet_id = NULL WHERE outlet_id = ? AND property_id = ?")->execute([$outletId, $propertyId]);
         
         $del = $db->prepare("DELETE FROM pos_outlets WHERE id = ? AND property_id = ?");
         $del->execute([$outletId, $propertyId]);
@@ -184,9 +184,9 @@ try {
             $stmtItems->execute([$orderId]);
             $oldItems = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
 
-            $addStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty + ? WHERE id = ?");
+            $addStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty + ? WHERE id = ? AND property_id = ?");
             foreach ($oldItems as $oi) {
-                $addStock->execute([$oi['quantity'], $oi['item_id']]);
+                $addStock->execute([$oi['quantity'], $oi['item_id'], $propertyId]);
             }
 
             // 2. Locate and Delete financial records
@@ -197,13 +197,13 @@ try {
             $bookingId = $order['booking_id'];
 
             if ($oldMethod === 'room_charge' && $bookingId) {
-                $stmtF = $db->prepare("SELECT id FROM folio_ledger WHERE booking_id = ? AND amount = ? AND (description LIKE '%POS Sales charge%' OR description LIKE '%Order #{$orderId}%') ORDER BY id DESC LIMIT 1");
-                $stmtF->execute([$bookingId, $oldTotal]);
+                $stmtF = $db->prepare("SELECT id FROM folio_ledger WHERE property_id = ? AND booking_id = ? AND amount = ? AND (description LIKE '%POS Sales charge%' OR description LIKE '%Order #{$orderId}%') ORDER BY id DESC LIMIT 1");
+                $stmtF->execute([$propertyId, $bookingId, $oldTotal]);
                 $row = $stmtF->fetch();
                 if ($row) $oldFolioId = $row['id'];
             } else {
-                $stmtF = $db->prepare("SELECT id FROM finance_transactions WHERE description LIKE ? AND amount = ? ORDER BY id DESC LIMIT 1");
-                $stmtF->execute(["%Order #{$orderId}%", $oldTotal]);
+                $stmtF = $db->prepare("SELECT id FROM finance_transactions WHERE property_id = ? AND description LIKE ? AND amount = ? ORDER BY id DESC LIMIT 1");
+                $stmtF->execute([$propertyId, "%Order #{$orderId}%", $oldTotal]);
                 $row = $stmtF->fetch();
                 if ($row) $oldFinanceId = $row['id'];
             }
@@ -250,9 +250,9 @@ try {
         $stmtItems->execute([$orderId]);
         $oldItems = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
 
-        $addStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty + ? WHERE id = ?");
+        $addStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty + ? WHERE id = ? AND property_id = ?");
         foreach ($oldItems as $oi) {
-            $addStock->execute([$oi['quantity'], $oi['item_id']]);
+            $addStock->execute([$oi['quantity'], $oi['item_id'], $propertyId]);
         }
 
         // 2. Locate and Delete financial records
@@ -260,13 +260,13 @@ try {
         $oldFinanceId = null;
 
         if ($oldMethod === 'room_charge' && $bookingId) {
-            $stmt = $db->prepare("SELECT id FROM folio_ledger WHERE booking_id = ? AND amount = ? AND (description LIKE '%POS Sales charge%' OR description LIKE '%Order #{$orderId}%') ORDER BY id DESC LIMIT 1");
-            $stmt->execute([$bookingId, $oldTotal]);
+            $stmt = $db->prepare("SELECT id FROM folio_ledger WHERE property_id = ? AND booking_id = ? AND amount = ? AND (description LIKE '%POS Sales charge%' OR description LIKE '%Order #{$orderId}%') ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$propertyId, $bookingId, $oldTotal]);
             $row = $stmt->fetch();
             if ($row) $oldFolioId = $row['id'];
         } else {
-            $stmt = $db->prepare("SELECT id FROM finance_transactions WHERE description LIKE ? AND amount = ? ORDER BY id DESC LIMIT 1");
-            $stmt->execute(["%Order #{$orderId}%", $oldTotal]);
+            $stmt = $db->prepare("SELECT id FROM finance_transactions WHERE property_id = ? AND description LIKE ? AND amount = ? ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$propertyId, "%Order #{$orderId}%", $oldTotal]);
             $row = $stmt->fetch();
             if ($row) $oldFinanceId = $row['id'];
         }
@@ -344,9 +344,9 @@ try {
         $stmtOldItems->execute([$orderId]);
         $oldItems = $stmtOldItems->fetchAll(PDO::FETCH_ASSOC);
 
-        $addStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty + ? WHERE id = ?");
+        $addStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty + ? WHERE id = ? AND property_id = ?");
         foreach ($oldItems as $oi) {
-            $addStock->execute([$oi['quantity'], $oi['item_id']]);
+            $addStock->execute([$oi['quantity'], $oi['item_id'], $propertyId]);
         }
 
         // Delete old items
@@ -357,13 +357,13 @@ try {
         $oldFinanceId = null;
 
         if ($oldMethod === 'room_charge' && $bookingId) {
-            $stmt = $db->prepare("SELECT id FROM folio_ledger WHERE booking_id = ? AND amount = ? AND (description LIKE '%POS Sales charge%' OR description LIKE '%Order #{$orderId}%') ORDER BY id DESC LIMIT 1");
-            $stmt->execute([$bookingId, $oldTotal]);
+            $stmt = $db->prepare("SELECT id FROM folio_ledger WHERE property_id = ? AND booking_id = ? AND amount = ? AND (description LIKE '%POS Sales charge%' OR description LIKE '%Order #{$orderId}%') ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$propertyId, $bookingId, $oldTotal]);
             $row = $stmt->fetch();
             if ($row) $oldFolioId = $row['id'];
         } else {
-            $stmt = $db->prepare("SELECT id FROM finance_transactions WHERE description LIKE ? AND amount = ? ORDER BY id DESC LIMIT 1");
-            $stmt->execute(["%Order #{$orderId}%", $oldTotal]);
+            $stmt = $db->prepare("SELECT id FROM finance_transactions WHERE property_id = ? AND description LIKE ? AND amount = ? ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$propertyId, "%Order #{$orderId}%", $oldTotal]);
             $row = $stmt->fetch();
             if ($row) $oldFinanceId = $row['id'];
         }
@@ -371,7 +371,7 @@ try {
         // 4. Validate new stock limits and calculate new total
         $totalAmount = 0.0;
         $validatedItems = [];
-        $deductStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty - ? WHERE id = ?");
+        $deductStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty - ? WHERE id = ? AND property_id = ?");
         $insLine = $db->prepare("INSERT INTO pos_order_items (order_id, item_id, quantity, price_per_unit) VALUES (?, ?, ?, ?)");
 
         // Sort items by ID to prevent MySQL deadlocks during FOR UPDATE locking
@@ -397,14 +397,14 @@ try {
             $validatedItems[] = ['id' => $itemId, 'name' => $product['name'], 'qty' => $qty];
 
             $insLine->execute([$orderId, $itemId, $qty, $pricePerUnit]);
-            $deductStock->execute([$qty, $itemId]);
+            $deductStock->execute([$qty, $itemId, $propertyId]);
         }
 
         $totalAmount -= $discount;
         if ($totalAmount < 0) $totalAmount = 0.0;
 
         // 5. Update pos_order
-        $db->prepare("UPDATE pos_orders SET total_amount = ?, payment_method = ?, delivery_status = ? WHERE id = ?")->execute([$totalAmount, $method, $status, $orderId]);
+        $db->prepare("UPDATE pos_orders SET total_amount = ?, payment_method = ?, delivery_status = ? WHERE id = ? AND property_id = ?")->execute([$totalAmount, $method, $status, $orderId, $propertyId]);
 
         // 6. Update or Create financial records
         $itemSummaries = [];
@@ -417,15 +417,16 @@ try {
         if ($method === $oldMethod) {
             // Update existing record
             if ($method === 'room_charge' && $oldFolioId) {
-                $db->prepare("UPDATE folio_ledger SET amount = ?, description = ? WHERE id = ?")
-                   ->execute([$totalAmount, $newDescFolio, $oldFolioId]);
+                $db->prepare("UPDATE folio_ledger SET amount = ?, description = ? WHERE id = ? AND property_id = ?")
+                   ->execute([$totalAmount, $newDescFolio, $oldFolioId, $propertyId]);
             } elseif ($method !== 'room_charge' && $oldFinanceId) {
-                $db->prepare("UPDATE finance_transactions SET amount = ?, payment_method = ?, description = ? WHERE id = ?")
-                   ->execute([$totalAmount, $method, $newDescFinance, $oldFinanceId]);
+                $db->prepare("UPDATE finance_transactions SET amount = ?, payment_method = ?, description = ? WHERE id = ? AND property_id = ?")
+                   ->execute([$totalAmount, $method, $newDescFinance, $oldFinanceId, $propertyId]);
             } else {
                 // Fallback if not found
                 if ($method === 'room_charge') {
                     if (!$bookingId) throw new Exception("Room charge selected but booking was not chosen.");
+                    TenantScope::booking($db, (int)$bookingId, $propertyId);
                     FolioService::postCharge($db, $bookingId, $totalAmount, $newDescFolio, 'pos_order');
                 } else {
                     $insFinance = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, amount, description, payment_method, staff_id) VALUES (?, 'income', 'pos', ?, ?, ?, ?)");
@@ -443,6 +444,7 @@ try {
             
             if ($method === 'room_charge') {
                 if (!$bookingId) throw new Exception("Room charge selected but booking was not chosen.");
+                TenantScope::booking($db, (int)$bookingId, $propertyId);
                 FolioService::postCharge($db, $bookingId, $totalAmount, $newDescFolio, 'pos_order');
             } else {
                 $insFinance = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, amount, description, payment_method, staff_id) VALUES (?, 'income', 'pos', ?, ?, ?, ?)");
@@ -578,11 +580,11 @@ try {
             INSERT INTO pos_order_items (order_id, item_id, quantity, price_per_unit)
             VALUES (?, ?, ?, ?)
         ");
-        $deductStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty - ? WHERE id = ?");
+        $deductStock = $db->prepare("UPDATE inventory_items SET stock_qty = stock_qty - ? WHERE id = ? AND property_id = ?");
 
         foreach ($validatedItems as $vi) {
             $insLine->execute([$orderId, $vi['id'], $vi['qty'], $vi['price_per_unit']]);
-            $deductStock->execute([$vi['qty'], $vi['id']]);
+            $deductStock->execute([$vi['qty'], $vi['id'], $propertyId]);
         }
 
         // 4. Charge Room Folio if selected
@@ -590,6 +592,8 @@ try {
             if (!$bookingId) {
                 throw new Exception("Room charge selected but booking was not chosen.");
             }
+
+            TenantScope::booking($db, (int)$bookingId, $propertyId);
 
             $itemSummaries = [];
             foreach ($validatedItems as $vi) {

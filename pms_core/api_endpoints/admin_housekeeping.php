@@ -67,11 +67,13 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('Item ID required');
         }
         try {
-            $stmt = $db->prepare("DELETE FROM housekeeping_checklist_items WHERE id = ? AND (property_id = ? OR property_id IS NULL)");
+            $stmt = $db->prepare("DELETE FROM housekeeping_checklist_items WHERE id = ? AND property_id = ?");
             $stmt->execute([$itemId, $propertyId]);
+            if ($stmt->rowCount() === 0) {
+                ApiResponse::error('Checklist item not found', 404);
+            }
         } catch (\PDOException $e) {
-            $stmt = $db->prepare("DELETE FROM housekeeping_checklist_items WHERE id = ?");
-            $stmt->execute([$itemId]);
+            ApiResponse::error('Failed to delete checklist item');
         }
         ApiResponse::success(['message' => 'Checklist item deleted']);
     } elseif ($action === 'mark_clean' || $action === 'mark_deep_clean') {

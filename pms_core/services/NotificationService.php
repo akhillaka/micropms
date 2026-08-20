@@ -58,7 +58,8 @@ class NotificationService {
         if (!$booking) return;
 
         // Mark room dirty
-        $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?")->execute([$booking['room_id']]);
+        $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ? AND property_id = ?")
+           ->execute([(int)$booking['room_id'], (int)$booking['property_id']]);
 
         // In-App Notification
         NotificationRelay::sendInAppNotification((int)$booking['property_id'], "Guest Checked Out", "{$booking['guest_name']} checked out of Room {$booking['room_number']}", 'check_out', self::folioLink($booking));

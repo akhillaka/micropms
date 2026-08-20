@@ -120,44 +120,81 @@ elseif ($raw_phone && $message_id) {
             else $message_text = '[' . ucfirst($msg_type) . ' Message]';
         }
 
-        // ── Find or create conversation ───────────────────────────────────
-        $stmt = $db->prepare("SELECT id, guest_id, property_id FROM wa_conversations WHERE phone_number = ?");
-        $stmt->execute([$phone_number]);
-        $conv = $stmt->fetch();
+        // ── Resolve property first (Meta phone number id → property) ───────
+        $waPhoneId = (string)($data['phoneNumberId'] ?? $data['phone_number_id'] ?? $data['metadata']['phone_number_id'] ?? '');
+        $propertyId = 0;
+        if ($waPhoneId !== '') {
+            $mapStmt = $db->prepare("SELECT id FROM properties WHERE whatsapp_phone_number_id = ? AND is_active = 1 LIMIT 1");
+            $mapStmt->execute([$waPhoneId]);
+            $propertyId = (int)$mapStmt->fetchColumn();
+            if ($propertyId <= 0) {
+                // Fallback: settings key still holds the phone number id for some installs
+                $setStmt = $db->prepare("
+                    SELECT property_id FROM system_settings
+                    WHERE key_name = 'WHATSAPP_PHONE_NUMBER_ID' AND key_value = ?
+                    LIMIT 1
+                ");
+                $setStmt->execute([$waPhoneId]);
+                $propertyId = (int)$setStmt->fetchColumn();
+            }
+        }
 
-        if (!$conv) {
-            // Fallback: last-10-digit match
-            $last10 = substr($phone_number, -10);
-            $stmt2  = $db->prepare("SELECT id, guest_id, property_id FROM wa_conversations WHERE phone_number = ? LIMIT 1");
-            $stmt2->execute([$phone_number]);
-            $conv = $stmt2->fetch();
+        $last10 = substr($phone_number, -10);
 
+        // ── Find or create conversation (property-scoped) ─────────────────
+        $conv = false;
+        if ($propertyId > 0) {
+            $stmt = $db->prepare("SELECT id, guest_id, property_id FROM wa_conversations WHERE property_id = ? AND phone_number = ? LIMIT 1");
+            $stmt->execute([$propertyId, $phone_number]);
+            $conv = $stmt->fetch();
+            if (!$conv && strlen($last10) >= 10) {
+                $stmt2 = $db->prepare("SELECT id, guest_id, property_id FROM wa_conversations WHERE property_id = ? AND RIGHT(phone_number, 10) = ? LIMIT 1");
+                $stmt2->execute([$propertyId, $last10]);
+                $conv = $stmt2->fetch();
+                if ($conv) {
+                    $db->prepare("UPDATE wa_conversations SET phone_number = ? WHERE id = ? AND property_id = ?")
+                       ->execute([$phone_number, $conv['id'], $propertyId]);
+                }
+            }
+        } else {
+            // Legacy single-tenant fallback when phone number id is not mapped
+            $stmt = $db->prepare("SELECT id, guest_id, property_id FROM wa_conversations WHERE phone_number = ? LIMIT 1");
+            $stmt->execute([$phone_number]);
+            $conv = $stmt->fetch();
             if ($conv) {
-                $db->prepare("UPDATE wa_conversations SET phone_number = ? WHERE id = ?")
-                   ->execute([$phone_number, $conv['id']]);
+                $propertyId = (int)($conv['property_id'] ?? 0);
             }
         }
 
         if ($conv) {
             $conv_id = (int)$conv['id'];
-            if (empty($conv['guest_id'])) {
-                $last10    = substr($phone_number, -10);
-                $guestStmt = $db->prepare("SELECT id FROM guests WHERE phone = ? OR phone = ? LIMIT 1");
-                $guestStmt->execute([$phone_number, $last10]);
+            $convPropertyId = (int)($conv['property_id'] ?? 0);
+            if ($propertyId <= 0) {
+                $propertyId = $convPropertyId;
+            }
+            if (empty($conv['guest_id']) && $convPropertyId > 0) {
+                $guestStmt = $db->prepare("SELECT id FROM guests WHERE property_id = ? AND (phone = ? OR phone = ?) LIMIT 1");
+                $guestStmt->execute([$convPropertyId, $phone_number, $last10]);
                 if ($guest = $guestStmt->fetch()) {
-                    $db->prepare("UPDATE wa_conversations SET guest_id = ? WHERE id = ?")
-                       ->execute([$guest['id'], $conv_id]);
+                    $db->prepare("UPDATE wa_conversations SET guest_id = ? WHERE id = ? AND property_id = ?")
+                       ->execute([$guest['id'], $conv_id, $convPropertyId]);
                 }
             }
             $db->prepare("UPDATE wa_conversations SET last_message_at = NOW(), status = 'open' WHERE id = ?")
                ->execute([$conv_id]);
         } else {
-            $last10    = substr($phone_number, -10);
-            $guestStmt = $db->prepare("SELECT id, property_id FROM guests WHERE phone = ? OR phone = ? LIMIT 1");
-            $guestStmt->execute([$phone_number, $last10]);
+            if ($propertyId > 0) {
+                $guestStmt = $db->prepare("SELECT id, property_id FROM guests WHERE property_id = ? AND (phone = ? OR phone = ?) LIMIT 1");
+                $guestStmt->execute([$propertyId, $phone_number, $last10]);
+            } else {
+                $guestStmt = $db->prepare("SELECT id, property_id FROM guests WHERE phone = ? OR phone = ? LIMIT 1");
+                $guestStmt->execute([$phone_number, $last10]);
+            }
             $guest    = $guestStmt->fetch();
             $guest_id = $guest ? (int)$guest['id'] : null;
-            $propertyId = $guest ? (int)$guest['property_id'] : 0;
+            if ($propertyId <= 0) {
+                $propertyId = $guest ? (int)$guest['property_id'] : 0;
+            }
             if ($propertyId <= 0) {
                 $propertyId = (int)$db->query("SELECT id FROM properties WHERE is_active = 1 ORDER BY id ASC LIMIT 1")->fetchColumn();
             }

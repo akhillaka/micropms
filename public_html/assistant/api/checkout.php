@@ -172,7 +172,8 @@ ApiHandler::run(function(\PDO $db) {
             $params['amount'] = $finalAmt; 
         }
         if ($newDesc !== null) { $sets[] = 'description = :desc'; $params['desc'] = $newDesc; }
-        $db->prepare("UPDATE folio_ledger SET " . implode(', ', $sets) . " WHERE id = :id")->execute($params);
+        $params['pid'] = $propertyId;
+        $db->prepare("UPDATE folio_ledger SET " . implode(', ', $sets) . " WHERE id = :id AND property_id = :pid")->execute($params);
         
         if ($isPayment && $newAmt !== null) {
             // Sync finance_transactions if amount was changed

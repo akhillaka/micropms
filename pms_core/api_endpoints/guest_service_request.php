@@ -104,7 +104,7 @@ ApiHandler::run(function(\PDO $db) {
         
         // If it's housekeeping, mark room dirty automatically
         if ($serviceType === 'Housekeeping') {
-            $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?")->execute([$booking['room_id']]);
+            $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ? AND property_id = ?")->execute([$booking['room_id'], $propertyId]);
         }
         if ($serviceType === 'Do Not Disturb') {
             require_once __DIR__ . '/../../pms_core/services/HousekeepingFlow.php';

@@ -505,3 +505,120 @@ if (!function_exists('pms_document_url')) {
     }
 }
 
+if (!function_exists('property_logo_mime_from_base64')) {
+    function property_logo_mime_from_base64(string $b64): string {
+        if (str_starts_with($b64, '/9j/')) {
+            return 'image/jpeg';
+        }
+        if (str_starts_with($b64, 'iVBORw0KGgo')) {
+            return 'image/png';
+        }
+        if (str_starts_with($b64, 'R0lGOD')) {
+            return 'image/gif';
+        }
+        if (str_starts_with($b64, 'UklGR')) {
+            return 'image/webp';
+        }
+        return 'image/png';
+    }
+}
+
+if (!function_exists('normalize_property_logo_base64')) {
+    /**
+     * Strip data-URI prefix and recompress oversized logo payloads for system_settings.
+     */
+    function normalize_property_logo_base64(string $value, int $maxBytes = 60000): string {
+        $raw = trim($value);
+        if ($raw === '') {
+            return '';
+        }
+        if (str_starts_with($raw, 'data:image/')) {
+            $parts = explode(',', $raw, 2);
+            $raw = $parts[1] ?? '';
+        }
+        if ($raw === '') {
+            return '';
+        }
+        if (strlen($raw) <= $maxBytes) {
+            return $raw;
+        }
+        if (!function_exists('imagecreatefromstring')) {
+            throw new \RuntimeException('Logo image is too large. Use a smaller image or enable PHP GD.');
+        }
+
+        $bin = base64_decode($raw, true);
+        if ($bin === false || $bin === '') {
+            throw new \RuntimeException('Invalid logo image data.');
+        }
+
+        $src = @imagecreatefromstring($bin);
+        if ($src === false) {
+            throw new \RuntimeException('Invalid logo image format.');
+        }
+
+        $width = imagesx($src);
+        $height = imagesy($src);
+        $maxDim = 512;
+        $newWidth = $width;
+        $newHeight = $height;
+        if ($width > $maxDim || $height > $maxDim) {
+            $ratio = min($maxDim / $width, $maxDim / $height);
+            $newWidth = max(1, (int) round($width * $ratio));
+            $newHeight = max(1, (int) round($height * $ratio));
+        }
+
+        $dst = imagecreatetruecolor($newWidth, $newHeight);
+        $white = imagecolorallocate($dst, 255, 255, 255);
+        imagefill($dst, 0, 0, $white);
+        imagecopyresampled($dst, $src, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+
+        ob_start();
+        imagejpeg($dst, null, 85);
+        $jpeg = ob_get_clean();
+
+        if (is_resource($src)) {
+            imagedestroy($src);
+        }
+        if (is_resource($dst)) {
+            imagedestroy($dst);
+        }
+
+        if ($jpeg === false || $jpeg === '') {
+            throw new \RuntimeException('Failed to compress logo image.');
+        }
+
+        return base64_encode($jpeg);
+    }
+}
+
+if (!function_exists('property_logo_data_uri')) {
+    /**
+     * Hotel logo from Settings → Property (PROPERTY_LOGO_BASE64).
+     */
+    function property_logo_data_uri(): string {
+        if (!defined('PROPERTY_LOGO_BASE64') || PROPERTY_LOGO_BASE64 === '') {
+            return '';
+        }
+        $raw = trim((string)PROPERTY_LOGO_BASE64);
+        if ($raw === '') {
+            return '';
+        }
+        if (str_starts_with($raw, 'data:image/')) {
+            return $raw;
+        }
+        return 'data:' . property_logo_mime_from_base64($raw) . ';base64,' . $raw;
+    }
+}
+
+if (!function_exists('property_logo_img_tag')) {
+    function property_logo_img_tag(string $class = '', string $alt = ''): string {
+        $uri = property_logo_data_uri();
+        if ($uri === '') {
+            return '';
+        }
+        $alt = $alt !== '' ? $alt : (defined('PROPERTY_NAME') ? (string)PROPERTY_NAME : 'Hotel');
+        $classAttr = $class !== '' ? ' class="' . htmlspecialchars($class, ENT_QUOTES, 'UTF-8') . '"' : '';
+        return '<img src="' . htmlspecialchars($uri, ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($alt, ENT_QUOTES, 'UTF-8') . '"' . $classAttr . '>';
+    }
+}
+

@@ -781,29 +781,41 @@ ApiHandler::run(function(\PDO $db) {
             break;
 
         case 'accounts_receivable':
+            // Balance = SUM(amount) (charges positive, payments/discounts negative),
+            // matching FolioService::getBalance. Avoid SELECT aliases in HAVING —
+            // native prepares (ATTR_EMULATE_PREPARES=false) reject them on MariaDB.
             $sql = "
-                SELECT 
-                    b.id as booking_id,
-                    g.name as guest_name,
+                SELECT
+                    b.id AS booking_id,
+                    COALESCE(g.name, 'Walk-in') AS guest_name,
+                    r.room_number,
                     b.check_in,
                     b.check_out,
                     b.booking_status,
-                    SUM(CASE WHEN fl.amount > 0 THEN fl.amount ELSE 0 END) as total_charges,
-                    SUM(CASE WHEN fl.amount < 0 THEN ABS(fl.amount) ELSE 0 END) as total_paid
+                    ROUND(COALESCE(SUM(fl.amount), 0), 2) AS pending_dues
                 FROM bookings b
                 LEFT JOIN guests g ON b.guest_id = g.id
-                LEFT JOIN folio_ledger fl ON b.id = fl.booking_id
+                LEFT JOIN rooms r ON b.room_id = r.id
+                LEFT JOIN folio_ledger fl ON fl.booking_id = b.id
                 WHERE b.property_id = :pid
                   AND b.booking_status IN ('checked_out', 'checked_in')
-                GROUP BY b.id, g.name, b.check_in, b.check_out, b.booking_status
-                HAVING (total_charges - total_paid) > 0.01
-                ORDER BY (total_charges - total_paid) DESC
+                  AND (
+                    b.booking_status = 'checked_in'
+                    OR (b.check_in <= :end AND b.check_out >= :start)
+                  )
+                GROUP BY b.id, g.name, r.room_number, b.check_in, b.check_out, b.booking_status
+                HAVING COALESCE(SUM(fl.amount), 0) > 0.01
+                ORDER BY COALESCE(SUM(fl.amount), 0) DESC
             ";
+            $stmt = $db->prepare($sql);
+            $stmt->execute([
+                'pid' => $propertyId,
+                'start' => $start_date,
+                'end' => $end_date,
+            ]);
             $data = [];
-            foreach ($dbObj->yieldQuery($sql, ['pid' => $propertyId]) as $row) {
-                $row['pending_dues'] = round((float)$row['total_charges'] - (float)$row['total_paid'], 2);
-                $row['total_charges'] = round((float)$row['total_charges'], 2);
-                $row['total_paid'] = round((float)$row['total_paid'], 2);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $row['pending_dues'] = round((float)$row['pending_dues'], 2);
                 $data[] = $row;
             }
             ApiResponse::success(['data' => $data]);

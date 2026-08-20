@@ -30,6 +30,13 @@ ApiHandler::run(function(\PDO $db) {
     } elseif ($data['action'] === 'save_room') {
         require_once __DIR__ . '/../../pms_core/services/SaaSBillingEngine.php';
 
+        $ownCat = $db->prepare("SELECT name FROM room_categories WHERE id = ? AND property_id = ?");
+        $ownCat->execute([(int)($data['category_id'] ?? 0), $propertyId]);
+        $catName = $ownCat->fetchColumn();
+        if ($catName === false) {
+            throw new Exception("Category not found for this property.");
+        }
+
         if (!empty($data['room_id'])) {
             $stmt = $db->prepare("UPDATE rooms SET room_number = :num, category_id = :cat_id WHERE id = :id AND property_id = :prop_id");
             $stmt->execute(['num' => $data['room_number'], 'cat_id' => $data['category_id'], 'id' => $data['room_id'], 'prop_id' => $propertyId]);
@@ -45,10 +52,6 @@ ApiHandler::run(function(\PDO $db) {
             AuditLogger::log($_SESSION['user_id'], 'ADD_ROOM', 'ROOM', $id, $data);
         }
         
-        $catStmt = $db->prepare("SELECT name FROM room_categories WHERE id = :id");
-        $catStmt->execute(['id' => $data['category_id']]);
-        $catName = $catStmt->fetchColumn();
-        
         ApiResponse::success(['id' => $id, 'category_name' => $catName]);
         
     } elseif ($data['action'] === 'add_rate') {
@@ -58,6 +61,13 @@ ApiHandler::run(function(\PDO $db) {
         
         if (!$categoryId || empty($prices)) {
             throw new Exception("Category ID and prices are required.");
+        }
+
+        $ownCat = $db->prepare("SELECT name FROM room_categories WHERE id = ? AND property_id = ?");
+        $ownCat->execute([(int)$categoryId, $propertyId]);
+        $catName = $ownCat->fetchColumn();
+        if ($catName === false) {
+            throw new Exception("Category not found for this property.");
         }
 
         $stmt = $db->prepare("INSERT INTO sliding_rates (category_id, hours, price, rate_plan_name, property_id) VALUES (:cat_id, :hours, :price, :rate_name, :prop_id) ON DUPLICATE KEY UPDATE price = :update_price, rate_plan_name = :update_rate_name");
@@ -77,9 +87,6 @@ ApiHandler::run(function(\PDO $db) {
             }
         }
         
-        $catStmt = $db->prepare("SELECT name FROM room_categories WHERE id = :id");
-        $catStmt->execute(['id' => $categoryId]);
-        $catName = $catStmt->fetchColumn();
         AuditLogger::log($_SESSION['user_id'], 'ADD_RATE', 'SYSTEM', $categoryId, ['rate_plan' => $rateName, 'category' => $catName]);
         ApiResponse::success(['category_name' => $catName]);
         
@@ -89,6 +96,12 @@ ApiHandler::run(function(\PDO $db) {
         
         if (!$categoryId) {
             throw new Exception("Category ID is required.");
+        }
+
+        $ownCat = $db->prepare("SELECT id FROM room_categories WHERE id = ? AND property_id = ?");
+        $ownCat->execute([(int)$categoryId, $propertyId]);
+        if (!$ownCat->fetchColumn()) {
+            throw new Exception("Category not found for this property.");
         }
 
         // Debug logging (can be removed in production)
@@ -142,8 +155,8 @@ ApiHandler::run(function(\PDO $db) {
         $id = $data['cat_id'] ?? null;
         if (!$id) throw new Exception("Category ID required");
         
-        $roomCount = $db->prepare("SELECT COUNT(*) FROM rooms WHERE category_id = :id");
-        $roomCount->execute(['id' => $id]);
+        $roomCount = $db->prepare("SELECT COUNT(*) FROM rooms WHERE category_id = :id AND property_id = :prop_id");
+        $roomCount->execute(['id' => $id, 'prop_id' => $propertyId]);
         if ($roomCount->fetchColumn() > 0) {
             throw new Exception("Cannot delete: category has rooms assigned to it");
         }

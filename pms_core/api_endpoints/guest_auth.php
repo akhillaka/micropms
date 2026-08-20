@@ -14,6 +14,7 @@ try {
 
     $pnr = trim($data['pnr'] ?? '');
     $identity = trim($data['identity'] ?? '');
+    $hotelId = (int)($data['hotelId'] ?? $data['property_id'] ?? ($_GET['hotelId'] ?? 0));
 
     if (empty($pnr) || empty($identity)) {
         throw new Exception("Please provide both Booking Reference and Phone/Email.");
@@ -21,48 +22,58 @@ try {
 
     $db = Database::getInstance()->getConnection();
 
-    // Find the booking by display_id (PNR)
-    $stmt = $db->prepare("
-        SELECT b.id, b.display_id, b.booking_status, b.check_out, g.phone, g.email 
+    // display_id sequences are per-property, so the same PNR can exist at two hotels.
+    // Prefer hotelId when provided; otherwise require identity to uniquely match.
+    $sql = "
+        SELECT b.id, b.display_id, b.booking_status, b.check_out, b.property_id, g.phone, g.email
         FROM bookings b
         JOIN guests g ON b.guest_id = g.id
         WHERE b.display_id = ?
-    ");
-    $stmt->execute([$pnr]);
-    $booking = $stmt->fetch(PDO::FETCH_ASSOC);
+    ";
+    $params = [$pnr];
+    if ($hotelId > 0) {
+        $sql .= " AND b.property_id = ?";
+        $params[] = $hotelId;
+    }
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    if (!$booking) {
+    if (!$candidates) {
         throw new Exception("Reservation not found. Check your PNR.");
     }
-    if (!GuestAccessToken::bookingIsAccessible($booking)) {
-        throw new Exception("This reservation is no longer accessible.");
-    }
 
-    // Verify identity (either phone or email matches)
-    $match = false;
     $identityLower = strtolower($identity);
-    
-    // Normalize phone (strip spaces/symbols for basic comparison)
-    $dbPhone = preg_replace('/[^0-9+]/', '', $booking['phone'] ?? '');
     $inputPhone = preg_replace('/[^0-9+]/', '', $identity);
+    $matches = [];
 
-    if (!empty($dbPhone) && strlen($inputPhone) >= 10) {
-        $inputLast10 = substr($inputPhone, -10);
-        $dbLast10 = substr($dbPhone, -10);
-        if ($inputLast10 === $dbLast10) {
-            $match = true;
+    foreach ($candidates as $row) {
+        if (!GuestAccessToken::bookingIsAccessible($row)) {
+            continue;
+        }
+        $ok = false;
+        $dbPhone = preg_replace('/[^0-9+]/', '', $row['phone'] ?? '');
+        if (!empty($dbPhone) && strlen($inputPhone) >= 10) {
+            if (substr($inputPhone, -10) === substr($dbPhone, -10)) {
+                $ok = true;
+            }
+        }
+        if (!empty($row['email']) && strtolower(trim((string)$row['email'])) === $identityLower) {
+            $ok = true;
+        }
+        if ($ok) {
+            $matches[] = $row;
         }
     }
-    if (!empty($booking['email']) && strtolower(trim($booking['email'])) === $identityLower) {
-        $match = true;
-    }
 
-    if (!$match) {
+    if (count($matches) === 0) {
         throw new Exception("Verification failed. The phone or email does not match the reservation.");
     }
+    if (count($matches) > 1) {
+        throw new Exception("Multiple reservations match this reference. Open the link from your hotel or include hotelId.");
+    }
 
-    // Generate secure token for guest portal access
-    // Uses the same hashing logic expected by guest_portal.php
+    $booking = $matches[0];
     $token = GuestAccessToken::generate((string)$booking['id']);
 
     echo json_encode([

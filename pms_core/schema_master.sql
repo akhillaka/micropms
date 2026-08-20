@@ -529,6 +529,7 @@ CREATE TABLE `properties` (
   `logo_url` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `custom_domain` (`custom_domain`),
+  UNIQUE KEY `uq_prop_wa_phone_number_id` (`whatsapp_phone_number_id`),
   KEY `idx_prop_custom_domain` (`custom_domain`),
   KEY `idx_prop_stripe` (`stripe_customer_id`,`stripe_subscription_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -835,7 +836,7 @@ CREATE TABLE `wa_automations` (
   `property_id` int(11) NOT NULL,
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `event_key` (`event_key`),
+  UNIQUE KEY `uq_wa_auto_prop_event` (`property_id`, `event_key`),
   KEY `template_id` (`template_id`),
   KEY `idx_wa_auto_property` (`property_id`),
   CONSTRAINT `fk_wa_automations_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
@@ -853,7 +854,7 @@ CREATE TABLE `wa_conversations` (
   `property_id` int(11) NOT NULL,
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `phone_number` (`phone_number`),
+  UNIQUE KEY `uq_wa_conv_prop_phone` (`property_id`, `phone_number`),
   KEY `guest_id` (`guest_id`),
   KEY `idx_wa_conv_last_msg` (`last_message_at`),
   KEY `idx_wa_conv_property` (`property_id`),

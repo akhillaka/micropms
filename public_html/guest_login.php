@@ -20,12 +20,14 @@ if ($hotelId > 0) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Guest Login - Find Reservation</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/css/app_theme.css" rel="stylesheet">
+    <link href="/css/mobile-input-zoom.css" rel="stylesheet">
+    <?php include __DIR__ . '/admin/components/micropms_icons.php'; ?>
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #F8FAFC; color: #0F172A; }
         .input-premium {
@@ -57,8 +59,8 @@ if ($hotelId > 0) {
         <div class="absolute bottom-0 left-0 w-32 h-32 bg-amber-500 rounded-tr-full opacity-10 blur-xl"></div>
 
         <div class="text-center space-y-2 relative z-10">
-            <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg mb-4">
-                <i class="ph ph-buildings text-3xl text-white"></i>
+            <div class="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto shadow-lg mb-4 border border-slate-200 overflow-hidden p-1">
+                <img src="/icons/logo.svg" alt="MicroPMS" class="w-full h-full object-contain">
             </div>
             <h1 class="text-2xl font-extrabold text-slate-800 tracking-tight">Find <?= htmlspecialchars($propertyName, ENT_QUOTES, 'UTF-8') ?></h1>
             <p class="text-sm font-medium text-slate-500">Enter your booking details to access the guest portal.</p>
@@ -91,6 +93,11 @@ if ($hotelId > 0) {
             </button>
         </form>
 
+        <p class="relative z-10 mt-6 flex items-center justify-center gap-1.5 text-[10px] text-slate-400">
+            Powered by
+            <img src="/icons/logo-wordmark.svg" alt="MicroPMS" class="h-4 w-auto opacity-80">
+        </p>
+
     </div>
 
     <script>
@@ -106,7 +113,8 @@ if ($hotelId > 0) {
 
             const payload = {
                 pnr: document.getElementById('pnr').value.trim(),
-                identity: document.getElementById('identity').value.trim()
+                identity: document.getElementById('identity').value.trim(),
+                hotelId: <?= (int)$hotelId ?>
             };
 
             try {

@@ -23,16 +23,20 @@ ApiHandler::run(function(\PDO $db) {
             $where = [];
             $params = [];
 
+            $propertyId = AuthHelper::getPropertyId();
+            $where[] = "e.property_id = :property_id";
+            $params['property_id'] = $propertyId;
+
             if (!empty($severity)) {
-                $where[] = "severity = :severity";
+                $where[] = "e.severity = :severity";
                 $params['severity'] = $severity;
             }
             if (!empty($category)) {
-                $where[] = "category = :category";
+                $where[] = "e.category = :category";
                 $params['category'] = $category;
             }
             if ($resolved !== null) {
-                $where[] = "resolved = :resolved";
+                $where[] = "e.resolved = :resolved";
                 $params['resolved'] = $resolved;
             }
 
@@ -42,7 +46,7 @@ ApiHandler::run(function(\PDO $db) {
             }
 
             // Total count for pagination
-            $countStmt = $db->prepare("SELECT COUNT(*) FROM error_logs $whereSql");
+            $countStmt = $db->prepare("SELECT COUNT(*) FROM error_logs e $whereSql");
             $countStmt->execute($params);
             $totalCount = (int)$countStmt->fetchColumn();
 

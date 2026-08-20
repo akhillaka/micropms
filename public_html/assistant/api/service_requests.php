@@ -71,7 +71,7 @@ ApiHandler::run(function(\PDO $db) {
                     'extra_cost' => $extended['extra_cost'] ?? null
                 ], $propertyId);
 
-                $db->prepare("UPDATE guest_service_requests SET status = 'completed', resolved_at = NOW() WHERE id = ?")->execute([$requestId]);
+                $db->prepare("UPDATE guest_service_requests SET status = 'completed', resolved_at = NOW() WHERE id = ? AND property_id = ?")->execute([$requestId, $propertyId]);
                 
                 $db->commit();
                 ApiResponse::success(['message' => 'Late checkout approved and applied.']);
@@ -94,9 +94,9 @@ ApiHandler::run(function(\PDO $db) {
             }
             // For other requests like rejected late checkout or completed housekeeping
             if ($status === 'completed' || $status === 'rejected') {
-                $db->prepare("UPDATE guest_service_requests SET status = ?, resolved_at = NOW() WHERE id = ?")->execute([$status, $requestId]);
+                $db->prepare("UPDATE guest_service_requests SET status = ?, resolved_at = NOW() WHERE id = ? AND property_id = ?")->execute([$status, $requestId, $propertyId]);
             } else {
-                $db->prepare("UPDATE guest_service_requests SET status = ? WHERE id = ?")->execute([$status, $requestId]);
+                $db->prepare("UPDATE guest_service_requests SET status = ? WHERE id = ? AND property_id = ?")->execute([$status, $requestId, $propertyId]);
             }
             ApiResponse::success(['message' => 'Service request ' . $status]);
         }

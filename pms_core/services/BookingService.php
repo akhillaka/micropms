@@ -995,11 +995,11 @@ class BookingService {
                 $posStmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
                 $activePosOrders = $posStmt->fetchAll(\PDO::FETCH_COLUMN);
                 if (!empty($activePosOrders)) {
-                    $updatePos = $db->prepare("UPDATE pos_orders SET status = 'cancelled' WHERE id = ?");
-                    $restock = $db->prepare("UPDATE inventory_items ii JOIN pos_order_items poi ON ii.id = poi.item_id SET ii.stock_qty = ii.stock_qty + poi.quantity WHERE poi.order_id = ?");
+                    $updatePos = $db->prepare("UPDATE pos_orders SET status = 'cancelled' WHERE id = ? AND property_id = ?");
+                    $restock = $db->prepare("UPDATE inventory_items ii JOIN pos_order_items poi ON ii.id = poi.item_id SET ii.stock_qty = ii.stock_qty + poi.quantity WHERE poi.order_id = ? AND ii.property_id = ?");
                     foreach ($activePosOrders as $oid) {
-                        $restock->execute([$oid]);
-                        $updatePos->execute([$oid]);
+                        $restock->execute([$oid, $propertyId]);
+                        $updatePos->execute([$oid, $propertyId]);
                     }
                 }
             } catch (\PDOException $e) {

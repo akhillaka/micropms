@@ -94,11 +94,11 @@ ApiHandler::run(function(\PDO $db) {
         }
         
         if ($status === 'completed' || $status === 'rejected') {
-            $update = $db->prepare("UPDATE guest_service_requests SET status = ?, resolved_at = NOW() WHERE id = ?");
+            $update = $db->prepare("UPDATE guest_service_requests SET status = ?, resolved_at = NOW() WHERE id = ? AND property_id = ?");
         } else {
-            $update = $db->prepare("UPDATE guest_service_requests SET status = ?, resolved_at = NULL WHERE id = ?");
+            $update = $db->prepare("UPDATE guest_service_requests SET status = ?, resolved_at = NULL WHERE id = ? AND property_id = ?");
         }
-        $update->execute([$status, $id]);
+        $update->execute([$status, $id, $propertyId]);
         
         AuditLogger::log($_SESSION['user_id'] ?? 0, 'SERVICE_REQUEST_UPDATED', 'BOOKING', $req['booking_id'], [
             'service_type' => $req['service_type'],

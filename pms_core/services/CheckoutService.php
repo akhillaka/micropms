@@ -66,9 +66,10 @@ class CheckoutService {
                     UPDATE guest_service_requests
                     SET status = 'completed', resolved_at = NOW()
                     WHERE booking_id = ?
+                      AND property_id = ?
                       AND status NOT IN ('completed', 'rejected')
                       AND service_type NOT IN ('Housekeeping', 'Stayover Clean', 'Room Service', 'Extra Towels', 'Toiletries')
-                ")->execute([$bookingId]);
+                ")->execute([$bookingId, $propertyId]);
             } catch (\PDOException $e) {
             }
 

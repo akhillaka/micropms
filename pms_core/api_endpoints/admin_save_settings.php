@@ -28,6 +28,10 @@ ApiHandler::run(function(\PDO $db) {
         if (in_array($key, $secretKeys, true) && trim((string)$value) === '') {
             continue;
         }
+
+        if ($key === 'PROPERTY_LOGO_BASE64') {
+            $value = normalize_property_logo_base64((string)$value);
+        }
         
         // Intercept Email Report config
         if (in_array($key, ['EMAIL_REPORTS_ACTIVE', 'DAILY_AUDIT_EMAILS', 'WEEKLY_REVENUE_EMAILS'])) {
@@ -51,6 +55,16 @@ ApiHandler::run(function(\PDO $db) {
         }
 
         $stmt->execute([$propertyId, $key, $value]);
+
+        // Keep properties.whatsapp_phone_number_id in sync for webhook tenant routing.
+        if ($key === 'WHATSAPP_PHONE_NUMBER_ID') {
+            $waId = trim((string)$value);
+            if ($waId === '' || strcasecmp($waId, 'your_phone_number_id') === 0) {
+                $waId = null;
+            }
+            $db->prepare('UPDATE properties SET whatsapp_phone_number_id = ? WHERE id = ?')
+               ->execute([$waId, $propertyId]);
+        }
     }
 
     $rzKey = trim((string)($data['RAZORPAY_KEY_ID'] ?? ''));

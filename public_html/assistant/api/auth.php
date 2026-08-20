@@ -269,15 +269,25 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('Only administrators can change other staff PINs');
         }
 
-        $stmt = $db->prepare("SELECT id FROM staff_users WHERE id = :id");
-        $stmt->execute(['id' => $targetUserId]);
-        if (!$stmt->fetch()) {
-            ApiResponse::error('Target staff user not found');
+        if ($isSelf) {
+            $stmt = $db->prepare("SELECT id FROM staff_users WHERE id = :id");
+            $stmt->execute(['id' => $targetUserId]);
+            if (!$stmt->fetch()) {
+                ApiResponse::error('Target staff user not found');
+            }
+            $pinHash = password_hash($newPin, PASSWORD_DEFAULT);
+            $stmt = $db->prepare("UPDATE staff_users SET pin_hash = :pin_hash WHERE id = :id");
+            $stmt->execute(['pin_hash' => $pinHash, 'id' => $targetUserId]);
+        } else {
+            TenantScope::staff($db, $targetUserId, AuthHelper::getPropertyId());
+            $pinHash = password_hash($newPin, PASSWORD_DEFAULT);
+            $stmt = $db->prepare("UPDATE staff_users SET pin_hash = :pin_hash WHERE id = :id AND property_id = :pid");
+            $stmt->execute([
+                'pin_hash' => $pinHash,
+                'id' => $targetUserId,
+                'pid' => AuthHelper::getPropertyId(),
+            ]);
         }
-
-        $pinHash = password_hash($newPin, PASSWORD_DEFAULT);
-        $stmt = $db->prepare("UPDATE staff_users SET pin_hash = :pin_hash WHERE id = :id");
-        $stmt->execute(['pin_hash' => $pinHash, 'id' => $targetUserId]);
 
         ApiResponse::success(['message' => 'PIN updated successfully']);
     }
@@ -304,8 +314,13 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('Cannot modify your own access settings');
         }
 
-        $stmt = $db->prepare("UPDATE staff_users SET assistant_access = :acc WHERE id = :id");
-        $stmt->execute(['acc' => $accessValue, 'id' => $targetUserId]);
+        TenantScope::staff($db, $targetUserId, AuthHelper::getPropertyId());
+        $stmt = $db->prepare("UPDATE staff_users SET assistant_access = :acc WHERE id = :id AND property_id = :pid");
+        $stmt->execute([
+            'acc' => $accessValue,
+            'id' => $targetUserId,
+            'pid' => AuthHelper::getPropertyId(),
+        ]);
 
         ApiResponse::success(['message' => 'Access permissions updated successfully']);
     }

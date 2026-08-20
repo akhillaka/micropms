@@ -199,15 +199,32 @@ class ErrorTracker {
     /**
      * Mark an error log entry as resolved.
      */
-    public static function resolve(int $errorId, int $staffId): bool {
+    public static function resolve(int $errorId, int $staffId, ?int $propertyId = null): bool {
         try {
             $db   = Database::getInstance()->getConnection();
-            $stmt = $db->prepare(
-                "UPDATE error_logs
-                    SET resolved = 1, resolved_at = NOW(), resolved_by = :sid
-                  WHERE id = :id AND resolved = 0"
-            );
-            $stmt->execute(['sid' => $staffId, 'id' => $errorId]);
+            $pid = $propertyId;
+            if ($pid === null && class_exists('AuthHelper') && !empty($_SESSION['property_id'])) {
+                try {
+                    $pid = AuthHelper::getPropertyId();
+                } catch (\Throwable $e) {
+                    $pid = null;
+                }
+            }
+            if ($pid !== null && $pid > 0) {
+                $stmt = $db->prepare(
+                    "UPDATE error_logs
+                        SET resolved = 1, resolved_at = NOW(), resolved_by = :sid
+                      WHERE id = :id AND resolved = 0 AND property_id = :pid"
+                );
+                $stmt->execute(['sid' => $staffId, 'id' => $errorId, 'pid' => $pid]);
+            } else {
+                $stmt = $db->prepare(
+                    "UPDATE error_logs
+                        SET resolved = 1, resolved_at = NOW(), resolved_by = :sid
+                      WHERE id = :id AND resolved = 0"
+                );
+                $stmt->execute(['sid' => $staffId, 'id' => $errorId]);
+            }
             return $stmt->rowCount() > 0;
         } catch (\Throwable $e) {
             error_log("[ErrorTracker] resolve() failed: " . $e->getMessage());
@@ -218,15 +235,32 @@ class ErrorTracker {
     /**
      * Bulk-resolve all unresolved errors in a category.
      */
-    public static function bulkResolve(string $category, int $staffId): int {
+    public static function bulkResolve(string $category, int $staffId, ?int $propertyId = null): int {
         try {
             $db   = Database::getInstance()->getConnection();
-            $stmt = $db->prepare(
-                "UPDATE error_logs
-                    SET resolved = 1, resolved_at = NOW(), resolved_by = :sid
-                  WHERE category = :cat AND resolved = 0"
-            );
-            $stmt->execute(['sid' => $staffId, 'cat' => $category]);
+            $pid = $propertyId;
+            if ($pid === null && class_exists('AuthHelper') && !empty($_SESSION['property_id'])) {
+                try {
+                    $pid = AuthHelper::getPropertyId();
+                } catch (\Throwable $e) {
+                    $pid = null;
+                }
+            }
+            if ($pid !== null && $pid > 0) {
+                $stmt = $db->prepare(
+                    "UPDATE error_logs
+                        SET resolved = 1, resolved_at = NOW(), resolved_by = :sid
+                      WHERE category = :cat AND resolved = 0 AND property_id = :pid"
+                );
+                $stmt->execute(['sid' => $staffId, 'cat' => $category, 'pid' => $pid]);
+            } else {
+                $stmt = $db->prepare(
+                    "UPDATE error_logs
+                        SET resolved = 1, resolved_at = NOW(), resolved_by = :sid
+                      WHERE category = :cat AND resolved = 0"
+                );
+                $stmt->execute(['sid' => $staffId, 'cat' => $category]);
+            }
             return (int)$stmt->rowCount();
         } catch (\Throwable $e) {
             error_log("[ErrorTracker] bulkResolve() failed: " . $e->getMessage());

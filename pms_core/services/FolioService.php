@@ -127,7 +127,11 @@ class FolioService {
             // Lock the booking to prevent race conditions across folio entries
             $pStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ? FOR UPDATE");
             $pStmt->execute([$bookingId]);
-            $propertyId = (int)$pStmt->fetchColumn() ?: 1;
+            $propertyId = (int)$pStmt->fetchColumn();
+            if ($propertyId <= 0) {
+                throw new \InvalidArgumentException('Booking not found');
+            }
+            self::assertStaffPropertyAllows($propertyId);
 
             $bucket = ($category === 'pos_order' || $category === 'incidentals' || strtolower($category) === 'f&b') ? 'incidentals' : 'main';
             $ref = 'CHG-' . bin2hex(random_bytes(5));
@@ -177,7 +181,11 @@ class FolioService {
             // Lock the booking to serialize ledger updates and prevent refund race conditions
             $pStmt = $db->prepare("SELECT property_id FROM bookings WHERE id = ? FOR UPDATE");
             $pStmt->execute([$bookingId]);
-            $propertyId = (int)$pStmt->fetchColumn() ?: 1;
+            $propertyId = (int)$pStmt->fetchColumn();
+            if ($propertyId <= 0) {
+                throw new \InvalidArgumentException('Booking not found');
+            }
+            self::assertStaffPropertyAllows($propertyId);
 
             // Validation: If refund (negative amount), ensure it does not exceed total paid amount
             if ($amount < 0) {
@@ -354,8 +362,8 @@ class FolioService {
             
             // Delete orphaned finance ledger entry if it was a payment
             if ($res && strtolower($entry['transaction_type'] ?? '') === 'payment') {
-                $dStmt = $db->prepare("DELETE FROM finance_transactions WHERE description LIKE ?");
-                $dStmt->execute(["%Folio #$entryId%"]);
+                $dStmt = $db->prepare("DELETE FROM finance_transactions WHERE property_id = ? AND description LIKE ?");
+                $dStmt->execute([(int)$entry['property_id'], "%Folio #$entryId%"]);
             }
 
             if ($res && $entry) {
@@ -396,19 +404,28 @@ class FolioService {
 
         try {
             // Retrieve old values for audit diff
-            $infoStmt = $db->prepare("SELECT booking_id, amount, description, payment_method FROM folio_ledger WHERE id = ?");
+            $infoStmt = $db->prepare("SELECT booking_id, amount, description, payment_method, property_id FROM folio_ledger WHERE id = ?");
             $infoStmt->execute([$entryId]);
-            $oldEntry = $infoStmt->fetch();
+            $oldEntry = $infoStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$oldEntry) {
+                throw new \InvalidArgumentException('Ledger entry not found');
+            }
+            self::assertStaffPropertyAllows((int)$oldEntry['property_id']);
 
             $sql = "UPDATE folio_ledger SET amount = :amount, description = :desc";
-            $params = ['id' => $entryId, 'amount' => $amount, 'desc' => $description];
+            $params = [
+                'id' => $entryId,
+                'amount' => $amount,
+                'desc' => $description,
+                'pid' => (int)$oldEntry['property_id'],
+            ];
             
             if ($paymentMethod !== null) {
                 $sql .= ", payment_method = :method";
                 $params['method'] = $paymentMethod;
             }
             
-            $sql .= " WHERE id = :id";
+            $sql .= " WHERE id = :id AND property_id = :pid";
             $stmt = $db->prepare($sql);
             $res = $stmt->execute($params);
             
@@ -443,6 +460,27 @@ class FolioService {
                 $db->rollBack();
             }
             throw $e;
+        }
+    }
+
+    /**
+     * When staff session has an active property, block cross-tenant folio writes.
+     * Guest/token flows have no session property and are allowed (caller must bind token).
+     */
+    private static function assertStaffPropertyAllows(int $bookingPropertyId): void {
+        if (!class_exists('AuthHelper')) {
+            return;
+        }
+        if (empty($_SESSION['property_id']) && empty($_SESSION['user_id'])) {
+            return;
+        }
+        try {
+            $active = AuthHelper::getPropertyId();
+        } catch (\Throwable $e) {
+            return;
+        }
+        if ($active > 0 && $bookingPropertyId !== $active) {
+            throw new \Exception('Access denied: folio belongs to a different property');
         }
     }
 

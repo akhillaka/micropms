@@ -89,6 +89,15 @@ assert_true(is_file(__DIR__ . '/../pms_core/services/IcalService.php'), 'IcalSer
 $cashierSql = file_get_contents(__DIR__ . '/../pms_core/api_endpoints/admin_reports.php') ?: '';
 assert_true(str_contains($cashierSql, 'booking_id IS NULL OR booking_id = 0'), 'cashier shift excludes booking-linked finance rows');
 assert_true(str_contains($cashierSql, "'booked', 'checked_in', 'checked_out'"), 'revpar counts sold booked rooms');
+assert_true(str_contains($cashierSql, "case 'accounts_receivable'"), 'accounts receivable report exists');
+assert_true(str_contains($cashierSql, 'HAVING COALESCE(SUM(fl.amount), 0) > 0.01'), 'AR uses SUM(amount) not HAVING aliases');
+$dbSrc = file_get_contents(__DIR__ . '/../pms_core/Database.php') ?: '';
+assert_true(
+    str_contains($dbSrc, 'function yieldQuery')
+    && !preg_match('/setAttribute\s*\(\s*\\\\?PDO::MYSQL_ATTR_USE_BUFFERED_QUERY/', $dbSrc)
+    && !preg_match('/setAttribute\s*\(\s*\\\\?Pdo\\\\Mysql::ATTR_USE_BUFFERED_QUERY/', $dbSrc),
+    'yieldQuery stays buffered on persistent PDO'
+);
 
 $waJob = [
     'phone' => '919999999999',
@@ -113,7 +122,11 @@ assert_true(ModuleHost::url('saas', '/saas-admin', 'yourdomain.com') === '/saas-
 assert_true(ModuleHost::applyHostPrefix('/', 'guest') === '/', 'landing stays /');
 assert_true(ModuleHost::applyHostPrefix('/', 'admin') === '/', 'admin prefix is not rewritten');
 assert_true(ModuleHost::applyHostPrefix('/register', 'saas') === '/register', 'public lead form is not prefixed away');
-assert_true(is_file(__DIR__ . '/../db_migrations/028_saas_leads.sql'), 'leads migration is packaged');
+assert_true(is_file(__DIR__ . '/multiproperty_isolation.php'), 'multiproperty isolation harness exists');
+$mpOut = [];
+$mpCode = 0;
+exec('php ' . escapeshellarg(__DIR__ . '/multiproperty_isolation.php') . ' 2>&1', $mpOut, $mpCode);
+assert_true($mpCode === 0, 'multiproperty static isolation checks pass');
 assert_true(is_file(__DIR__ . '/../pms_core/services/LeadService.php'), 'lead capture service exists');
 assert_true(ModuleHost::sessionCookieDomain('admin', 'yourdomain.com', 'admin.yourdomain.com') === '', 'staff cookie stays on the current host');
 assert_true(ModuleHost::detectModule('admin.localhost') === 'path', 'admin.localhost is not a module host');
@@ -154,6 +167,9 @@ assert_true(!str_contains($viewDoc, 'finfo_close'), 'view_document does not call
 $folioPhp = file_get_contents(__DIR__ . '/../public_html/admin/folio.php') ?: '';
 assert_true(!str_contains($folioPhp, 'view_id_proof.php'), 'folio no longer points at missing view_id_proof.php');
 assert_true(is_file(__DIR__ . '/../public_html/js/photo_capture.js'), 'shared photo capture overlay exists');
+assert_true(is_file(__DIR__ . '/../public_html/js/pull-to-refresh.js'), 'pull-to-refresh helper exists');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../public_html/js/pwa.js') ?: '', 'PullToRefresh'), 'admin PWA enables pull-to-refresh');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../public_html/assistant/js/app.js') ?: '', 'refreshFromPull'), 'assistant supports pull-to-refresh soft sync');
 $assistantApp = file_get_contents(__DIR__ . '/../public_html/assistant/js/app.js') ?: '';
 assert_true(str_contains($assistantApp, "openIdScanner('face')") || str_contains($assistantApp, "type === 'face'"), 'assistant can capture guest photo');
 assert_true(str_contains($assistantApp, 'openImageViewer'), 'assistant views photos in-app');
@@ -324,6 +340,8 @@ assert_true(str_contains($zipScript, '035_staff_roles_enum.sql') && str_contains
 assert_true(str_contains($zipScript, '037_notification_milestones.sql') && str_contains($zipScript, 'CheckoutReminderService.php'), 'deployment zip requires checkout reminder files');
 assert_true(str_contains($zipScript, '038_push_client.sql'), 'deployment zip requires push client migration');
 assert_true(is_file(__DIR__ . '/../db_migrations/038_push_client.sql'), 'migration 038 push client is packaged');
+assert_true(str_contains($zipScript, '039_wa_tenant_uniques.sql'), 'deployment zip requires WA tenant uniques migration');
+assert_true(is_file(__DIR__ . '/../db_migrations/039_wa_tenant_uniques.sql'), 'migration 039 WA tenant uniques is packaged');
 $assistantAuth = file_get_contents(__DIR__ . '/../public_html/assistant/api/auth.php') ?: '';
 assert_true(str_contains($assistantAuth, 'property_id') && str_contains($assistantAuth, 'issueRememberToken'), 'assistant login uses property id and remember token');
 $assistantIndex = file_get_contents(__DIR__ . '/../public_html/assistant/index.html') ?: '';

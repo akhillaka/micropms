@@ -43,6 +43,12 @@ ApiHandler::run(function(\PDO $db) {
         if (!$companyId) {
             ApiResponse::error('A Corporate Company must be selected to route to City Ledger');
         }
+
+        $coStmt = $db->prepare("SELECT id FROM companies WHERE id = ? AND property_id = ? LIMIT 1");
+        $coStmt->execute([(int)$companyId, $propertyId]);
+        if (!$coStmt->fetchColumn()) {
+            ApiResponse::error('Company not found for this property');
+        }
         
         // Link it to the booking if not already linked
         if (!$booking['company_id']) {

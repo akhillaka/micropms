@@ -40,6 +40,7 @@ if (!$booking || !GuestAccessToken::bookingIsAccessible($booking)) {
 
 // Reload DB settings for this specific property
 load_db_settings($db, (int)$booking['property_id']);
+$propertyLogoUri = function_exists('property_logo_data_uri') ? property_logo_data_uri() : '';
 
 // Load configurations
 $propId = (int)$booking['property_id'];
@@ -141,8 +142,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'request_cleaning' && $housekeepingEnabled) {
         try {
-            $upStmt = $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ?");
-            $upStmt->execute([$booking['room_id']]);
+            $upStmt = $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = ? AND property_id = ?");
+            $upStmt->execute([$booking['room_id'], (int)$booking['property_id']]);
 
             AuditLogger::log(0, 'PORTAL_CLEANING_REQUEST', 'BOOKING', $booking['id'], [
                 'guest' => $booking['guest_name'],
@@ -405,21 +406,23 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#F8FAFC">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>Guest Portal - <?= htmlspecialchars($booking['property_name']) ?></title>
+    <?php include __DIR__ . '/admin/components/micropms_icons.php'; ?>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/css/guest_theme.css" rel="stylesheet">
+    <link href="/css/mobile-input-zoom.css" rel="stylesheet">
 </head>
 <body>
     <div class="relative z-10 px-4 pt-6 pb-24 max-w-lg mx-auto">
         <header class="gp-header flex items-center gap-3">
-            <?php if (!empty($booking['logo_url'])): ?>
-            <img src="<?= htmlspecialchars($booking['logo_url']) ?>" alt="" class="w-11 h-11 rounded-xl object-cover border border-slate-200 bg-white">
+            <?php if ($propertyLogoUri !== ''): ?>
+            <img src="<?= htmlspecialchars($propertyLogoUri, ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($booking['property_name']) ?>" class="w-11 h-11 rounded-xl object-contain border border-slate-200 bg-white p-0.5">
             <?php else: ?>
             <div class="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
                 <i class="ph ph-buildings text-xl"></i>
@@ -439,6 +442,7 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                 </p>
                 <p class="text-[11px] text-slate-500 font-semibold"><?= $checkin->format('d M, g:i A') ?> – <?= $checkout->format('d M Y, g:i A') ?></p>
             </div>
+            <img src="/icons/logo.svg" alt="MicroPMS" class="w-9 h-9 rounded-xl object-contain bg-white border border-slate-200 shrink-0" width="36" height="36">
         </header>
 
         <?php if ($message): ?>
@@ -1093,6 +1097,11 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                 </div>
             </div>
         </div>
+
+        <p class="mt-8 mb-2 flex items-center justify-center gap-1.5 text-[10px] text-slate-400">
+            Powered by
+            <img src="/icons/logo-wordmark.svg" alt="MicroPMS" class="h-4 w-auto opacity-80">
+        </p>
 
     </div>
 
@@ -1778,7 +1787,7 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
         })();
 
     </script>
-    <script src="/js/photo_capture.js"></script>
+    <script src="/js/photo_capture.js?v=2"></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.5/dist/signature_pad.umd.min.js"></script>
 </body>
 </html>

@@ -31,6 +31,7 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('Missing booking ID, charge name, or amount');
         }
 
+        TenantScope::booking($db, $bookingId, $propertyId);
         $entryId = FolioService::postCharge($db, $bookingId, $amount, $name, $category);
         ApiResponse::success([
             'message' => "Charge added: {$name} ₹" . number_format($amount, 2),
