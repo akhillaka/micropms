@@ -2,26 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Hotel Booking Assistant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Hotel Assistant | MicroPMS</title>
   
   <!-- PWA Support -->
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#2563EB">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="/icons/logo.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="MicroPMS">
 
-  <!-- Lucide Icons & Phosphor Icons & Font Stylesheets -->
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://unpkg.com/lucide-static@0.344.0/font/lucide.css">
   <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.0.3/src/regular/style.css">
   <link rel="stylesheet" href="css/assistant.css">
-  
-  <!-- Tesseract.js Client-side OCR -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.3/dist/tesseract.min.js"></script>
-  
-  <!-- Voice Commands (always-on) -->
-  <script src="js/voice_commands.js"></script>
+  <link rel="stylesheet" href="/css/mobile-input-zoom.css">
 </head>
 <body class="">
 
@@ -33,10 +32,13 @@
   <!-- Header -->
   <header class="app-header">
     <div class="app-title">
-      <i class="ph ph-buildings" style="font-size: 1.5rem; margin-right: 6px;"></i>
-      <span>HOTEL ASSISTANT</span>
+      <img src="/icons/logo.svg" alt="MicroPMS" width="32" height="32" class="micropms-header-mark" style="width:32px;height:32px;border-radius:8px;margin-right:8px;object-fit:contain;background:#fff;border:1px solid #e2e8f0;">
+      <div style="display:flex;flex-direction:column;line-height:1.1;">
+        <img src="/icons/logo-wordmark.svg" alt="MicroPMS" height="16" style="height:16px;width:auto;object-fit:contain;">
+        <span style="font-size:0.65rem;letter-spacing:0.08em;color:var(--color-text-secondary);font-weight:800;">HOTEL ASSISTANT</span>
+      </div>
     </div>
-    <div id="header-user" style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.9rem;">
+    <div id="header-user" style="display: none; align-items: center; gap: 8px; font-weight: 700; font-size: 0.9rem;">
 
       <span id="user-display-name">Loading...</span>
       <i class="ph ph-user-circle" style="font-size: 1.5rem; cursor: pointer;" onclick="app.showScreen('profile')"></i>
@@ -49,40 +51,25 @@
     <!-- 1. LOGIN SCREEN -->
     <div id="screen-login" class="screen">
       <div style="text-align: center; margin-bottom: 24px;">
-        <h2 style="font-family: 'Outfit', sans-serif; color: var(--color-brand); font-size: 1.85rem; margin-bottom: 8px;">Welcome Staff</h2>
-        <p style="color: var(--color-text-secondary); font-size: 0.95rem; font-weight: 700;">Tap your name to enter PIN</p>
+        <img src="/icons/logo.svg" alt="MicroPMS" width="56" height="56" style="width:56px;height:56px;border-radius:14px;object-fit:contain;background:#fff;border:1px solid #e2e8f0;margin-bottom:12px;">
+        <div><img src="/icons/logo-wordmark.svg" alt="MicroPMS" height="22" style="height:22px;width:auto;object-fit:contain;margin-bottom:10px;"></div>
+        <h2 style="font-family: 'Outfit', sans-serif; color: var(--color-brand); font-size: 1.85rem; margin-bottom: 8px;">Hotel Assistant</h2>
+        <p style="color: var(--color-text-secondary); font-size: 0.95rem; font-weight: 700;">Sign in with property ID, username, and PIN</p>
       </div>
 
-      <div id="login-staff-list" class="staff-avatar-grid">
-        <!-- Dyn list of staff cards -->
-      </div>
+      <form id="assistant-login-form" class="assistant-login-form" autocomplete="on" onsubmit="app.submitLoginForm(event)">
+        <label class="assistant-login-label" for="login-property-id">Property ID</label>
+        <input id="login-property-id" name="property_id" class="assistant-login-input" type="number" inputmode="numeric" pattern="[0-9]*" min="1" required placeholder="e.g. 1" autocomplete="off">
 
-      <!-- Quick Login Numpad -->
-      <div id="login-numpad-wrapper" class="numpad-container" style="display: none; margin-top: 20px;">
-        <div style="text-align: center; font-weight: 700; color: var(--color-text-secondary); margin-bottom: 8px;">
-          Enter 4-Digit PIN for <span id="login-target-username" style="color: var(--color-brand);"></span>
-        </div>
-        <div id="login-pin-display" class="display-box empty">● ● ● ●</div>
-        <div class="numpad-grid">
-          <button class="numpad-key" onclick="app.pressLoginKey('1')">1</button>
-          <button class="numpad-key" onclick="app.pressLoginKey('2')">2</button>
-          <button class="numpad-key" onclick="app.pressLoginKey('3')">3</button>
-          <button class="numpad-key" onclick="app.pressLoginKey('4')">4</button>
-          <button class="numpad-key" onclick="app.pressLoginKey('5')">5</button>
-          <button class="numpad-key" onclick="app.pressLoginKey('6')">6</button>
-          <button class="numpad-key" onclick="app.pressLoginKey('7')">7</button>
-          <button class="numpad-key" onclick="app.pressLoginKey('8')">8</button>
-          <button class="numpad-key" onclick="app.pressLoginKey('9')">9</button>
-          <button class="numpad-key special" onclick="app.pressLoginKey('clear')">CLEAR</button>
-          <button class="numpad-key" onclick="app.pressLoginKey('0')">0</button>
-          <button class="numpad-key special" onclick="app.pressLoginKey('back')">
-            ⌫
-          </button>
-        </div>
-        <button class="btn-large btn-brand" onclick="app.submitLoginPin()" style="margin-top: 10px;">
-          🔓 ENTER APP
-        </button>
-      </div>
+        <label class="assistant-login-label" for="login-username">Username</label>
+        <input id="login-username" name="username" class="assistant-login-input" type="text" required autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Staff username" autocomplete="username">
+
+        <label class="assistant-login-label" for="login-pin">4-digit PIN</label>
+        <input id="login-pin" name="pin" class="assistant-login-input" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required placeholder="••••" autocomplete="current-password" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,4)">
+
+        <p class="assistant-login-hint">This phone stays signed in until you tap Logout. Allow notifications when asked so Checkout Soon still arrives when the app is closed.</p>
+        <button type="submit" class="btn-large btn-brand" id="login-submit-btn">Sign in</button>
+      </form>
     </div>
 
     <!-- 2. HOME DASHBOARD -->
@@ -231,9 +218,9 @@
 
         <div id="search-results-list" class="selection-list" style="margin-top: 16px;"></div>
 
-        <div style="margin-top: 24px;">
-          <button class="btn-large btn-outline" onclick="app.nextWizardStep(2)">
-            👤➕ NEW GUEST PROFILE
+        <div id="search-create-guest-wrap" style="margin-top: 16px; display: none;">
+          <button class="btn-large btn-brand" id="btn-create-guest-from-search" onclick="app.startNewGuestFromSearch()">
+            Create new guest
           </button>
         </div>
       </div>
@@ -808,6 +795,7 @@
   <!-- POS SCREEN -->
   <div id="screen-pos" class="screen" style="padding-bottom: 80px;">
     <header class="app-header">
+      <img src="/icons/logo.svg" alt="MicroPMS" width="28" height="28" class="micropms-header-mark" style="width:28px;height:28px;border-radius:8px;margin-right:8px;object-fit:contain;background:#fff;border:1px solid #e2e8f0;">
       <h1 class="screen-title" style="margin:0; font-size: 1.3rem;">Point of Sale</h1>
     </header>
 
@@ -844,7 +832,7 @@
   </main>
 
   <!-- Bottom Navigation Bar -->
-  <nav class="bottom-nav" id="bottom-nav">
+  <nav class="bottom-nav" id="bottom-nav" style="display: none;">
     <button class="nav-item active" id="nav-btn-home" onclick="app.showScreen('dashboard')">
       <i class="ph ph-house" style="font-size: 1.5rem; margin-bottom: 2px;"></i>
       <span>Home</span>
@@ -1399,8 +1387,9 @@
   </div>
 
   <script src="/js/api-client.js?v=1"></script>
+  <script src="/js/staff-alert-sound.js?v=1"></script>
   <script src="/js/photo_capture.js?v=1"></script>
-  <script src="js/app.js?v=8"></script>
+  <script src="js/app.js?v=9"></script>
 
   <!-- FIRST-LAUNCH TUTORIAL OVERLAY -->
   <div id="tutorial-overlay" style="display:none; position:fixed; inset:0; z-index:999; background:rgba(0,0,0,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);">

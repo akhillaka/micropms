@@ -99,7 +99,7 @@ class BookingService {
 
             // Verify if admin has access to this room's property
             if (class_exists('AuthHelper')) {
-                if (session_status() === PHP_SESSION_NONE) {
+                if (session_status() === PHP_SESSION_NONE && empty($_SESSION['user_id'])) {
                     session_start();
                 }
                 if (isset($_SESSION['user_id'])) {
@@ -736,6 +736,7 @@ class BookingService {
             throw new \Exception('Booking not found');
         }
         StayPolicy::assert($booking, StayPolicy::CHECK_IN_ACTION);
+        StayPolicy::assertCheckInTime($booking);
 
         $upd = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = :id AND property_id = :pid");
         $upd->execute(['id' => $bookingId, 'pid' => $propertyId]);

@@ -16,6 +16,7 @@ ApiHandler::run(function (\PDO $db) {
     $propertyId = AuthHelper::getPropertyId();
 
     if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'GET') {
+        WebPushService::ensureKeys();
         ApiResponse::success(['publicKey' => WebPushService::publicKey()]);
     }
 
@@ -36,6 +37,7 @@ ApiHandler::run(function (\PDO $db) {
     if ($p256dh === '' || $auth === '') {
         ApiResponse::error('Missing subscription keys');
     }
-    WebPushService::saveSubscription($db, $staffId, (int)$propertyId, $endpoint, $p256dh, $auth);
+    $client = trim((string)($data['client'] ?? 'admin'));
+    WebPushService::saveSubscription($db, $staffId, (int)$propertyId, $endpoint, $p256dh, $auth, $client);
     ApiResponse::success(['message' => 'Subscribed']);
 }, true, $needCsrf, false);

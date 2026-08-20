@@ -216,7 +216,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
 <head>
     <?= CsrfToken::meta() ?>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, ">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Settings | MicroPMS</title>
     
         
@@ -736,7 +736,7 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                                 'room_dirty'        => ['Room Needs Cleaning', 'ph-broom', 'When room becomes dirty'],
                                 'daily_summary'     => ['Daily Summary', 'ph-chart-bar', 'End-of-day hotel summary'],
                                 'folio_activity'    => ['Folio Activity', 'ph-receipt', 'Charge added, edited, deleted, stay extended'],
-                                'pre_departure'     => ['Pre-Departure Reminder', 'ph-bell-ringing', '30 min before checkout'],
+                                'pre_departure'     => ['Pre-Departure Reminder', 'ph-bell-ringing', '30 min and 15 min before checkout'],
                             ];
                             ?>
                             <div class="space-y-2" id="notify-events-wrap">

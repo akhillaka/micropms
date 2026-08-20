@@ -741,7 +741,7 @@ CREATE TABLE `staff_users` (
 
 CREATE TABLE `system_settings` (
   `key_name` varchar(100) NOT NULL,
-  `key_value` text DEFAULT NULL,
+  `key_value` mediumtext DEFAULT NULL,
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `property_id` int(11) NOT NULL,
   `deleted_at` datetime DEFAULT NULL,
@@ -762,6 +762,17 @@ CREATE TABLE IF NOT EXISTS admin_notifications (
     INDEX (property_id, is_read, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS notification_milestones (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  property_id INT NOT NULL,
+  entity_type VARCHAR(32) NOT NULL DEFAULT 'booking',
+  entity_id INT NOT NULL,
+  milestone VARCHAR(64) NOT NULL,
+  sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_milestone (entity_type, entity_id, milestone),
+  KEY idx_property (property_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id INT AUTO_INCREMENT PRIMARY KEY,
   staff_user_id INT NOT NULL,
@@ -769,6 +780,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   endpoint VARCHAR(768) NOT NULL,
   p256dh VARCHAR(255) NOT NULL,
   auth_key VARCHAR(255) NOT NULL,
+  client VARCHAR(16) NOT NULL DEFAULT 'admin',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY endpoint (endpoint(191)),
   KEY staff_user_id (staff_user_id),

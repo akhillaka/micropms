@@ -243,6 +243,8 @@ assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/api_routes.ph
 assert_true(is_file(__DIR__ . '/../db_migrations/034_staff_pwa_push.sql'), 'migration 034 staff PWA push is packaged');
 assert_true(is_file(__DIR__ . '/../public_html/sw.js') && is_file(__DIR__ . '/../public_html/manifest.webmanifest'), 'staff PWA manifest and service worker exist');
 assert_true(is_file(__DIR__ . '/../public_html/icons/icon-192.png') && is_file(__DIR__ . '/../public_html/icons/icon-512.png'), 'staff PWA icons exist');
+assert_true(is_file(__DIR__ . '/../public_html/icons/logo.svg') && is_file(__DIR__ . '/../public_html/icons/logo-wordmark.svg'), 'MicroPMS SVG logos exist');
+assert_true(is_file(__DIR__ . '/../public_html/icons/icon-192-maskable.png') && is_file(__DIR__ . '/../public_html/icons/favicon-32.png'), 'maskable PWA icon and favicon exist');
 $bookingSvc = file_get_contents(__DIR__ . '/../pms_core/services/BookingService.php') ?: '';
 assert_true(str_contains($bookingSvc, "sendInAppNotification") && str_contains($bookingSvc, 'check_in'), 'check-in writes bell notifications');
 assert_true(str_contains($bookingSvc, "], \$propertyId);") && str_contains($bookingSvc, "'new_booking'"), 'new booking telegram uses property id from webhook context');
@@ -255,6 +257,7 @@ assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/NotificationR
 require_once __DIR__ . '/../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../pms_core/services/StayPolicy.php';
 require_once __DIR__ . '/../pms_core/services/TelegramCalendar.php';
+require_once __DIR__ . '/../pms_core/services/CheckoutReminderService.php';
 
 $bookedStay = ['booking_status' => 'booked', 'payment_status' => 'pending'];
 $inHouseStay = ['booking_status' => 'checked_in', 'payment_status' => 'partial'];
@@ -271,6 +274,21 @@ try {
 }
 assert_true($lockedCheckIn, 'StayPolicy rejects check-in change after check-in');
 assert_true(str_contains($bookingSvc, 'StayPolicy::assert($booking, StayPolicy::CHECK_IN)'), 'reschedule asserts check-in via StayPolicy');
+assert_true(str_contains($bookingSvc, 'StayPolicy::assertCheckInTime($booking)'), 'check-in enforces scheduled time');
+$earlyBlocked = false;
+try {
+    StayPolicy::assertCheckInTime(['check_in' => date('Y-m-d H:i:s', time() + 3600)], time());
+} catch (\Throwable $e) {
+    $earlyBlocked = str_contains($e->getMessage(), 'cannot be performed yet');
+}
+assert_true($earlyBlocked, 'early check-in before scheduled time is blocked');
+StayPolicy::assertCheckInTime(['check_in' => date('Y-m-d H:i:s', time() - 60)], time());
+assert_true(CheckoutReminderService::matchingWindow(30) === 30, '30-minute checkout window matches');
+assert_true(CheckoutReminderService::matchingWindow(15) === 15, '15-minute checkout window matches');
+assert_true(CheckoutReminderService::matchingWindow(32) === 30, '32-minute remaining still in 30-minute window');
+assert_true(CheckoutReminderService::matchingWindow(45) === null, '45 minutes before checkout is not a notify window');
+assert_true(CheckoutReminderService::matchingWindow(22) === null, '22 minutes before checkout is not a notify window');
+assert_true(CheckoutReminderService::alertId(9, 15) === 'upcoming_checkout_9_15', 'checkout alert id is stable per booking and window');
 
 assert_true(TelegramCalendar::maxCallbackLength() <= 64, 'telegram calendar callbacks stay under 64 bytes');
 $cal = TelegramCalendar::monthKeyboard('nb', 'in', '202608');
@@ -291,9 +309,41 @@ assert_true(AuthHelper::roleCan('receptionist', 'move_room'), 'receptionist can 
 assert_true(!AuthHelper::roleCan('housekeeping', 'create_booking'), 'housekeeping cannot create bookings');
 assert_true(AuthHelper::telegramActionPermission('add_payment') === 'record_payment', 'telegram payment maps to record_payment');
 assert_true(is_file(__DIR__ . '/../db_migrations/035_staff_roles_enum.sql'), 'migration 035 staff roles enum is packaged');
+assert_true(is_file(__DIR__ . '/../db_migrations/036_system_settings_mediumtext.sql'), 'migration 036 system settings mediumtext is packaged');
+assert_true(is_file(__DIR__ . '/../db_migrations/037_notification_milestones.sql'), 'migration 037 notification milestones is packaged');
+assert_true(property_logo_mime_from_base64('/9j/abc') === 'image/jpeg', 'logo mime detects JPEG base64');
+assert_true(property_logo_mime_from_base64('iVBORw0KGgo') === 'image/png', 'logo mime detects PNG base64');
 assert_true(is_file(__DIR__ . '/../pms_core/services/StayPolicy.php') && is_file(__DIR__ . '/../pms_core/services/TelegramCalendar.php'), 'stay kernel files exist');
 $zipScript = file_get_contents(__DIR__ . '/../scripts/build_deployment_zip.sh') ?: '';
-assert_true(str_contains($zipScript, '035_staff_roles_enum.sql') && str_contains($zipScript, 'StayPolicy.php'), 'deployment zip requires stay kernel files');
+assert_true(str_contains($zipScript, '035_staff_roles_enum.sql') && str_contains($zipScript, '036_system_settings_mediumtext.sql') && str_contains($zipScript, 'StayPolicy.php'), 'deployment zip requires stay kernel files');
+assert_true(str_contains($zipScript, '037_notification_milestones.sql') && str_contains($zipScript, 'CheckoutReminderService.php'), 'deployment zip requires checkout reminder files');
+assert_true(str_contains($zipScript, '038_push_client.sql'), 'deployment zip requires push client migration');
+assert_true(is_file(__DIR__ . '/../db_migrations/038_push_client.sql'), 'migration 038 push client is packaged');
+$assistantAuth = file_get_contents(__DIR__ . '/../public_html/assistant/api/auth.php') ?: '';
+assert_true(str_contains($assistantAuth, 'property_id') && str_contains($assistantAuth, 'issueRememberToken'), 'assistant login uses property id and remember token');
+$assistantIndex = file_get_contents(__DIR__ . '/../public_html/assistant/index.html') ?: '';
+assert_true(str_contains($assistantIndex, 'login-property-id') && str_contains($assistantIndex, 'login-username') && str_contains($assistantIndex, 'login-pin'), 'assistant login form has property id, username, and pin');
+$assistantApp = file_get_contents(__DIR__ . '/../public_html/assistant/js/app.js') ?: '';
+assert_true(str_contains($assistantApp, 'subscribeAssistantPush') && str_contains($assistantApp, "client: 'assistant'"), 'assistant PWA subscribes to web push');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/services/WebPushService.php') ?: '', "client === 'assistant'"), 'web push opens assistant for assistant devices');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/AuthHelper.php') ?: '', 'resumeRememberedSession'), 'session hydrate resumes remember-me cookie');
+$cronWorker = file_get_contents(__DIR__ . '/../pms_core/cron_worker.php') ?: '';
+assert_true(str_contains($cronWorker, 'break;') && str_contains($cronWorker, '$endTime = time() + 20'), 'cron worker exits when the queue is empty');
+$cronSched = file_get_contents(__DIR__ . '/../public_html/cron_scheduler.php') ?: '';
+assert_true(str_contains($cronSched, 'CheckoutReminderService::dispatchDue') && str_contains($cronSched, '$minute % 15 === 0'), 'cron sends checkout reminders once per window and caches reports every 15 minutes');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../public_html/assistant/api/guests.php') ?: '', "'existing' => true"), 'guest create marks existing profiles without collation nullif');
+$assistantApp = file_get_contents(__DIR__ . '/../public_html/assistant/js/app.js') ?: '';
+assert_true(str_contains($assistantApp, 'startNewGuestFromSearch') && str_contains($assistantApp, 'searchPhoneVal'), 'assistant booking searches guest before new guest creation');
+assert_true(str_contains($assistantApp, 'const alertKey = (a) => a.id ||') && !str_contains($assistantApp, "a.title + '_' + a.message"), 'assistant notifications use a stable alert key');
+$adminIndex = file_get_contents(__DIR__ . '/../public_html/admin/index.php') ?: '';
+assert_true(str_contains($adminIndex, '/icons/logo.svg') && str_contains($adminIndex, 'micropms-header-mark'), 'admin dashboard header uses MicroPMS logo');
+assert_true(!str_contains($adminIndex, 'hotelLogoUri'), 'admin dashboard header does not use property logo');
+$uiHead = file_get_contents(__DIR__ . '/../public_html/admin/components/ui_head.php') ?: '';
+assert_true(str_contains($uiHead, 'PMS_PRODUCT_LOGO') && !str_contains($uiHead, 'PMS_HOTEL_LOGO'), 'admin head does not embed hotel logo payload');
+$guestPortal = file_get_contents(__DIR__ . '/../public_html/guest_portal.php') ?: '';
+assert_true(str_contains($guestPortal, 'micropms_icons.php') && str_contains($guestPortal, '/icons/logo.svg'), 'guest portal uses MicroPMS favicon and header mark');
+$assistantIndex = file_get_contents(__DIR__ . '/../public_html/assistant/index.html') ?: '';
+assert_true(str_contains($assistantIndex, '/icons/logo-wordmark.svg') && str_contains($assistantIndex, 'favicon-32.png'), 'hotel assistant shows MicroPMS logo and favicon');
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed > 0 ? 1 : 0);

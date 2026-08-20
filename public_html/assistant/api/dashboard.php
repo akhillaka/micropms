@@ -4,11 +4,11 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../../pms_core/config.php';
+require_once __DIR__ . '/../../../pms_core/services/CheckoutReminderService.php';
 
 ApiHandler::run(function(\PDO $db) {
     $today = date('Y-m-d');
     $now = date('Y-m-d H:i:s');
-    $twoHoursLater = date('Y-m-d H:i:s', strtotime('+2 hours'));
     $propertyId = AuthHelper::getPropertyId();
 
     // ═══════════════════════════════════════════════════════
@@ -201,12 +201,12 @@ ApiHandler::run(function(\PDO $db) {
         $checkIn = strtotime($b['check_in']);
         $checkOut = strtotime($b['check_out']);
         $nowTs = strtotime($now);
-        $twoHoursTs = strtotime($twoHoursLater);
 
         // Overdue checkout (critical)
         if ($b['booking_status'] === 'checked_in' && $checkOut < $nowTs) {
             $hours = round(($nowTs - $checkOut) / 3600, 1);
             $alerts[] = [
+                'id' => 'overdue_checkout_' . $b['booking_id'],
                 'type' => 'overdue_checkout',
                 'severity' => 'critical',
                 'title' => 'Overdue Checkout',
@@ -217,32 +217,37 @@ ApiHandler::run(function(\PDO $db) {
                 'hours_overdue' => $hours
             ];
         }
-        // Upcoming checkout (within 2 hours)
-        elseif ($b['booking_status'] === 'checked_in' && $checkOut > $nowTs && $checkOut <= $twoHoursTs) {
-            $minutes = round(($checkOut - $nowTs) / 60);
-            $alerts[] = [
-                'type' => 'upcoming_checkout',
-                'severity' => 'info',
-                'title' => 'Checkout Soon',
-                'message' => "{$b['guest_name']} (Room {$b['room_number']}) checking out in {$minutes} min",
-                'booking_id' => $b['booking_id'],
-                'guest_name' => $b['guest_name'],
-                'room_number' => $b['room_number'],
-                'minutes_left' => $minutes
-            ];
-        }
-        // Today's checkout
-        elseif ($b['booking_status'] === 'checked_in' && date('Y-m-d', $checkOut) === $today) {
-            $time = date('g:i A', $checkOut);
-            $alerts[] = [
-                'type' => 'today_departure',
-                'severity' => 'info',
-                'title' => 'Checkout Today',
-                'message' => "{$b['guest_name']} (Room {$b['room_number']}) due at {$time}",
-                'booking_id' => $b['booking_id'],
-                'guest_name' => $b['guest_name'],
-                'room_number' => $b['room_number']
-            ];
+        // Checkout soon — only 30 min and 15 min prior (stable id so polls do not re-alert)
+        elseif ($b['booking_status'] === 'checked_in' && $checkOut > $nowTs) {
+            $minutes = CheckoutReminderService::minutesUntil((string)$b['check_out'], $nowTs);
+            $window = CheckoutReminderService::matchingWindow($minutes);
+            if ($window !== null) {
+                $when = date('g:i A', $checkOut);
+                $alerts[] = [
+                    'id' => CheckoutReminderService::alertId((int)$b['booking_id'], $window),
+                    'type' => 'upcoming_checkout',
+                    'severity' => $window === 15 ? 'warning' : 'info',
+                    'title' => $window === 30 ? 'Checkout in 30 minutes' : 'Checkout in 15 minutes',
+                    'message' => "{$b['guest_name']} (Room {$b['room_number']}) due at {$when}",
+                    'booking_id' => $b['booking_id'],
+                    'guest_name' => $b['guest_name'],
+                    'room_number' => $b['room_number'],
+                    'minutes_left' => $window,
+                    'milestone' => $window
+                ];
+            } elseif (date('Y-m-d', $checkOut) === $today) {
+                $time = date('g:i A', $checkOut);
+                $alerts[] = [
+                    'id' => 'today_departure_' . $b['booking_id'],
+                    'type' => 'today_departure',
+                    'severity' => 'info',
+                    'title' => 'Checkout Today',
+                    'message' => "{$b['guest_name']} (Room {$b['room_number']}) due at {$time}",
+                    'booking_id' => $b['booking_id'],
+                    'guest_name' => $b['guest_name'],
+                    'room_number' => $b['room_number']
+                ];
+            }
         }
 
         // Overdue check-in (warning)

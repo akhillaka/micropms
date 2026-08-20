@@ -6,14 +6,76 @@ declare(strict_types=1);
  */
 class WebPushService {
 
+    private static function keysFile(): string {
+        return dirname(__DIR__) . '/vapid_local.json';
+    }
+
+    private static function applyKeys(string $public, string $private): void {
+        putenv('VAPID_PUBLIC_KEY=' . $public);
+        putenv('VAPID_PRIVATE_KEY=' . $private);
+        $_ENV['VAPID_PUBLIC_KEY'] = $public;
+        $_ENV['VAPID_PRIVATE_KEY'] = $private;
+        if (!defined('VAPID_PUBLIC_KEY')) {
+            define('VAPID_PUBLIC_KEY', $public);
+        }
+        if (!defined('VAPID_PRIVATE_KEY')) {
+            define('VAPID_PRIVATE_KEY', $private);
+        }
+    }
+
+    private static function loadFileKeys(): void {
+        $file = self::keysFile();
+        if (!is_readable($file)) {
+            return;
+        }
+        $json = json_decode((string)file_get_contents($file), true);
+        $public = trim((string)($json['publicKey'] ?? ''));
+        $private = trim((string)($json['privateKey'] ?? ''));
+        if ($public !== '' && $private !== '') {
+            self::applyKeys($public, $private);
+        }
+    }
+
+    /**
+     * Use .env keys, else a server-local generated pair so push works without manual VAPID setup.
+     */
+    public static function ensureKeys(): void {
+        if (self::publicKey() !== '' && self::privateKey() !== '') {
+            return;
+        }
+        self::loadFileKeys();
+        if (self::publicKey() !== '' && self::privateKey() !== '') {
+            return;
+        }
+        try {
+            $keys = self::generateKeys();
+            @file_put_contents(self::keysFile(), json_encode($keys), LOCK_EX);
+            self::applyKeys($keys['publicKey'], $keys['privateKey']);
+        } catch (\Throwable $e) {
+            error_log('VAPID key generation failed: ' . $e->getMessage());
+        }
+    }
+
     public static function publicKey(): string {
         $key = getenv('VAPID_PUBLIC_KEY') ?: ($_ENV['VAPID_PUBLIC_KEY'] ?? (defined('VAPID_PUBLIC_KEY') ? (string)VAPID_PUBLIC_KEY : ''));
-        return trim($key);
+        $key = trim($key);
+        if ($key === '') {
+            self::loadFileKeys();
+            $key = getenv('VAPID_PUBLIC_KEY') ?: ($_ENV['VAPID_PUBLIC_KEY'] ?? '');
+            $key = trim((string)$key);
+        }
+        return $key;
     }
 
     public static function privateKey(): string {
         $key = getenv('VAPID_PRIVATE_KEY') ?: ($_ENV['VAPID_PRIVATE_KEY'] ?? (defined('VAPID_PRIVATE_KEY') ? (string)VAPID_PRIVATE_KEY : ''));
-        return trim($key);
+        $key = trim($key);
+        if ($key === '') {
+            self::loadFileKeys();
+            $key = getenv('VAPID_PRIVATE_KEY') ?: ($_ENV['VAPID_PRIVATE_KEY'] ?? '');
+            $key = trim((string)$key);
+        }
+        return $key;
     }
 
     public static function subject(): string {
@@ -40,10 +102,24 @@ class WebPushService {
         ];
     }
 
-    public static function saveSubscription(\PDO $db, int $staffUserId, int $propertyId, string $endpoint, string $p256dh, string $auth): void {
+    public static function ensureClientColumn(\PDO $db): void {
+        try {
+            $db->exec("ALTER TABLE push_subscriptions ADD COLUMN client VARCHAR(16) NOT NULL DEFAULT 'admin'");
+        } catch (\PDOException $e) {
+        }
+    }
+
+    public static function saveSubscription(\PDO $db, int $staffUserId, int $propertyId, string $endpoint, string $p256dh, string $auth, string $client = 'admin'): void {
+        $client = $client === 'assistant' ? 'assistant' : 'admin';
         $db->prepare("DELETE FROM push_subscriptions WHERE endpoint = ?")->execute([$endpoint]);
-        $stmt = $db->prepare("INSERT INTO push_subscriptions (staff_user_id, property_id, endpoint, p256dh, auth_key) VALUES (?, ?, ?, ?, ?)");
-        $stmt->execute([$staffUserId, $propertyId, $endpoint, $p256dh, $auth]);
+        self::ensureClientColumn($db);
+        try {
+            $stmt = $db->prepare("INSERT INTO push_subscriptions (staff_user_id, property_id, endpoint, p256dh, auth_key, client) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$staffUserId, $propertyId, $endpoint, $p256dh, $auth, $client]);
+        } catch (\PDOException $e) {
+            $stmt = $db->prepare("INSERT INTO push_subscriptions (staff_user_id, property_id, endpoint, p256dh, auth_key) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$staffUserId, $propertyId, $endpoint, $p256dh, $auth]);
+        }
     }
 
     public static function deleteSubscription(\PDO $db, string $endpoint): void {
@@ -51,25 +127,37 @@ class WebPushService {
     }
 
     public static function notifyProperty(\PDO $db, int $propertyId, string $title, string $message, string $linkUrl = '/admin'): void {
+        self::ensureKeys();
         if (self::publicKey() === '' || self::privateKey() === '') {
             return;
         }
         try {
-            $stmt = $db->prepare("SELECT id, endpoint, p256dh, auth_key FROM push_subscriptions WHERE property_id = ?");
+            $stmt = $db->prepare("SELECT id, endpoint, p256dh, auth_key, client FROM push_subscriptions WHERE property_id = ?");
             $stmt->execute([$propertyId]);
             $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\PDOException $e) {
-            return;
-        }
-        $payload = json_encode([
-            'title' => $title,
-            'message' => $message,
-            'url' => $linkUrl !== '' ? $linkUrl : '/admin',
-        ], JSON_UNESCAPED_UNICODE);
-        if ($payload === false) {
-            return;
+            try {
+                $stmt = $db->prepare("SELECT id, endpoint, p256dh, auth_key FROM push_subscriptions WHERE property_id = ?");
+                $stmt->execute([$propertyId]);
+                $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            } catch (\PDOException $e2) {
+                return;
+            }
         }
         foreach ($rows as $row) {
+            $client = (string)($row['client'] ?? 'admin');
+            $url = $linkUrl !== '' ? $linkUrl : '/admin';
+            if ($client === 'assistant') {
+                $url = '/assistant/index.html';
+            }
+            $payload = json_encode([
+                'title' => $title,
+                'message' => $message,
+                'url' => $url,
+            ], JSON_UNESCAPED_UNICODE);
+            if ($payload === false) {
+                continue;
+            }
             $ok = self::send((string)$row['endpoint'], (string)$row['p256dh'], (string)$row['auth_key'], $payload);
             if (!$ok) {
                 try {

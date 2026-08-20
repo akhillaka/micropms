@@ -19,10 +19,26 @@ class CsrfToken {
         return self::$inputBodyCache;
     }
 
-    public static function generate(): string {
+    private static function hydrateSession(bool $forWrite = false): void {
+        if ($forWrite) {
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+            return;
+        }
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return;
+        }
+        if (!empty($_SESSION[self::TOKEN_NAME]) || !empty($_SESSION['user_id'])) {
+            return;
+        }
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
+    }
+
+    public static function generate(): string {
+        self::hydrateSession(!empty($_SESSION[self::TOKEN_NAME]) ? false : true);
         if (!empty($_SESSION[self::TOKEN_NAME])) {
             return $_SESSION[self::TOKEN_NAME];
         }
@@ -42,9 +58,7 @@ class CsrfToken {
     }
 
     public static function validate(?string $token = null): bool {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        self::hydrateSession(false);
 
         if (empty($_SESSION[self::TOKEN_NAME])) {
             return false;
@@ -127,9 +141,7 @@ class CsrfToken {
     }
 
     public static function checkTimeout(): void {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        self::hydrateSession(true);
         if (isset($_SESSION[self::TIMEOUT_KEY])) {
             $inactive = time() - (int)$_SESSION[self::TIMEOUT_KEY];
             if ($inactive > self::TIMEOUT_SECONDS) {

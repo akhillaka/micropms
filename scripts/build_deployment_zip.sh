@@ -41,7 +41,7 @@ zip -r "$OUT" \
   -x "*test_finance.html" \
   -x "*.bak" \
   -x "public_html/uploads/*" \
-  -x "pms_core/uploads/*" \
+  -x "*vapid_local.json" \
   -x "*pms_core/libs/tutorial*" \
   -x "*pms_core/libs/doc*" \
   -x "*pms_core/libs/FAQ.htm" \
@@ -94,7 +94,11 @@ require "db_migrations/032_service_requests_pos_channel.sql"
 require "db_migrations/033_room_dnd.sql"
 require "db_migrations/034_staff_pwa_push.sql"
 require "db_migrations/035_staff_roles_enum.sql"
+require "db_migrations/036_system_settings_mediumtext.sql"
+require "db_migrations/037_notification_milestones.sql"
+require "db_migrations/038_push_client.sql"
 require "pms_core/services/StayPolicy.php"
+require "pms_core/services/CheckoutReminderService.php"
 require "pms_core/services/TelegramCalendar.php"
 require "public_html/sw.js"
 require "public_html/js/staff-alert-sound.js"
@@ -102,6 +106,10 @@ require "public_html/sounds/staff-alert.wav"
 require "public_html/manifest.webmanifest"
 require "public_html/icons/icon-192.png"
 require "public_html/icons/icon-512.png"
+require "public_html/icons/logo.svg"
+require "public_html/icons/logo-wordmark.svg"
+require "public_html/admin/components/micropms_icons.php"
+require "public_html/admin/components/micropms_mark.php"
 require "public_html/js/pwa.js"
 require ".env.example"
 require "DEPLOY.md"

@@ -60,3 +60,4 @@ public_html/uploads/*
 !public_html/uploads/.gitkeep
 pms_core/uploads/*
 !pms_core/uploads/.gitkeep
+pms_core/vapid_local.json

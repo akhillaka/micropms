@@ -125,26 +125,54 @@ ApiHandler::run(function(\PDO $db) {
         $existing = $checkStmt->fetch();
 
         if ($existing) {
-            // Self-repair: update details if blank, but return existing guest
             $guestId = (int)$existing['id'];
+            $currentStmt = $db->prepare("SELECT name, age, city, state, email, id_proof_front, id_proof_back, photo FROM guests WHERE id = ? AND property_id = ?");
+            $currentStmt->execute([$guestId, $propertyId]);
+            $current = $currentStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            $updateCity = ($city !== '' && $city !== 'Unknown') ? $city : (string)($current['city'] ?? 'Unknown');
+            $updateState = ($state !== '' && $state !== 'Unknown') ? $state : (string)($current['state'] ?? 'Unknown');
+            $updateEmail = ($email !== '') ? $email : (string)($current['email'] ?? '');
+            $updateAge = $age ?? ($current['age'] !== null ? (int)$current['age'] : null);
+
             $updateStmt = $db->prepare("
-                UPDATE guests 
-                SET name = :name, 
-                    age = COALESCE(:age, age), 
-                    city = COALESCE(NULLIF(:city, 'Unknown'), city), 
-                    state = COALESCE(NULLIF(:state, 'Unknown'), state),
-                    email = COALESCE(NULLIF(:email, ''), email)
+                UPDATE guests
+                SET name = :name,
+                    age = :age,
+                    city = :city,
+                    state = :state,
+                    email = :email
                 WHERE id = :id AND property_id = :pid
             ");
             $updateStmt->execute([
                 'name' => $name,
-                'age' => $age,
-                'city' => $city,
-                'state' => $state,
-                'email' => $email,
+                'age' => $updateAge,
+                'city' => $updateCity,
+                'state' => $updateState,
+                'email' => $updateEmail !== '' ? $updateEmail : null,
                 'id' => $guestId,
-                'pid' => $propertyId
+                'pid' => $propertyId,
             ]);
+
+            $hasIdProof = !empty($current['id_proof_front']) || !empty($current['id_proof_back']);
+            ApiResponse::success([
+                'message' => 'Existing guest profile updated',
+                'guest_id' => $guestId,
+                'existing' => true,
+                'guest' => [
+                    'id' => $guestId,
+                    'name' => $name,
+                    'phone' => $phone,
+                    'display_phone' => PhoneHelper::display($phone),
+                    'city' => $updateCity,
+                    'state' => $updateState,
+                    'id_proof_front' => $current['id_proof_front'] ?? null,
+                    'id_proof_back' => $current['id_proof_back'] ?? null,
+                    'photo' => $current['photo'] ?? null,
+                    'has_id_proof' => $hasIdProof,
+                ],
+            ]);
+            return;
         } else {
             // Create new guest
             $stmt = $db->prepare("
@@ -174,6 +202,7 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::success([
             'message' => 'Guest profile processed successfully',
             'guest_id' => $guestId,
+            'existing' => false,
             'guest' => [
                 'id' => $guestId,
                 'name' => $name,
@@ -210,7 +239,7 @@ ApiHandler::run(function(\PDO $db) {
             }
         }
         if (!empty($data['address'])) {
-            $fieldsToUpdate[] = "city = COALESCE(NULLIF(:city, ''), city)";
+            $fieldsToUpdate[] = "city = :city";
             $params['city'] = trim($data['address']);
         }
         if (!empty($data['pincode'])) {

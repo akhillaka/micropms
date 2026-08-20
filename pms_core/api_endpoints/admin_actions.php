@@ -264,8 +264,8 @@ ApiHandler::run(function(\PDO $db) {
         ];
     }
 
-    // 9. Upcoming Checkouts (within 2 hours)
-    $twoHoursLater = date('Y-m-d H:i:s', strtotime('+2 hours'));
+    // 9. Checkout soon — 30 minutes and 15 minutes prior only
+    require_once __DIR__ . '/../../pms_core/services/CheckoutReminderService.php';
     $stmt = $db->prepare("
         SELECT b.id, b.display_id, b.check_out, b.booking_status,
                r.room_number, g.name as guest_name, g.phone as guest_phone
@@ -274,23 +274,30 @@ ApiHandler::run(function(\PDO $db) {
         LEFT JOIN guests g ON b.guest_id = g.id
         WHERE b.booking_status = 'checked_in'
           AND b.check_out > :now
-          AND b.check_out <= :later
+          AND b.check_out <= DATE_ADD(:now2, INTERVAL 32 MINUTE)
           AND b.property_id = :pid
     ");
-    $stmt->execute(['now' => $now, 'later' => $twoHoursLater, 'pid' => $propertyId]);
+    $stmt->execute(['now' => $now, 'now2' => $now, 'pid' => $propertyId]);
     foreach ($stmt->fetchAll() as $row) {
-        $minutes = round((strtotime($row['check_out']) - strtotime($now)) / 60);
+        $minutes = CheckoutReminderService::minutesUntil((string)$row['check_out']);
+        $window = CheckoutReminderService::matchingWindow($minutes);
+        if ($window === null) {
+            continue;
+        }
+        $when = date('g:i A', strtotime($row['check_out']));
         $actions[] = [
+            'id' => CheckoutReminderService::alertId((int)$row['id'], $window),
             'type' => 'upcoming_checkout',
-            'severity' => 'info',
+            'severity' => $window === 15 ? 'warning' : 'info',
             'icon' => 'ph-clock',
-            'title' => 'Checkout Soon',
-            'message' => "{$row['guest_name']} (Room {$row['room_number']}) checking out at " . date('g:i A', strtotime($row['check_out'])),
+            'title' => $window === 30 ? 'Checkout in 30 minutes' : 'Checkout in 15 minutes',
+            'message' => "{$row['guest_name']} (Room {$row['room_number']}) due at {$when}",
+            'milestone' => $window,
             'booking_id' => $row['id'],
             'guest_name' => $row['guest_name'],
             'guest_phone' => $row['guest_phone'],
             'room_number' => $row['room_number'],
-            'minutes_left' => $minutes,
+            'minutes_left' => $window,
             'action_url' => folio_href($row),
             'action_label' => 'View Folio'
         ];

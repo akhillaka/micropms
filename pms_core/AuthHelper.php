@@ -113,9 +113,7 @@ class AuthHelper {
      * Returns a 401 JSON response and exits if unauthorized.
      */
     public static function requireLogin(): void {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        self::hydrateSession(false);
         
         if (!isset($_SESSION['user_id'])) {
             header('Content-Type: application/json');
@@ -164,12 +162,20 @@ class AuthHelper {
     }
 
     /**
+     * Release the session lock so concurrent API polls do not block user actions.
+     * $_SESSION remains readable in memory; reopen with session_start() to write.
+     */
+    public static function releaseSession(): void {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+    }
+
+    /**
      * Non-exiting permission check. Useful for rendering UI elements.
      */
     public static function can(string $permission): bool {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        self::hydrateSession(false);
         
         if (!isset($_SESSION['user_id'])) {
             return false;
@@ -187,6 +193,37 @@ class AuthHelper {
         
         $allowedPerms = self::PERMISSIONS[$role] ?? [];
         return in_array($permission, $allowedPerms, true);
+    }
+
+    /**
+     * Read session from memory after session_write_close() without re-locking.
+     * Re-open only when the request has no hydrated $_SESSION yet.
+     */
+    private static function hydrateSession(bool $forWrite = false): void {
+        if ($forWrite) {
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+            if (empty($_SESSION['user_id'])) {
+                self::resumeRememberedSession();
+            }
+            return;
+        }
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            if (empty($_SESSION['user_id'])) {
+                self::resumeRememberedSession();
+            }
+            return;
+        }
+        if (!empty($_SESSION['user_id']) || !empty($_SESSION['property_id'])) {
+            return;
+        }
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if (empty($_SESSION['user_id'])) {
+            self::resumeRememberedSession();
+        }
     }
 
     public static function normalizeRoleName(string $role): string {
@@ -487,9 +524,7 @@ class AuthHelper {
      * Checks both 'role' and 'access_level' for backward compatibility with active sessions.
      */
     public static function getRole(): ?string {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        self::hydrateSession(false);
         $role = $_SESSION['role'] ?? $_SESSION['access_level'] ?? null;
         
         // Normalize 'front_desk' to 'manager' for backward-compatible active sessions
@@ -511,9 +546,7 @@ class AuthHelper {
      * Returns the currently logged in user info.
      */
     public static function getCurrentUser(): array {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        self::hydrateSession(false);
         return [
             'id'       => $_SESSION['user_id'] ?? null,
             'role'     => self::getRole(),
@@ -526,9 +559,7 @@ class AuthHelper {
      * Throws an exception if no property context exists, preventing silent cross-tenant leaks.
      */
     public static function getPropertyId(): int {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        self::hydrateSession(false);
         if (!isset($_SESSION['property_id']) || (int)$_SESSION['property_id'] <= 0) {
             // Superadmin with no explicit property selected — use their primary_property_id if set
             if (self::isSuperAdmin()) {
@@ -550,9 +581,7 @@ class AuthHelper {
      * Sets the current active property ID in session (for property switcher).
      */
     public static function setPropertyId(int $propertyId): void {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        self::hydrateSession(true);
         $_SESSION['property_id'] = $propertyId;
     }
 
@@ -561,9 +590,7 @@ class AuthHelper {
      * Redirects to the login page if unauthorized.
      */
     public static function requireLoginOrRedirect(): void {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        self::hydrateSession(false);
         
         if (!isset($_SESSION['user_id'])) {
             require_once __DIR__ . '/ModuleHost.php';

@@ -1,15 +1,18 @@
 // Service Worker for Hotel Booking Assistant
-const CACHE_NAME = 'assistant-cache-v2';
+const CACHE_NAME = 'assistant-cache-v5';
 const ASSETS = [
   '/assistant/index.html',
   '/assistant/manifest.json',
-  '/assistant/css/guest_theme.css',
+  '/assistant/css/assistant.css',
   '/assistant/js/app.js',
   '/assistant/js/voice.js',
   '/assistant/js/ocr.js',
   '/assistant/js/voice_commands.js',
-  '/assistant/assets/icon-192.png',
-  '/assistant/assets/icon-512.png'
+  '/icons/logo.svg',
+  '/icons/logo-wordmark.svg',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/favicon-32.png'
 ];
 
 // Install Event
@@ -68,28 +71,34 @@ self.addEventListener('fetch', (event) => {
 
 // Listen for native OS Push Notifications
 self.addEventListener('push', (event) => {
-  let payload = { title: 'Hotel Assistant Update', message: 'You have a new update.' };
-  if (event.data) {
-    try {
-      payload = event.data.json();
-    } catch (e) {
-      payload = { title: 'Hotel Assistant Update', message: event.data.text() };
+  event.waitUntil((async () => {
+    const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const appVisible = windowClients.some((c) => c.visibilityState === 'visible');
+    if (appVisible) {
+      return;
     }
-  }
 
-  const options = {
-    body: payload.message || payload.body || 'New alert in Hotel Assistant',
-    icon: '/assistant/assets/icon-192.png',
-    badge: '/assistant/assets/icon-192.png',
-    vibrate: [100, 50, 100],
-    data: {
-      url: payload.url || '/assistant/index.html'
+    let payload = { title: 'Hotel Assistant Update', message: 'You have a new update.' };
+    if (event.data) {
+      try {
+        payload = event.data.json();
+      } catch (e) {
+        payload = { title: 'Hotel Assistant Update', message: event.data.text() };
+      }
     }
-  };
 
-  event.waitUntil(
-    self.registration.showNotification(payload.title, options)
-  );
+    const options = {
+      body: payload.message || payload.body || 'New alert in Hotel Assistant',
+      icon: '/assistant/assets/icon-192.png',
+      badge: '/icons/icon-96.png',
+      vibrate: [100, 50, 100],
+      data: {
+        url: payload.url || '/assistant/index.html'
+      }
+    };
+
+    await self.registration.showNotification(payload.title, options);
+  })());
 });
 
 // Notification Click Event (opens app window)
@@ -102,7 +111,7 @@ self.addEventListener('notificationclick', (event) => {
       // Check if there is already a window open with this url/path
       for (let i = 0; i < windowClients.length; i++) {
         const client = windowClients[i];
-        if (client.url === urlToOpen && 'focus' in client) {
+        if (String(client.url).includes('/assistant/') && 'focus' in client) {
           return client.focus();
         }
       }

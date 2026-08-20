@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 // Limit execution time to avoid overlapping runs from consuming too much memory
 // A single invocation runs for up to 55 seconds, processing jobs in a loop.
-$endTime = time() + 55;
+$endTime = time() + 20;
 
 require_once __DIR__ . '/services/QueueService.php';
 require_once __DIR__ . '/NotificationRelay.php';
@@ -140,7 +140,7 @@ while (time() < $endTime) {
     
     // If no jobs were processed in this loop, sleep for a bit to prevent CPU spinning
     if (!$jobProcessed) {
-        usleep(500000); // 500ms
+        break;
     }
 }
 

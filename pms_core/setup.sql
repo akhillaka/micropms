@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS `staff_users` (
 
 CREATE TABLE IF NOT EXISTS `system_settings` (
   `key_name` varchar(100) NOT NULL,
-  `key_value` text DEFAULT NULL,
+  `key_value` mediumtext DEFAULT NULL,
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`key_name`)
 ) ENGINE=InnoDB ;
@@ -1405,6 +1405,17 @@ CREATE TABLE IF NOT EXISTS `processed_webhook_events` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_webhook_provider_event` (`provider`,`event_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `notification_milestones` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `property_id` INT NOT NULL,
+  `entity_type` VARCHAR(32) NOT NULL DEFAULT 'booking',
+  `entity_id` INT NOT NULL,
+  `milestone` VARCHAR(64) NOT NULL,
+  `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uniq_milestone` (`entity_type`, `entity_id`, `milestone`),
+  KEY `idx_property` (`property_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS `schema_migrations` (
   `version` VARCHAR(50) NOT NULL PRIMARY KEY,

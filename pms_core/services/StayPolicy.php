@@ -82,6 +82,25 @@ class StayPolicy {
     }
 
     /**
+     * Guests may check in at or after the booked time, never before.
+     * Change the stay's check-in time first if they arrived early.
+     */
+    public static function assertCheckInTime(array $booking, ?int $nowTs = null): void {
+        $nowTs = $nowTs ?? time();
+        $scheduled = strtotime((string)($booking['check_in'] ?? ''));
+        if ($scheduled === false) {
+            return;
+        }
+        if ($nowTs + 60 < $scheduled) {
+            $when = date('g:i A', $scheduled);
+            $day = date('d M Y', $scheduled);
+            throw new \Exception(
+                "Check-in is scheduled for {$day} at {$when}. It cannot be performed yet. Change the booking check-in time first if the guest arrived early."
+            );
+        }
+    }
+
+    /**
      * Flags for UI (folio, assistant, telegram menus).
      *
      * @param array<string, mixed> $booking

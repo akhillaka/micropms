@@ -81,12 +81,12 @@ foreach ($properties as $prop) {
         } catch (\Throwable $e) {
             echo "[ICAL][$propName] Failed: " . $e->getMessage() . "\n";
         }
-    }
-    try {
-        $days = ReportingCacheService::refreshProperty($db, $propId, 2);
-        echo "[REPORTS][$propName] Cached {$days} day(s).\n";
-    } catch (\Throwable $e) {
-        echo "[REPORTS][$propName] Failed: " . $e->getMessage() . "\n";
+        try {
+            $days = ReportingCacheService::refreshProperty($db, $propId, 2);
+            echo "[REPORTS][$propName] Cached {$days} day(s).\n";
+        } catch (\Throwable $e) {
+            echo "[REPORTS][$propName] Failed: " . $e->getMessage() . "\n";
+        }
     }
 }
 
@@ -125,38 +125,13 @@ $sweptCount = $sweepStmt->rowCount();
 echo "[SWEEP] Swept {$sweptCount} abandoned holds.\n";
 
 // ═══════════════════════════════════════════════════════════════
-// 3. PRE-DEPARTURE WARNING — 30 minutes before check_out
+// 3. PRE-DEPARTURE — once at 30 minutes and once at 15 minutes
 // ═══════════════════════════════════════════════════════════════
 
-echo "[PRE-DEPARTURE] Checking upcoming checkouts...\n";
-$warnStmt = $db->prepare("SELECT b.*, r.room_number, g.phone as guest_phone FROM bookings b 
-                          JOIN rooms r ON b.room_id = r.id 
-                          LEFT JOIN guests g ON b.guest_id = g.id
-                          WHERE b.payment_status = 'completed_paid'
-                          AND b.booking_status = 'checked_in'
-                          AND b.check_out BETWEEN DATE_ADD(NOW(), INTERVAL 25 MINUTE) AND DATE_ADD(NOW(), INTERVAL 30 MINUTE)");
-$warnStmt->execute();
-$warnings = $warnStmt->fetchAll();
-
-foreach ($warnings as $w) {
-    $msg = "Reminder: Your checkout for Room {$w['room_number']} is at " . date('H:i', strtotime($w['check_out'])) . ".";
-    $phoneE164 = PhoneHelper::toE164($w['guest_phone'] ?? '');
-    if ($phoneE164 === null) {
-        $phoneE164 = preg_replace('/[^0-9]/', '', $w['guest_phone'] ?? '');
-    }
-    if (empty($phoneE164)) continue;
-    
-    $autoTriggered = NotificationRelay::triggerAutomation('pre_departure', $phoneE164, (int)$w['id'], [
-        'checkout_time' => date('h:i A', strtotime($w['check_out']))
-    ]);
-    
-    if (!$autoTriggered) {
-        $waRes = NotificationRelay::sendWhatsApp($phoneE164, $msg, false);
-        echo "[PRE-DEPARTURE] Sent fallback warning for booking {$w['id']}.\n";
-    } else {
-        echo "[PRE-DEPARTURE] Triggered template warning for booking {$w['id']}.\n";
-    }
-}
+require_once __DIR__ . '/../pms_core/services/CheckoutReminderService.php';
+echo "[PRE-DEPARTURE] Checking 30- and 15-minute checkout windows...\n";
+$reminderCount = CheckoutReminderService::dispatchDue($db);
+echo "[PRE-DEPARTURE] Sent {$reminderCount} reminder(s).\n";
 
 // ═══════════════════════════════════════════════════════════════
 // 3.5. POS ABANDONED ORDERS — Pending delivery > 30 mins
@@ -172,8 +147,13 @@ $posStmt->execute();
 $abandonedOrders = $posStmt->fetchAll();
 
 foreach ($abandonedOrders as $order) {
+    $orderId = (int)$order['id'];
+    $propertyId = (int)$order['property_id'];
+    if (!CheckoutReminderService::claim($db, $propertyId, 'pos_order', $orderId, 'abandoned_30m')) {
+        continue;
+    }
     $msg = "Alert: POS Order #{$order['id']} for Room {$order['room_number']} has been pending delivery for over 30 minutes.";
-    NotificationRelay::sendTelegram($msg, 'system_alert');
+    NotificationRelay::sendTelegram($msg, 'system_alert', [], $propertyId);
     echo "[POS ABANDONED] Sent alert for order {$order['id']}.\n";
 }
 
@@ -191,7 +171,11 @@ $overstayStmt->execute();
 $overstays = $overstayStmt->fetchAll();
 
 foreach ($overstays as $o) {
-    // Room stays occupied until actual checkout; we only alert staff here.
+    $bookingId = (int)$o['id'];
+    $propertyId = (int)($o['property_id'] ?? 0);
+    if ($propertyId > 0 && !CheckoutReminderService::claim($db, $propertyId, 'booking', $bookingId, 'overstay')) {
+        continue;
+    }
 
     $msg = "\u26a0\ufe0f <b>Overstay Alert</b>\n\nRoom: {$o['room_number']}\nGuest: " . htmlspecialchars((string)($o['guest_name'] ?? 'N/A')) . "\nCheckout was: {$o['check_out']}\nGuest has not checked out. Please investigate.";
 
@@ -200,7 +184,7 @@ foreach ($overstays as $o) {
         'room_number'    => $o['room_number'],
         'check_out_date' => $o['check_out']
     ];
-    NotificationRelay::sendTelegram($msg, 'overstay', $context);
+    NotificationRelay::sendTelegram($msg, 'overstay', $context, $propertyId > 0 ? $propertyId : null);
     echo "[OVERSTAY] Flagged overstay for room {$o['room_number']}.\n";
 }
 

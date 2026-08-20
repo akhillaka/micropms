@@ -62,6 +62,9 @@ class BookingAssistant {
     this.paymentCategories = ['Room Revenue', 'F&B', 'Other'];
     this.activeGateways = [];
     this.razorpayKeyId = '';
+    this.liveSyncInFlight = false;
+    this.syncIntervalMs = 20000;
+    this.searchPhoneVal = '';
 
     this.init();
   }
@@ -126,19 +129,51 @@ class BookingAssistant {
       const response = await this.apiCall('api/auth.php?action=status');
       this.hideLoading();
       if (response && response.success && response.logged_in) {
-        this.currentUser = response.user;
-        this.csrfToken = response.csrf_token;
-        if (this.csrfToken) window.__PMS_CSRF = this.csrfToken;
-        document.getElementById('user-display-name').textContent = this.currentUser.username.toUpperCase();
-        this.showScreen('dashboard');
-        this.startLiveSync();
+        this.enterAppAfterAuth(response.user, response.csrf_token);
       } else {
-        this.loadStaffListForLogin();
+        this.showLoginScreen();
       }
     } catch (e) {
       this.hideLoading();
-      this.loadStaffListForLogin();
+      this.showLoginScreen();
     }
+  }
+
+  enterAppAfterAuth(user, csrfToken) {
+    this.currentUser = user;
+    this.csrfToken = csrfToken || '';
+    if (this.csrfToken) window.__PMS_CSRF = this.csrfToken;
+    const nameEl = document.getElementById('user-display-name');
+    if (nameEl) nameEl.textContent = (this.currentUser.username || '').toUpperCase();
+    const header = document.getElementById('header-user');
+    if (header) header.style.display = 'flex';
+    const nav = document.getElementById('bottom-nav');
+    if (nav) nav.style.display = 'flex';
+    try {
+      localStorage.setItem('assistant_login_property_id', String(user.property_id || localStorage.getItem('assistant_login_property_id') || ''));
+      localStorage.setItem('assistant_login_username', user.username || '');
+    } catch (e) {}
+    this.showScreen('dashboard');
+    this.startLiveSync();
+    this.subscribeAssistantPush();
+  }
+
+  showLoginScreen() {
+    this.showScreen('login');
+    const header = document.getElementById('header-user');
+    if (header) header.style.display = 'none';
+    const nav = document.getElementById('bottom-nav');
+    if (nav) nav.style.display = 'none';
+    try {
+      const pid = localStorage.getItem('assistant_login_property_id') || '';
+      const uname = localStorage.getItem('assistant_login_username') || '';
+      const pidEl = document.getElementById('login-property-id');
+      const userEl = document.getElementById('login-username');
+      if (pidEl && !pidEl.value) pidEl.value = pid;
+      if (userEl && !userEl.value) userEl.value = uname;
+    } catch (e) {}
+    const pinEl = document.getElementById('login-pin');
+    if (pinEl) pinEl.value = '';
   }
 
   playChime() {
@@ -172,12 +207,11 @@ class BookingAssistant {
   startLiveSync() {
     if (this.syncInterval) clearInterval(this.syncInterval);
 
-    // Auto-poll every 6 seconds
     this.syncInterval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         this.performLiveSync();
       }
-    }, 6000);
+    }, this.syncIntervalMs);
 
     if (!this.boundVisibilityHandler) {
       this.boundVisibilityHandler = () => {
@@ -188,26 +222,74 @@ class BookingAssistant {
       document.addEventListener('visibilitychange', this.boundVisibilityHandler);
     }
 
-    // Register Service Worker and request notifications permissions
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js')
-        .then(reg => {
-          console.log('[SW] Registered successfully:', reg);
-          if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission();
-          }
-        })
-        .catch(err => console.error('[SW] Registration failed:', err));
+    // Register Service Worker for closed-app Web Push
+    this.registerAssistantServiceWorker();
+  }
+
+  async registerAssistantServiceWorker() {
+    if (!('serviceWorker' in navigator)) return null;
+    try {
+      return await navigator.serviceWorker.register('sw.js', { scope: '/assistant/' });
+    } catch (err) {
+      console.error('[SW] Registration failed:', err);
+      return null;
     }
   }
 
-  async performLiveSync() {
-    if (!this.currentUser) return;
+  urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(base64);
+    const output = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
+    return output;
+  }
+
+  async subscribeAssistantPush() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
     try {
-      // 1. Silent dashboard update
+      await this.registerAssistantServiceWorker();
+      if (Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+      if (Notification.permission !== 'granted') return;
+      const vapidRes = await this.apiCall('/api/admin/push_subscribe');
+      const publicKey = vapidRes && (vapidRes.publicKey || (vapidRes.data && vapidRes.data.publicKey));
+      if (!publicKey) return;
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: this.urlBase64ToUint8Array(publicKey)
+        });
+      }
+      await this.apiCall('/api/admin/push_subscribe', Object.assign({ action: 'subscribe', client: 'assistant' }, sub.toJSON()));
+    } catch (e) {
+      console.warn('Assistant push subscribe skipped', e);
+    }
+  }
+
+  async unsubscribeAssistantPush() {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (!sub) return;
+      await this.apiCall('/api/admin/push_subscribe', { action: 'unsubscribe', endpoint: sub.endpoint });
+      await sub.unsubscribe();
+    } catch (e) {}
+  }
+
+  async performLiveSync() {
+    if (!this.currentUser || this.liveSyncInFlight) return;
+    const loadingOverlay = document.getElementById('loading-overlay');
+    if (loadingOverlay && loadingOverlay.classList.contains('active')) return;
+
+    this.liveSyncInFlight = true;
+    try {
       await this.loadDashboardData(true);
 
-      // 2. Silent active screen update if no popup is active
       const isModalActive = document.querySelector('.modal-overlay.active');
       if (!isModalActive) {
         if (this.activeScreen === 'history') {
@@ -220,6 +302,8 @@ class BookingAssistant {
       }
     } catch (e) {
       // Ignore background sync errors silently
+    } finally {
+      this.liveSyncInFlight = false;
     }
   }
 
@@ -571,123 +655,38 @@ class BookingAssistant {
     }
   }
 
-  // Fetch staff users list for login grid
-  async loadStaffListForLogin() {
-    this.showScreen('login');
-    document.getElementById('header-user').style.display = 'none';
-    document.getElementById('bottom-nav').style.display = 'none';
-    
-    this.showLoading('Loading staff...');
-    try {
-      const res = await this.apiCall('api/auth.php?action=list_staff');
-      this.hideLoading();
-      
-      const grid = document.getElementById('login-staff-list');
-      grid.innerHTML = '';
-      
-      if (res && res.success && res.staff) {
-        res.staff.forEach(user => {
-          const card = document.createElement('div');
-          card.className = 'staff-avatar-card';
-          card.onclick = (e) => this.selectStaffForLogin(user, e);
-          card.innerHTML = `
-            <div class="staff-avatar-icon">${user.username.substring(0,2).toUpperCase()}</div>
-            <div style="font-weight:800; font-size:0.95rem;">${user.username.toUpperCase()}</div>
-            <div style="font-size:0.75rem; color:var(--color-text-secondary); font-weight:700; text-transform:uppercase;">${user.role}</div>
-          `;
-          grid.appendChild(card);
-        });
-      }
-    } catch (e) {
-      this.hideLoading();
-      this.showToast(e.message || 'Failed to load staff list', 'danger');
-    }
-  }
+  async submitLoginForm(event) {
+    if (event) event.preventDefault();
+    const propertyId = parseInt((document.getElementById('login-property-id') || {}).value, 10) || 0;
+    const username = ((document.getElementById('login-username') || {}).value || '').trim();
+    const pin = ((document.getElementById('login-pin') || {}).value || '').trim();
 
-  selectStaffForLogin(user, event) {
-    // Highlight card
-    const cards = document.querySelectorAll('.staff-avatar-card');
-    cards.forEach(c => c.classList.remove('selected'));
-    
-    if (event && event.currentTarget) {
-      event.currentTarget.classList.add('selected');
-    }
-    
-    // Setup login keypad panel
-    this.loginTargetUser = user;
-    document.getElementById('login-target-username').textContent = user.username.toUpperCase();
-    document.getElementById('login-numpad-wrapper').style.display = 'flex';
-    
-    this.numpadValue = '';
-    this.updateLoginPinDisplay();
-    
-    // Voice prompt
-    Voice.speak(`Please enter your PIN code.`);
-  }
-
-  pressLoginKey(key) {
-    if (key === 'clear') {
-      this.numpadValue = '';
-    } else if (key === 'back') {
-      this.numpadValue = this.numpadValue.slice(0, -1);
-    } else {
-      if (this.numpadValue.length < 4) {
-        this.numpadValue += key;
-      }
-    }
-    this.updateLoginPinDisplay();
-  }
-
-  updateLoginPinDisplay() {
-    const display = document.getElementById('login-pin-display');
-    if (this.numpadValue.length === 0) {
-      display.textContent = '● ● ● ●';
-      display.classList.add('empty');
-    } else {
-      let stars = '';
-      for (let i = 0; i < this.numpadValue.length; i++) stars += '★ ';
-      for (let i = this.numpadValue.length; i < 4; i++) stars += '● ';
-      display.textContent = stars.trim();
-      display.classList.remove('empty');
-    }
-  }
-
-  async submitLoginPin() {
-    if (this.numpadValue.length !== 4) {
-      this.showToast('Please enter complete 4-digit PIN', 'warning');
+    if (propertyId <= 0 || !username || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+      this.showToast('Enter property ID, username, and a 4-digit PIN', 'warning');
       return;
     }
 
-    this.showLoading('Verifying PIN...');
+    this.showLoading('Signing in...');
     try {
       const res = await this.apiCall('api/auth.php?action=login', {
-        user_id: this.loginTargetUser.id,
-        pin: this.numpadValue
+        action: 'login',
+        property_id: propertyId,
+        username,
+        pin
       });
       this.hideLoading();
 
       if (res && res.success) {
-        this.currentUser = res.user;
-        this.csrfToken = res.csrf_token;
-        if (this.csrfToken) window.__PMS_CSRF = this.csrfToken;
-        document.getElementById('user-display-name').textContent = this.currentUser.username.toUpperCase();
-        document.getElementById('header-user').style.display = 'flex';
-        document.getElementById('bottom-nav').style.display = 'flex';
-        document.getElementById('login-numpad-wrapper').style.display = 'none';
-        
-        this.showScreen('dashboard');
-        this.startLiveSync();
+        this.enterAppAfterAuth(res.user, res.csrf_token);
         Voice.speak(`Welcome back ${this.currentUser.username}.`);
-        
-        // Show tutorial on first launch
         if (!this.tutorialSeen) {
           setTimeout(() => this.showTutorial(), 1500);
         }
       } else {
         this.showToast(res.message || 'Incorrect PIN', 'danger');
-        Voice.speak(`Incorrect PIN. Try again.`);
-        this.numpadValue = '';
-        this.updateLoginPinDisplay();
+        Voice.speak('Incorrect PIN. Try again.');
+        const pinEl = document.getElementById('login-pin');
+        if (pinEl) pinEl.value = '';
       }
     } catch (e) {
       this.hideLoading();
@@ -696,12 +695,14 @@ class BookingAssistant {
   }
 
   // Load Dashboard statistical information
-  async loadDashboardData() {
+  async loadDashboardData(isBackground = false) {
     try {
-      ['db-stat-occupied', 'db-stat-available', 'db-stat-cleaning', 'stat-available', 'stat-occupied', 'stat-cleaning'].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el && window.ApiClient) ApiClient.showSkeleton(el, { type: 'kpi' });
-      });
+      if (!isBackground) {
+        ['db-stat-occupied', 'db-stat-available', 'db-stat-cleaning', 'stat-available', 'stat-occupied', 'stat-cleaning'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el && window.ApiClient) ApiClient.showSkeleton(el, { type: 'kpi' });
+        });
+      }
       const res = await this.apiCall('api/dashboard.php');
       if (res && res.success) {
         document.getElementById('stat-available').textContent = res.summary.available_rooms;
@@ -747,13 +748,15 @@ class BookingAssistant {
           navBadge.style.display = 'none';
         }
 
+        const alertKey = (a) => a.id || [a.type || '', a.booking_id || '', a.milestone || '', a.title || ''].join('_');
+
         // Real-time notification chime & native OS notification
         if (this.seenAlerts === undefined) {
-          this.seenAlerts = new Set(res.alerts.map(a => a.id || (a.title + '_' + a.message)));
+          this.seenAlerts = new Set(res.alerts.map(alertKey));
         } else {
           let hasNewAlert = false;
           res.alerts.forEach(alert => {
-            const key = alert.id || (alert.title + '_' + alert.message);
+            const key = alertKey(alert);
             if (!this.seenAlerts.has(key)) {
               hasNewAlert = true;
               this.seenAlerts.add(key);
@@ -764,7 +767,7 @@ class BookingAssistant {
                     registration.showNotification(alert.title, {
                       body: alert.message,
                       icon: '/assistant/assets/icon-192.png',
-                      badge: '/assistant/assets/icon-192.png',
+                      badge: '/icons/icon-96.png',
                       vibrate: [100, 50, 100],
                       data: { url: '/assistant/index.html' }
                     });
@@ -788,41 +791,46 @@ class BookingAssistant {
           }
         }
 
-        // Render dashboard alerts
-        const alertsList = document.getElementById('dashboard-alerts-list');
-        alertsList.innerHTML = '';
-        
-        if (res.alerts.length === 0) {
-          alertsList.innerHTML = `
+        const alertFingerprint = res.alerts.map(alertKey).join('|');
+        const alertsChanged = this._dashboardAlertFingerprint !== alertFingerprint;
+        this._dashboardAlertFingerprint = alertFingerprint;
+
+        // Render dashboard alerts (skip DOM rebuild on unchanged background polls)
+        if (!isBackground || alertsChanged) {
+          const alertsList = document.getElementById('dashboard-alerts-list');
+          if (alertsList) {
+            alertsList.innerHTML = '';
+
+            if (res.alerts.length === 0) {
+              alertsList.innerHTML = `
             <div style="text-align:center; padding: 20px; color: var(--color-text-muted); font-weight:700;">
               <span style="font-size: 2.5rem; display:block; margin-bottom:6px; line-height:1;">✅</span>
               Everything is clean & verified!
             </div>
           `;
-        } else {
-          res.alerts.slice(0, 3).forEach(alert => {
-            const alertClass = (alert.severity === 'critical' || alert.severity === 'danger') ? 'danger' : (alert.severity === 'warning' ? 'warning' : 'info');
-            const card = document.createElement('div');
-            card.className = `alert-box alert-box-${alertClass}`;
-            card.style.cssText = 'display:flex;align-items:center;gap:12px;padding:14px;border-radius:14px;cursor:pointer;margin-bottom:8px;';
-            card.onclick = () => this.handleAlertClick(alert);
-            
-            // Color-coded SVG icon per alert type
-            const iconMap = {
-              dirty_room:        ['#f59e0b', '<path d="M243.31,115.48,208,80.18V48a8,8,0,0,0-8-8H56a8,8,0,0,0-8,8V80.18l-35.32,35.3A8,8,0,0,0,24,128H40v80a8,8,0,0,0,8,8H208a8,8,0,0,0,8-8V128h16a8,8,0,0,0,5.66-13.52Z"/>'],
-              today_arrival:     ['#10b981', '<path d="M141.66,133.66l-40,40a8,8,0,0,1-11.32-11.32L116.69,136H24a8,8,0,0,1,0-16h92.69L90.34,93.66a8,8,0,0,1,11.32-11.32l40,40A8,8,0,0,1,141.66,133.66ZM192,32H160a8,8,0,0,0,0,16h32V208H160a8,8,0,0,0,0,16h32a16,16,0,0,0,16-16V48A16,16,0,0,0,192,32Z"/>'],
-              new_booking:       ['#2563eb', '<path d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32Zm0,176H48V88H208Z"/>'],
-              today_departure:   ['#ef4444', '<path d="M114.34,122.34a8,8,0,0,1,11.32,0l40,40a8,8,0,0,1-11.32,11.32L128,147.31V240a8,8,0,0,1-16,0V147.31L85.66,173.66a8,8,0,0,1-11.32-11.32ZM192,32H96a16,16,0,0,0-16,16V80a8,8,0,0,0,16,0V48h96V208H96V176a8,8,0,0,0-16,0v32a16,16,0,0,0,16,16h96a16,16,0,0,0,16-16V48A16,16,0,0,0,192,32Z"/>'],
-              missing_id:        ['#6366f1', '<path d="M72,88a32,32,0,1,1,32,32A32,32,0,0,1,72,88Zm152,88H200V160a8,8,0,0,0-16,0v16H152a8,8,0,0,0,0,16h32v16a8,8,0,0,0,16,0V192h32a8,8,0,0,0,0-16Z"/>'],
-              pending_payment:   ['#16a34a', '<path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48Zm0,144H32V64H224Z"/>'],
-              overdue_checkout:  ['#dc2626', '<path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM120,104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm8,88a12,12,0,1,1,12-12A12,12,0,0,1,128,192Z"/>'],
-              upcoming_checkout: ['#d97706', '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/>'],
-              overdue_checkin:   ['#ea580c', '<path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09Z"/>'],
-              booking_hold:      ['#64748b', '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Z"/>'],
-            };
-            const [iconColor, iconPath] = iconMap[alert.type] || ['#64748b', '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Z"/>'];
-            
-            card.innerHTML = `
+            } else {
+              res.alerts.slice(0, 3).forEach(alert => {
+                const alertClass = (alert.severity === 'critical' || alert.severity === 'danger') ? 'danger' : (alert.severity === 'warning' ? 'warning' : 'info');
+                const card = document.createElement('div');
+                card.className = `alert-box alert-box-${alertClass}`;
+                card.style.cssText = 'display:flex;align-items:center;gap:12px;padding:14px;border-radius:14px;cursor:pointer;margin-bottom:8px;';
+                card.onclick = () => this.handleAlertClick(alert);
+
+                const iconMap = {
+                  dirty_room:        ['#f59e0b', '<path d="M243.31,115.48,208,80.18V48a8,8,0,0,0-8-8H56a8,8,0,0,0-8,8V80.18l-35.32,35.3A8,8,0,0,0,24,128H40v80a8,8,0,0,0,8,8H208a8,8,0,0,0,8-8V128h16a8,8,0,0,0,5.66-13.52Z"/>'],
+                  today_arrival:     ['#10b981', '<path d="M141.66,133.66l-40,40a8,8,0,0,1-11.32-11.32L116.69,136H24a8,8,0,0,1,0-16h92.69L90.34,93.66a8,8,0,0,1,11.32-11.32l40,40A8,8,0,0,1,141.66,133.66ZM192,32H160a8,8,0,0,0,0,16h32V208H160a8,8,0,0,0,0,16h32a16,16,0,0,0,16-16V48A16,16,0,0,0,192,32Z"/>'],
+                  new_booking:       ['#2563eb', '<path d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32Zm0,176H48V88H208Z"/>'],
+                  today_departure:   ['#ef4444', '<path d="M114.34,122.34a8,8,0,0,1,11.32,0l40,40a8,8,0,0,1-11.32,11.32L128,147.31V240a8,8,0,0,1-16,0V147.31L85.66,173.66a8,8,0,0,1-11.32-11.32ZM192,32H96a16,16,0,0,0-16,16V80a8,8,0,0,0,16,0V48h96V208H96V176a8,8,0,0,0-16,0v32a16,16,0,0,0,16,16h96a16,16,0,0,0,16-16V48A16,16,0,0,0,192,32Z"/>'],
+                  missing_id:        ['#6366f1', '<path d="M72,88a32,32,0,1,1,32,32A32,32,0,0,1,72,88Zm152,88H200V160a8,8,0,0,0-16,0v16H152a8,8,0,0,0,0,16h32v16a8,8,0,0,0,16,0V192h32a8,8,0,0,0,0-16Z"/>'],
+                  pending_payment:   ['#16a34a', '<path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48Zm0,144H32V64H224Z"/>'],
+                  overdue_checkout:  ['#dc2626', '<path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM120,104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm8,88a12,12,0,1,1,12-12A12,12,0,0,1,128,192Z"/>'],
+                  upcoming_checkout: ['#d97706', '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/>'],
+                  overdue_checkin:   ['#ea580c', '<path d="M236.8,188.09,149.35,36.22a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09Z"/>'],
+                  booking_hold:      ['#64748b', '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Z"/>'],
+                };
+                const [iconColor, iconPath] = iconMap[alert.type] || ['#64748b', '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Z"/>'];
+
+                card.innerHTML = `
               <div style="width:44px;height:44px;border-radius:12px;background:${iconColor}20;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" style="width:22px;height:22px;fill:${iconColor};">${iconPath}</svg>
               </div>
@@ -832,31 +840,29 @@ class BookingAssistant {
               </div>
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" style="width:18px;height:18px;fill:var(--color-text-muted);flex-shrink:0;"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>
             `;
-            alertsList.appendChild(card);
-          });
-        }
-        
-        // Voice summary on dashboard load
-        const summary = res.summary;
-        const alertCount = res.alerts.length;
-        let voiceMsg = '';
-        
-        if (alertCount > 0) {
-          // Prioritize critical alerts
-          const criticalAlerts = res.alerts.filter(a => a.severity === 'critical');
-          const warningAlerts = res.alerts.filter(a => a.severity === 'warning');
-          
-          if (criticalAlerts.length > 0) {
-            voiceMsg = `Attention! ${criticalAlerts[0].message}. `;
+                alertsList.appendChild(card);
+              });
+            }
           }
-          
-          voiceMsg += `${summary.available_rooms} rooms available. ${summary.occupied_rooms} occupied. ${summary.cleaning_rooms} need cleaning. ${alertCount} alerts.`;
-        } else {
-          voiceMsg = `All good! ${summary.available_rooms} rooms available. ${summary.occupied_rooms} occupied. No alerts.`;
         }
-        
-        // Delay voice slightly so UI renders first
-        setTimeout(() => Voice.speak(voiceMsg), 500);
+
+        if (!isBackground) {
+          const summary = res.summary;
+          const alertCount = res.alerts.length;
+          let voiceMsg = '';
+
+          if (alertCount > 0) {
+            const criticalAlerts = res.alerts.filter(a => a.severity === 'critical');
+            if (criticalAlerts.length > 0) {
+              voiceMsg = `Attention! ${criticalAlerts[0].message}. `;
+            }
+            voiceMsg += `${summary.available_rooms} rooms available. ${summary.occupied_rooms} occupied. ${summary.cleaning_rooms} need cleaning. ${alertCount} alerts.`;
+          } else {
+            voiceMsg = `All good! ${summary.available_rooms} rooms available. ${summary.occupied_rooms} occupied. No alerts.`;
+          }
+
+          setTimeout(() => Voice.speak(voiceMsg), 500);
+        }
       }
     } catch (e) {
       console.error('Failed to load dashboard statistics:', e.message || e);
@@ -954,6 +960,11 @@ class BookingAssistant {
     };
 
     this.showWizardStep(1);
+    this.searchPhoneVal = '';
+    const results = document.getElementById('search-results-list');
+    if (results) results.innerHTML = '';
+    const createWrap = document.getElementById('search-create-guest-wrap');
+    if (createWrap) createWrap.style.display = 'none';
     Voice.speak(`New Booking. Step 1. Please search by mobile number or speak the guest's name.`);
   }
 
@@ -993,7 +1004,17 @@ class BookingAssistant {
         }
       }
     } else if (stepNum === 2) {
-      // Reset name input field
+      const phone = this.wizardData.guest_phone || this.searchPhoneVal || '';
+      const phoneDisplay = document.getElementById('txt-new-guest-phone');
+      const phoneContainer = document.getElementById('new-guest-phone-display');
+      if (phone && phoneDisplay) {
+        phoneDisplay.textContent = phone;
+        phoneContainer?.classList.remove('empty');
+        this.wizardData.guest_phone = phone;
+      } else if (phoneDisplay) {
+        phoneDisplay.textContent = 'Tap to enter phone number';
+        phoneContainer?.classList.add('empty');
+      }
       const nameInput = document.getElementById('txt-spoken-guest-name-input');
       if (nameInput) nameInput.value = this.wizardData.guest_name || '';
     } else if (stepNum === 4) {
@@ -1043,14 +1064,13 @@ class BookingAssistant {
     this.openNumpadPopup(target, '📱 Enter 10-Digit Phone Number', '', (val) => {
       if (val.length === 10 && /^\d{10}$/.test(val)) {
         if (target === 'search_phone') {
-          // Update search display
+          this.searchPhoneVal = val;
           const display = document.getElementById('txt-search-phone');
           const container = document.getElementById('wizard-search-phone-display');
           if (display) {
             display.textContent = val;
             container?.classList.remove('empty');
           }
-          // Trigger search
           this.searchGuests(val);
         } else if (target === 'new_phone') {
           // Update new guest phone display
@@ -1070,15 +1090,24 @@ class BookingAssistant {
   }
 
   async searchGuests(query) {
-    if (query.length < 2) return;
-    
+    const q = String(query || '').trim();
+    if (q.length < 2) return;
+
+    const digits = q.replace(/\D/g, '');
+    if (digits.length === 10) {
+      this.searchPhoneVal = digits;
+    }
+
     this.showLoading('Searching guests...');
     try {
-      const res = await this.apiCall(`api/guests.php?action=search&q=${query}`);
+      const res = await this.apiCall(`api/guests.php?action=search&q=${encodeURIComponent(q)}`);
       this.hideLoading();
       
       const list = document.getElementById('search-results-list');
+      const createWrap = document.getElementById('search-create-guest-wrap');
+      const createBtn = document.getElementById('btn-create-guest-from-search');
       list.innerHTML = '';
+      if (createWrap) createWrap.style.display = 'none';
       
       if (res && res.success && res.guests && res.guests.length > 0) {
         res.guests.forEach(guest => {
@@ -1115,12 +1144,19 @@ class BookingAssistant {
         });
         Voice.speak(`Found ${res.guests.length} guest records. Select one to proceed.`);
       } else {
+        const phoneHint = this.searchPhoneVal || digits;
         list.innerHTML = `
           <div style="text-align:center; padding: 20px; color: var(--color-text-secondary); font-weight:700;">
-            No guest found. Click "NEW GUEST PROFILE" below to create.
+            No guest found${phoneHint ? ` for ${phoneHint}` : ''}.
           </div>
         `;
-        Voice.speak(`No guest records found. Create a new guest.`);
+        if (createWrap && createBtn && phoneHint.length === 10) {
+          createBtn.textContent = `Create new guest · ${phoneHint}`;
+          createWrap.style.display = 'block';
+        }
+        Voice.speak(phoneHint.length === 10
+          ? `No guest found. Create a new guest with mobile number ${phoneHint.split('').join(' ')}.`
+          : 'No guest records found. Enter a mobile number to create a new guest.');
       }
     } catch (e) {
       this.hideLoading();
@@ -1139,6 +1175,8 @@ class BookingAssistant {
         if (phoneDisplay) phoneDisplay.textContent = transcript;
         const phoneContainer = document.getElementById('wizard-search-phone-display');
         if (phoneContainer) phoneContainer.classList.remove('empty');
+        const spokenDigits = transcript.replace(/\D/g, '');
+        if (spokenDigits.length === 10) this.searchPhoneVal = spokenDigits;
         this.searchGuests(transcript);
       },
       () => {
@@ -1153,6 +1191,22 @@ class BookingAssistant {
         btn.classList.remove('recording');
       }
     );
+  }
+
+  startNewGuestFromSearch(phoneOverride) {
+    const phone = String(phoneOverride || this.searchPhoneVal || '').replace(/\D/g, '');
+    if (phone.length !== 10) {
+      this.showToast('Search by 10-digit mobile first, then create a new guest', 'warning');
+      Voice.speak('Please enter the guest mobile number first.');
+      return;
+    }
+    this.searchPhoneVal = phone;
+    this.wizardData.guest_phone = phone;
+    this.wizardData.guest_name = '';
+    this.wizardData.guest_id = null;
+    this.wizardData.is_new_guest = true;
+    this.nextWizardStep(2);
+    Voice.speak(`Create new guest profile for mobile number ${phone.split('').join(' ')}. Enter the guest name.`);
   }
 
   selectGuestForWizard(guest) {
@@ -1248,6 +1302,15 @@ class BookingAssistant {
       this.hideLoading();
 
       if (res && (res.success || res.queued)) {
+        if (res.existing && res.guest) {
+          this.selectGuestForWizard({
+            ...res.guest,
+            outstanding_balance: 0,
+            stay_count: 0,
+          });
+          this.showToast(`Using existing guest ${res.guest.name}`, 'info');
+          return;
+        }
         this.wizardData.guest_id = res.queued ? clientId : res.guest_id;
         this.wizardData.is_new_guest = true;
         this.wizardData.id_status = res.queued ? 'Offline Draft' : 'Pending';
@@ -3850,6 +3913,7 @@ class BookingAssistant {
   async logout() {
     this.showLoading('Logging out...');
     try {
+      await this.unsubscribeAssistantPush();
       await this.apiCall('api/auth.php?action=logout');
     } catch (e) {}
     
@@ -3857,7 +3921,11 @@ class BookingAssistant {
     this.currentUser = null;
     this.csrfToken = '';
     window.__PMS_CSRF = '';
-    this.loadStaffListForLogin();
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+      this.syncInterval = null;
+    }
+    this.showLoginScreen();
   }
 
   // --- REUSABLE NUMPAD SYSTEM POPUP ---
