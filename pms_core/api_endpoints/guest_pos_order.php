@@ -178,11 +178,15 @@ try {
     ], $propertyId);
 
     $db->commit();
+    require_once __DIR__ . '/../../pms_core/DeferredSideEffects.php';
+    DeferredSideEffects::flushAndDrain(3, 600);
     echo json_encode(['success' => true, 'message' => 'Order placed successfully! It will be delivered to your room soon.']);
 
 } catch (Exception $e) {
     if ($db->inTransaction()) {
         $db->rollBack();
     }
+    require_once __DIR__ . '/../../pms_core/DeferredSideEffects.php';
+    DeferredSideEffects::discard();
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }

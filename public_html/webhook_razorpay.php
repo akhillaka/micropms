@@ -62,6 +62,8 @@ try {
                     $db->prepare("INSERT INTO processed_webhook_events (provider, event_id) VALUES ('razorpay', ?)")->execute([$paymentId]);
                 } catch (\PDOException $e) {
                     $db->rollBack();
+                    require_once __DIR__ . '/../pms_core/DeferredSideEffects.php';
+                    DeferredSideEffects::discard();
                     http_response_code(200);
                     echo "OK: Already processed";
                     exit;
@@ -70,6 +72,8 @@ try {
                 $checkRef->execute(['ref' => $paymentId]);
                 if ((int)$checkRef->fetchColumn() > 0) {
                     $db->rollBack();
+                    require_once __DIR__ . '/../pms_core/DeferredSideEffects.php';
+                    DeferredSideEffects::discard();
                     http_response_code(200);
                     echo "OK: Already processed";
                     exit;
@@ -120,8 +124,12 @@ try {
                 } catch (\Throwable $sideEffectError) {
                     error_log("Razorpay Webhook Side Effect Error: " . $sideEffectError->getMessage());
                 }
+                require_once __DIR__ . '/../pms_core/DeferredSideEffects.php';
+                DeferredSideEffects::flushAndDrain(3, 600);
             } else {
                 $db->rollBack();
+                require_once __DIR__ . '/../pms_core/DeferredSideEffects.php';
+                DeferredSideEffects::discard();
             }
         }
     } elseif ($data['event'] === 'payment.failed') {

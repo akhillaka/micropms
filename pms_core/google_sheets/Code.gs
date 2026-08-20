@@ -9,7 +9,8 @@
  * 3. Copy the /exec URL into MicroPMS Settings → Integrations
  *
  * Tabs created automatically: Bookings, Payments, Expenses
- * Rows upsert by Booking ID / Expense ID when that column exists.
+ * Rows upsert by Booking ID / Payment ID (LED-{id}) / Expense ID.
+ * Re-deploy after updating this script so payment rows update instead of duplicating.
  */
 
 function doGet(e) {
@@ -65,7 +66,7 @@ function doPost(e) {
 function defaultHeaders() {
   return {
     booking: ['Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Phone No', 'Rate per night', 'Month', 'Check-in Date', 'Check-In TIme', 'Check-Out-Date', 'Check-Out Time', 'Duration in days', 'Duration in hrs', 'Total Amount Collected', 'Check-in/Check-Out', 'user'],
-    payment: ['Payment ID', 'Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Amount Paid', 'Payment Type', 'Month', 'Payment Date', 'Category', 'user'],
+    payment: ['Payment ID', 'Receipt No', 'Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Amount Paid', 'Payment Type', 'Month', 'Payment Date', 'Category', 'Payment Category', 'Notes', 'user'],
     expense: ['Expense ID', 'Category', 'Amount', 'Description', 'Payment Method', 'Month', 'Expense Date', 'User']
   };
 }
@@ -144,6 +145,55 @@ function upsertKey(type) {
   return 'Booking ID';
 }
 
+function normalizeKey(val) {
+  return String(val == null ? '' : val).trim();
+}
+
+/**
+ * Find existing row by upsert key. Also matches legacy payment rows that used
+ * display_id / Receipt No before Payment ID was stabilized as LED-{id}.
+ */
+function findTargetRow(sheet, headers, type, data, keyName, keyVal) {
+  if (!keyVal) return 0;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+
+  var keyCol = headers.indexOf(keyName) + 1;
+  if (keyCol > 0) {
+    // getRange(row, column, numRows, numColumns)
+    var numRows = lastRow - 1;
+    var values = sheet.getRange(2, keyCol, numRows, 1).getValues();
+    for (var r = 0; r < values.length; r++) {
+      if (normalizeKey(values[r][0]) === keyVal) {
+        return r + 2;
+      }
+    }
+  }
+
+  if (type === 'payment') {
+    var receiptVal = normalizeKey(data['Receipt No']);
+    var receiptCol = headers.indexOf('Receipt No') + 1;
+    if (receiptCol > 0 && receiptVal !== '') {
+      var receiptVals = sheet.getRange(2, receiptCol, lastRow - 1, 1).getValues();
+      for (var i = 0; i < receiptVals.length; i++) {
+        if (normalizeKey(receiptVals[i][0]) === receiptVal) {
+          return i + 2;
+        }
+      }
+    }
+    // Legacy: old Payment ID column held display_id / receipt numbers
+    if (keyCol > 0 && receiptVal !== '' && receiptVal !== keyVal) {
+      var legacy = sheet.getRange(2, keyCol, lastRow - 1, 1).getValues();
+      for (var j = 0; j < legacy.length; j++) {
+        if (normalizeKey(legacy[j][0]) === receiptVal) {
+          return j + 2;
+        }
+      }
+    }
+  }
+  return 0;
+}
+
 function upsertRow(ss, type, data) {
   var skip = { property_id: true };
   var keys = [];
@@ -184,22 +234,13 @@ function upsertRow(ss, type, data) {
     }
     if (added) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
     }
   }
 
   var keyName = upsertKey(type);
-  var keyVal = data[keyName] != null ? String(data[keyName]) : '';
-  var targetRow = 0;
-  if (keyVal && headers.indexOf(keyName) !== -1) {
-    var keyCol = headers.indexOf(keyName) + 1;
-    var values = sheet.getRange(2, keyCol, Math.max(sheet.getLastRow() - 1, 1), 1).getValues();
-    for (var r = 0; r < values.length; r++) {
-      if (String(values[r][0]) === keyVal) {
-        targetRow = r + 2;
-        break;
-      }
-    }
-  }
+  var keyVal = normalizeKey(data[keyName]);
+  var targetRow = findTargetRow(sheet, headers, type, data, keyName, keyVal);
 
   var rowVals = headers.map(function (h) {
     return data[h] != null ? data[h] : '';

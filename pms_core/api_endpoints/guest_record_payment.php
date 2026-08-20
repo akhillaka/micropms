@@ -112,9 +112,13 @@ try {
     NotificationRelay::sendTelegram($tgMsg, 'payment_received', $context, (int)$booking['property_id']);
 
     $db->commit();
+    require_once __DIR__ . '/../../pms_core/DeferredSideEffects.php';
+    DeferredSideEffects::flushAndDrain(3, 600);
     echo json_encode(['success' => true, 'message' => 'Payment recorded successfully!']);
 
 } catch (Exception $e) {
     if ($db->inTransaction()) $db->rollBack();
+    require_once __DIR__ . '/../../pms_core/DeferredSideEffects.php';
+    DeferredSideEffects::discard();
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }

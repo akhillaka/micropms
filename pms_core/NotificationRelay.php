@@ -210,10 +210,13 @@ class NotificationRelay {
     }
 
     /**
-     * Send Telegram to the property chat now (does not wait for cron_worker).
+     * Queue Telegram delivery (never blocks the HTTP request on Telegram API).
+     * Cron / QueueService::drainNotifyQueues() deliver asynchronously.
      */
     public static function sendTelegram(string $fallbackMessage, ?string $eventKey = null, array $context = [], ?int $propertyId = null): bool {
         require_once __DIR__ . '/Database.php';
+        require_once __DIR__ . '/DeferredSideEffects.php';
+        require_once __DIR__ . '/services/QueueService.php';
         $db = Database::getInstance()->getConnection();
 
         $propertyId = self::resolveNotifyPropertyId($propertyId);
@@ -240,19 +243,14 @@ class NotificationRelay {
         }
 
         $formatted = self::formatTemplate($message, $context);
-        $delivered = self::deliverTelegram($cfg['token'], $cfg['chat_ids'], $formatted);
-        if (!empty($delivered['ok'])) {
-            return true;
-        }
-
-        try {
-            $stmt = $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('telegram', ?, ?)");
-            $stmt->execute([$propertyId, json_encode(['message' => $formatted])]);
-        } catch (\Exception $e) {
-            error_log("Failed to queue telegram job: " . $e->getMessage());
-        }
-        error_log('Telegram send failed: ' . ($delivered['error'] ?? 'unknown'));
-        return false;
+        DeferredSideEffects::afterCommit(static function () use ($formatted, $propertyId): void {
+            try {
+                QueueService::push('telegram', ['message' => $formatted], 0, $propertyId);
+            } catch (\Throwable $e) {
+                error_log('Failed to queue telegram job: ' . $e->getMessage());
+            }
+        });
+        return true;
     }
 
     /**
@@ -781,7 +779,7 @@ class NotificationRelay {
             self::logDelivery((int)$propertyId, $eventKey, (string)($auto['wa_template_name'] ?? '(none)'), '', 'skipped', 'no_phone', 'Guest phone number is missing');
         }
 
-        // 1. WhatsApp Automation — send now so it does not depend on cron_worker
+        // 1. WhatsApp — always queue (never sync HTTP while a DB transaction may be open)
         if ($waReady && !empty($phoneNumberE164)) {
             $mapping = json_decode((string)$auto['wa_mapping_json'], true) ?? [];
             $params = [];
@@ -800,19 +798,6 @@ class NotificationRelay {
             }
 
             try {
-                self::processWhatsAppJob([
-                    'phoneNumber' => $phoneNumberE164,
-                    'payload' => $payload,
-                    'isTemplate' => true,
-                    'eventKey' => $eventKey,
-                    'templateName' => $auto['wa_template_name'],
-                    'bookingId' => $bookingId,
-                    'staffId' => $staffId,
-                    'property_id' => $propertyId,
-                ], (int)$propertyId);
-                $anyTriggered = true;
-            } catch (\Throwable $e) {
-                error_log('WhatsApp automation send failed: ' . $e->getMessage());
                 QueueService::push('whatsapp', [
                     'phoneNumber' => $phoneNumberE164,
                     'payload' => $payload,
@@ -821,7 +806,11 @@ class NotificationRelay {
                     'templateName' => $auto['wa_template_name'],
                     'bookingId' => $bookingId,
                     'staffId' => $staffId,
+                    'property_id' => $propertyId,
                 ], 0, $propertyId);
+                $anyTriggered = true;
+            } catch (\Throwable $e) {
+                error_log('WhatsApp automation queue failed: ' . $e->getMessage());
             }
         }
 
@@ -857,10 +846,8 @@ class NotificationRelay {
         }
         if (!empty($auto['is_telegram_active']) && $telegramBody !== '') {
             $body = self::formatTemplate($telegramBody, $context);
-            if (!self::sendTelegramSync($body, null, [], $propertyId)) {
-                $db->prepare("INSERT INTO jobs_queue (queue_name, property_id, payload_json) VALUES ('telegram', ?, ?)")
-                   ->execute([$propertyId, json_encode(['message' => $body])]);
-            }
+            // Queued / after-commit — never sync HTTP inside request transactions
+            self::sendTelegram($body, null, [], (int)$propertyId);
             $anyTriggered = true;
         }
 
@@ -950,10 +937,13 @@ class NotificationRelay {
         return true;
     }
     /**
-     * Send In-App Notification to Admin Dashboard
+     * Send In-App Notification to Admin Dashboard (DB only on request path).
+     * Web Push is queued and drained after commit so it never holds locks.
      */
     public static function sendInAppNotification(int $propertyId, string $title, string $message, string $type = 'info', string $linkUrl = ''): bool {
         require_once __DIR__ . '/Database.php';
+        require_once __DIR__ . '/DeferredSideEffects.php';
+        require_once __DIR__ . '/services/QueueService.php';
         $db = Database::getInstance()->getConnection();
         $ok = false;
 
@@ -971,11 +961,19 @@ class NotificationRelay {
         }
 
         if ($ok) {
-            try {
-                require_once __DIR__ . '/services/WebPushService.php';
-                WebPushService::notifyProperty($db, $propertyId, $title, $message, $linkUrl !== '' ? $linkUrl : '/admin');
-            } catch (\Throwable $t) {
-            }
+            $pushUrl = $linkUrl !== '' ? $linkUrl : '/admin';
+            DeferredSideEffects::afterCommit(static function () use ($propertyId, $title, $message, $pushUrl): void {
+                try {
+                    QueueService::push('web_push', [
+                        'title' => $title,
+                        'message' => $message,
+                        'url' => $pushUrl,
+                        'property_id' => $propertyId,
+                    ], 0, $propertyId);
+                } catch (\Throwable $t) {
+                    error_log('Failed to queue web_push job: ' . $t->getMessage());
+                }
+            });
         }
         return $ok;
     }

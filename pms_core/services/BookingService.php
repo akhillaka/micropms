@@ -203,10 +203,19 @@ class BookingService {
             $paymentRef = $params['payment_ref'] ?? '';
 
             if ($paymentCollected > 0) {
-                self::recordPayment($db, $bookingId, $paymentCollected, $paymentMethod, $paymentRef ?: 'MANUAL', 'Booking Advance Payment');
-                
-                // FolioService::recordPayment() above already synced to finance_transactions.
-                // No duplicate insert needed.
+                FolioService::recordPayment(
+                    $db,
+                    $bookingId,
+                    $paymentCollected,
+                    $paymentMethod,
+                    $paymentRef !== '' ? $paymentRef : 'MANUAL',
+                    'booking_create',
+                    'booking',
+                    null,
+                    false,
+                    !empty($params['skip_google_sheets']),
+                    !empty($params['skip_notifications'])
+                );
             }
 
             if (empty($params['skip_notifications'])) {
@@ -305,10 +314,19 @@ class BookingService {
                 }
             }
 
+            if ($shouldCommit) {
+                require_once __DIR__ . '/../DeferredSideEffects.php';
+                DeferredSideEffects::flushAndDrain(3, 600);
+            }
+
             return $result;
         } catch (\Throwable $e) {
             if ($shouldCommit && $db->inTransaction()) {
                 $db->rollBack();
+            }
+            if ($shouldCommit) {
+                require_once __DIR__ . '/../DeferredSideEffects.php';
+                DeferredSideEffects::discard();
             }
             throw $e;
         }
@@ -780,17 +798,25 @@ class BookingService {
             );
         }
 
+        if ($shouldCommit) {
+            $db->commit();
+        }
         try {
             GoogleSheetService::syncBooking($db, $bookingId);
         } catch (\Throwable $t) {
             error_log('Google Sheets sync error in checkIn: ' . $t->getMessage());
         }
         if ($shouldCommit) {
-            $db->commit();
+            require_once __DIR__ . '/../DeferredSideEffects.php';
+            DeferredSideEffects::flushAndDrain(3, 600);
         }
         } catch (\Throwable $e) {
             if ($shouldCommit && $db->inTransaction()) {
                 $db->rollBack();
+            }
+            if ($shouldCommit) {
+                require_once __DIR__ . '/../DeferredSideEffects.php';
+                DeferredSideEffects::discard();
             }
             throw $e;
         }
@@ -893,9 +919,12 @@ class BookingService {
                 $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = :id AND property_id = :pid")->execute(['id' => $booking['room_id'], 'pid' => $propertyId]);
             }
 
-            $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type = 'ROOM_CHARGE' AND property_id = :pid")
+            $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type IN ('ROOM_CHARGE', 'TAX') AND property_id = :pid")
                 ->execute(['id' => $bookingId, 'pid' => $propertyId]);
-            self::postRoomCharges($db, $bookingId, (int)$room['category_id'], (string)$room['category_name'], $checkIn, $checkOut, $ratePlan);
+            $priceOverride = array_key_exists('price_override', $booking) && $booking['price_override'] !== null && $booking['price_override'] !== ''
+                ? (float)$booking['price_override']
+                : null;
+            self::postRoomCharges($db, $bookingId, (int)$room['category_id'], (string)$room['category_name'], $checkIn, $checkOut, $ratePlan, $priceOverride);
 
             AuditLogger::log($_SESSION['user_id'] ?? null, 'EDIT_BOOKING', 'BOOKING', $bookingId, [
                 'old_room' => $booking['room_id'],
@@ -987,14 +1016,18 @@ class BookingService {
             ]);
 
             NotificationRelay::triggerAutomation('booking_cancelled', null, $bookingId, [], $propertyId);
+
+            if ($shouldCommit) {
+                $db->commit();
+            }
             try {
                 GoogleSheetService::syncBooking($db, $bookingId);
             } catch (\Throwable $t) {
                 error_log('Google Sheets sync error in cancelBooking: ' . $t->getMessage());
             }
-
             if ($shouldCommit) {
-                $db->commit();
+                require_once __DIR__ . '/../DeferredSideEffects.php';
+                DeferredSideEffects::flushAndDrain(3, 600);
             }
 
             $out = ['message' => 'Booking cancelled'];
@@ -1007,6 +1040,10 @@ class BookingService {
         } catch (\Throwable $e) {
             if ($shouldCommit && $db->inTransaction()) {
                 $db->rollBack();
+            }
+            if ($shouldCommit) {
+                require_once __DIR__ . '/../DeferredSideEffects.php';
+                DeferredSideEffects::discard();
             }
             throw $e;
         }

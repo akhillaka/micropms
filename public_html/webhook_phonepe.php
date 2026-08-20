@@ -130,6 +130,8 @@ try {
         } catch (\Throwable $sideEffectError) {
             error_log("PhonePe Webhook Side Effect Error: " . $sideEffectError->getMessage());
         }
+        require_once __DIR__ . '/../pms_core/DeferredSideEffects.php';
+        DeferredSideEffects::flushAndDrain(3, 600);
     } elseif ($code === 'PAYMENT_ERROR') {
         if ($booking['payment_status'] === 'pending_hold') {
             $db->beginTransaction();
@@ -146,6 +148,8 @@ try {
     if (isset($db) && $db->inTransaction()) {
         $db->rollBack();
     }
+    require_once __DIR__ . '/../pms_core/DeferredSideEffects.php';
+    DeferredSideEffects::discard();
     error_log("PhonePe Webhook Fatal Error: " . $e->getMessage());
 }
 

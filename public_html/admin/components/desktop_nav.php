@@ -179,22 +179,43 @@ $adminBaseUrl = '/admin/';
             return;
         }
         try {
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const audioCtx = window.__micropmsAlertCtx || new (window.AudioContext || window.webkitAudioContext)();
+            window.__micropmsAlertCtx = audioCtx;
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(function () {});
+            }
             const osc1 = audioCtx.createOscillator();
             const gain1 = audioCtx.createGain();
+            const t = audioCtx.currentTime;
             osc1.connect(gain1);
             gain1.connect(audioCtx.destination);
-            osc1.type = 'square';
-            osc1.frequency.setValueAtTime(880, audioCtx.currentTime);
-            gain1.gain.setValueAtTime(0.45, audioCtx.currentTime);
-            osc1.start();
-            osc1.stop(audioCtx.currentTime + 1.6);
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(880, t);
+            gain1.gain.setValueAtTime(0.2, t);
+            gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+            osc1.start(t);
+            osc1.stop(t + 0.4);
         } catch (e) {
             console.warn('AudioContext failed:', e);
         }
     }
 
     let lastMaxNotifId = null;
+    let notifPollTimer = null;
+    let notifPollInFlight = false;
+    let suppressNextNotifChime = true; // seed baseline on first poll after page load — no catch-up blast
+    const NOTIF_POLL_MS = 20000;
+    const NOTIF_BASELINE_KEY = 'micropms_notif_max_id_' + String(window.PMS_PROPERTY_ID || '0');
+
+    try {
+        const stored = sessionStorage.getItem(NOTIF_BASELINE_KEY);
+        if (stored !== null && stored !== '') {
+            const parsed = parseInt(stored, 10);
+            if (!Number.isNaN(parsed)) {
+                lastMaxNotifId = parsed;
+            }
+        }
+    } catch (e) {}
 
     // XSS-safe HTML escaping helper for dynamic content
     function escHtml(str) {
@@ -203,84 +224,111 @@ $adminBaseUrl = '/admin/';
         return d.innerHTML;
     }
 
+    function rememberMaxNotifId(id) {
+        const n = parseInt(id, 10);
+        if (Number.isNaN(n)) return;
+        if (lastMaxNotifId === null || n > lastMaxNotifId) {
+            lastMaxNotifId = n;
+            try {
+                sessionStorage.setItem(NOTIF_BASELINE_KEY, String(n));
+            } catch (e) {}
+        }
+    }
+
     function fetchNotifications() {
+        if (notifPollInFlight || document.hidden) return;
+        notifPollInFlight = true;
 
         fetch('<?php echo $adminBaseUrl; ?>api/notifications.php?action=list')
             .then(res => res.json())
             .then(data => {
-                if (data.success) {
-                    const badge = document.getElementById('notif-badge');
-                    if (data.unread_count > 0) {
-                        badge.classList.remove('hidden');
-                    } else {
-                        badge.classList.add('hidden');
-                    }
-                    
-                    const list = document.getElementById('notif-list');
-                    if (data.notifications.length === 0) {
-                        list.innerHTML = '<div class="px-4 py-8 text-center text-sm text-slate-400">No new notifications</div>';
-                        lastMaxNotifId = 0;
-                        return;
-                    }
-                    
-                    const getNotificationLink = (nType) => {
-                        if (nType === 'service_request' || nType === 'housekeeping') {
-                            return '/admin/modules/housekeeping/service_requests';
-                        } else if (nType === 'booking' || nType === 'booking_confirmed' || nType === 'check_in' || nType === 'check_out' || nType === 'payment_received' || nType === 'overstay') {
-                            return '/admin';
-                        } else if (nType === 'pos_order') {
-                            return '/admin/modules/pos/pos';
-                        }
-                        return '#';
-                    };
+                if (!data.success) return;
+                const badge = document.getElementById('notif-badge');
+                if (data.unread_count > 0) {
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
 
-                    // Filter unread notification IDs
-                    const unreadNotifications = data.notifications.filter(n => n.is_read == 0);
-                    if (unreadNotifications.length > 0) {
-                        const maxUnreadId = Math.max(...unreadNotifications.map(n => parseInt(n.id)));
-                        if (lastMaxNotifId !== null && maxUnreadId > lastMaxNotifId) {
-                            playNotificationSound();
-                            // Find the new notification to show a toast
-                            const latestNotif = unreadNotifications.find(n => parseInt(n.id) === maxUnreadId);
-                            if (latestNotif) {
-                                const notifLink = getNotificationLink(latestNotif.type);
-                                if (typeof showToast === 'function') {
-                                    showToast(`New Alert: ${latestNotif.title}`, 'info', 4200, notifLink !== '#' ? notifLink : null);
-                                }
-                                if ('Notification' in window && Notification.permission === 'granted') {
-                                    const nativeNotif = new Notification(latestNotif.title, { body: latestNotif.message });
+                const list = document.getElementById('notif-list');
+                if (!data.notifications || data.notifications.length === 0) {
+                    list.innerHTML = '<div class="px-4 py-8 text-center text-sm text-slate-400">No new notifications</div>';
+                    return;
+                }
+
+                const getNotificationLink = (nType) => {
+                    if (nType === 'service_request' || nType === 'housekeeping') {
+                        return '/admin/modules/housekeeping/service_requests';
+                    } else if (nType === 'booking' || nType === 'booking_confirmed' || nType === 'check_in' || nType === 'check_out' || nType === 'payment_received' || nType === 'overstay') {
+                        return '/admin';
+                    } else if (nType === 'pos_order') {
+                        return '/admin/modules/pos/pos';
+                    }
+                    return '#';
+                };
+
+                const unreadNotifications = data.notifications.filter(n => Number(n.is_read) === 0);
+                if (unreadNotifications.length > 0) {
+                    const maxUnreadId = Math.max(...unreadNotifications.map(n => parseInt(n.id, 10)));
+                    // Baseline on first sighting / first poll after load — never chime for catch-up.
+                    if (lastMaxNotifId === null || suppressNextNotifChime) {
+                        rememberMaxNotifId(maxUnreadId);
+                    } else if (maxUnreadId > lastMaxNotifId) {
+                        playNotificationSound();
+                        const latestNotif = unreadNotifications.find(n => parseInt(n.id, 10) === maxUnreadId);
+                        if (latestNotif) {
+                            const notifLink = (latestNotif.link_url && latestNotif.link_url !== '')
+                                ? latestNotif.link_url
+                                : getNotificationLink(latestNotif.type);
+                            if (typeof showToast === 'function') {
+                                showToast(`New Alert: ${latestNotif.title}`, 'info', 4200, notifLink !== '#' ? notifLink : null);
+                            }
+                            if ('Notification' in window && Notification.permission === 'granted') {
+                                try {
+                                    const nativeNotif = new Notification(latestNotif.title, {
+                                        body: latestNotif.message,
+                                        tag: 'micropms-notif-' + maxUnreadId,
+                                        renotify: false
+                                    });
                                     nativeNotif.onclick = () => {
                                         window.focus();
                                         if (notifLink && notifLink !== '#') {
                                             window.location.href = notifLink;
                                         }
                                     };
-                                }
+                                } catch (e) {}
                             }
                         }
-                        lastMaxNotifId = maxUnreadId;
-                    } else {
-                        lastMaxNotifId = 0;
+                        rememberMaxNotifId(maxUnreadId);
                     }
-                    
-                    list.innerHTML = data.notifications.map(n => {
-                        let icon = 'ph-bell';
-                        let color = 'text-brand-500';
-                        if (n.type === 'housekeeping' || n.type === 'service_request') { icon = 'ph-broom'; color = 'text-amber-500'; }
-                        else if (n.type === 'booking' || n.type === 'booking_confirmed') { icon = 'ph-calendar-check'; color = 'text-emerald-500'; }
-                        else if (n.type === 'check_in') { icon = 'ph-sign-in'; color = 'text-emerald-600'; }
-                        else if (n.type === 'check_out') { icon = 'ph-sign-out'; color = 'text-rose-500'; }
-                        else if (n.type === 'payment_received') { icon = 'ph-currency-inr'; color = 'text-indigo-500'; }
-                        else if (n.type === 'pos_order') { icon = 'ph-fork-knife'; color = 'text-orange-500'; }
-                        else if (n.type === 'overstay') { icon = 'ph-clock-warning'; color = 'text-rose-600'; }
-                        else if (n.type === 'system' || n.type === 'error') { icon = 'ph-warning'; color = 'text-red-500'; }
-                        else if (n.type === 'warning') { icon = 'ph-warning-circle'; color = 'text-amber-500'; }
-                        else if (n.type === 'success') { icon = 'ph-check-circle'; color = 'text-emerald-500'; }
-                        
-                        const link = (n.link_url && n.link_url !== '') ? n.link_url : getNotificationLink(n.type);
-                        
-                        return `
-                        <div class="px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer flex items-start gap-3 ${n.is_read == 0 ? 'bg-slate-50 border-l-2 border-brand-500' : ''}" onclick="handleNotificationClick(${n.id}, '${escHtml(link)}')">
+                }
+
+                // Keep baseline monotonic even when all are read (never reset to 0 —
+                // that re-chimed old unread rows and felt like a freeze/spam loop).
+                const allIds = data.notifications.map(n => parseInt(n.id, 10)).filter(n => !Number.isNaN(n));
+                if (allIds.length) {
+                    rememberMaxNotifId(Math.max(...allIds));
+                }
+                suppressNextNotifChime = false;
+
+                list.innerHTML = data.notifications.map(n => {
+                    let icon = 'ph-bell';
+                    let color = 'text-brand-500';
+                    if (n.type === 'housekeeping' || n.type === 'service_request') { icon = 'ph-broom'; color = 'text-amber-500'; }
+                    else if (n.type === 'booking' || n.type === 'booking_confirmed') { icon = 'ph-calendar-check'; color = 'text-emerald-500'; }
+                    else if (n.type === 'check_in') { icon = 'ph-sign-in'; color = 'text-emerald-600'; }
+                    else if (n.type === 'check_out') { icon = 'ph-sign-out'; color = 'text-rose-500'; }
+                    else if (n.type === 'payment_received') { icon = 'ph-currency-inr'; color = 'text-indigo-500'; }
+                    else if (n.type === 'pos_order') { icon = 'ph-fork-knife'; color = 'text-orange-500'; }
+                    else if (n.type === 'overstay') { icon = 'ph-clock-warning'; color = 'text-rose-600'; }
+                    else if (n.type === 'system' || n.type === 'error') { icon = 'ph-warning'; color = 'text-red-500'; }
+                    else if (n.type === 'warning') { icon = 'ph-warning-circle'; color = 'text-amber-500'; }
+                    else if (n.type === 'success') { icon = 'ph-check-circle'; color = 'text-emerald-500'; }
+
+                    const link = (n.link_url && n.link_url !== '') ? n.link_url : getNotificationLink(n.type);
+
+                    return `
+                        <div class="px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer flex items-start gap-3 ${Number(n.is_read) === 0 ? 'bg-slate-50 border-l-2 border-brand-500' : ''}" onclick="handleNotificationClick(${parseInt(n.id, 10)}, '${escHtml(link)}')">
                             <div class="mt-0.5"><i class="ph ${icon} ${color} text-lg"></i></div>
                             <div>
                                 <h4 class="text-sm font-bold text-slate-800">${escHtml(n.title)}</h4>
@@ -288,8 +336,12 @@ $adminBaseUrl = '/admin/';
                                 <span class="text-[10px] text-slate-400 mt-2 block">${new Date(n.created_at).toLocaleString()}</span>
                             </div>
                         </div>
-                    `}).join('');
-                }
+                    `;
+                }).join('');
+            })
+            .catch(function () {})
+            .finally(function () {
+                notifPollInFlight = false;
             });
     }
 
@@ -332,8 +384,17 @@ $adminBaseUrl = '/admin/';
         });
     }
 
-    // Auto-poll notifications every 10 seconds
-    setInterval(fetchNotifications, 10000);
-    // Initial fetch
+    function scheduleNotificationPoll() {
+        if (notifPollTimer) clearInterval(notifPollTimer);
+        notifPollTimer = setInterval(function () {
+            if (!document.hidden) fetchNotifications();
+        }, NOTIF_POLL_MS);
+    }
+
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) fetchNotifications();
+    });
+
+    scheduleNotificationPoll();
     setTimeout(fetchNotifications, 1000);
 </script>

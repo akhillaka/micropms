@@ -73,7 +73,6 @@ if ($activePropertyId > 1) {
 }
 
 $hotelName = !empty($propName) ? $propName : (defined('PROPERTY_NAME') ? PROPERTY_NAME : 'MicroPMS');
-$hotelLogo = defined('PROPERTY_LOGO_BASE64') ? PROPERTY_LOGO_BASE64 : '';
 
 // Fetch Deep Clean Frequency setting
 $dcStmt = $db->prepare("SELECT key_value FROM system_settings WHERE key_name = 'DEEP_CLEAN_FREQ_DAYS' AND property_id = ?");
@@ -91,7 +90,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="csrf-token" content="<?= htmlspecialchars((string)(CsrfToken::generate())) ?>">
     <meta name="property-id" content="<?= htmlspecialchars((string)(AuthHelper::getPropertyId()), ENT_QUOTES, 'UTF-8') ?>">
     <title><?= htmlspecialchars((string)($hotelName)) ?> | MicroPMS</title>
@@ -165,13 +164,7 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
         <!-- App Bar / Top Navigation -->
         <header class="bg-white/90 backdrop-blur-md px-6 py-3.5 flex items-center justify-between border-b border-slate-200/80 sticky top-0 z-50 shadow-xs mb-6">
             <div class="flex items-center gap-3">
-                <?php if($hotelLogo): ?>
-                <img src="data:image/png;base64,<?= htmlspecialchars((string)($hotelLogo)) ?>" alt="Logo" class="w-10 h-10 rounded-xl object-cover shadow-xs border border-slate-200">
-                <?php else: ?>
-                <div class="w-10 h-10 bg-brand-900 rounded-xl flex items-center justify-center text-white shadow-sm shadow-brand-900/20">
-                    <i class="ph ph-buildings text-xl"></i>
-                </div>
-                <?php endif; ?>
+                <img src="/icons/logo.svg" alt="MicroPMS" class="micropms-header-mark w-10 h-10 rounded-xl object-contain bg-white shadow-xs border border-slate-200" width="40" height="40">
                 <div>
                     <div class="flex items-center gap-2">
                         <h1 class="text-base font-bold text-slate-900 leading-tight font-display"><?= htmlspecialchars((string)($hotelName)) ?></h1>
@@ -703,6 +696,8 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
         };
 
         async function loadActions() {
+            if (window.__actionsInFlight) return;
+            window.__actionsInFlight = true;
             try {
                 const res = await fetch('/api/admin/actions', {
                     headers: { 'X-Tenant-Id': propertyId }
@@ -759,15 +754,19 @@ $dirtyCount = count(array_filter($housekeepingRooms, fn($r) => $r['state'] === '
                 }).join('');
             } catch(e) {
                 document.getElementById('actions-container').innerHTML = '<div class="text-center py-4 text-slate-400 text-xs">Could not load actions</div>';
+            } finally {
+                window.__actionsInFlight = false;
             }
         }
 
         // Run on load
         renderBookingCards();
         loadActions();
-        setInterval(loadActions, 15000);
+        const ACTIONS_POLL_MS = 30000;
+        setInterval(function () {
+            if (!document.hidden) loadActions();
+        }, ACTIONS_POLL_MS);
         
-        // Pause polling when tab is hidden
         document.addEventListener('visibilitychange', function() {
             if (!document.hidden) loadActions();
         });

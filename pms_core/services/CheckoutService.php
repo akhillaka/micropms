@@ -112,6 +112,11 @@ class CheckoutService {
                 }
             }
 
+            if ($shouldCommit) {
+                require_once __DIR__ . '/../DeferredSideEffects.php';
+                DeferredSideEffects::flushAndDrain(3, 600);
+            }
+
             return [
                 'booking_id' => $bookingId,
                 'room_id' => $roomId,
@@ -122,6 +127,10 @@ class CheckoutService {
         } catch (\Throwable $e) {
             if ($shouldCommit && $db->inTransaction()) {
                 $db->rollBack();
+            }
+            if ($shouldCommit) {
+                require_once __DIR__ . '/../DeferredSideEffects.php';
+                DeferredSideEffects::discard();
             }
             throw $e;
         }

@@ -166,4 +166,43 @@ class QueueService {
         // Reset jobs stuck in processing for > 15 minutes back to pending
         $db->exec("UPDATE jobs_queue SET status = 'pending', available_at = NOW() WHERE status = 'processing' AND updated_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)");
     }
+
+    /**
+     * Process a few telegram jobs quickly after a request commits.
+     * Web Push stays on cron_worker — multi-device fan-out must not block HTTP.
+     */
+    public static function drainNotifyQueues(int $maxJobs = 4, int $budgetMs = 800): int {
+        $start = (int)(microtime(true) * 1000);
+        $done = 0;
+
+        require_once __DIR__ . '/../NotificationRelay.php';
+
+        while ($done < $maxJobs) {
+            if (((int)(microtime(true) * 1000) - $start) >= $budgetMs) {
+                break;
+            }
+            $job = self::pop('telegram');
+            if (!$job) {
+                break;
+            }
+
+            try {
+                $message = (string)($job['payload']['message'] ?? '');
+                if ($message === '') {
+                    throw new \RuntimeException('Empty telegram payload');
+                }
+                $ok = NotificationRelay::sendTelegramSync($message, null, [], $job['property_id'] ?? null);
+                if (!$ok) {
+                    throw new \RuntimeException('Telegram sync send failed');
+                }
+                self::complete($job['id']);
+                $done++;
+            } catch (\Throwable $e) {
+                self::fail($job['id'], $e);
+                $done++;
+            }
+        }
+
+        return $done;
+    }
 }

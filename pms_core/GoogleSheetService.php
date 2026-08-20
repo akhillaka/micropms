@@ -441,25 +441,74 @@ class GoogleSheetService {
 
         if (!$l) return null;
 
-        $recTs = strtotime($l['recorded_at']);
-        $paymentType = $l['payment_method'] ?: ucfirst($l['transaction_type']);
+        $recTs = strtotime((string)$l['recorded_at']) ?: time();
+        $paymentType = $l['payment_method'] ?: ucfirst((string)$l['transaction_type']);
         $staffUser = self::getLedgerStaffUser($pdo, $ledgerId);
+        // Stable upsert key — never switch between LED-{id} and display_id (that caused duplicate rows).
+        $stablePaymentId = 'LED-' . (int)$l['ledger_id'];
+        $receiptNo = trim((string)($l['ledger_display_id'] ?? ''));
+        if ($receiptNo === '' || $receiptNo === $stablePaymentId) {
+            $receiptNo = $stablePaymentId;
+        }
+        $amountAbs = abs((float)$l['amount']);
+        $isRefund = !empty($l['is_refund']) || (float)$l['amount'] > 0;
+        $payCat = self::paymentCategoryLabel((string)($l['category'] ?? ''), (string)($l['description'] ?? ''));
 
         return self::applyFieldFilter($pdo, (int)($l['property_id'] ?? 0), 'payment', [
-            "Payment ID"   => $l['ledger_display_id'] ?: ("LED-" . $l['ledger_id']),
-            "Booking ID"   => $l['booking_display_id'] ?: ("BKG-" . $l['booking_id']),
-            "Folio No"      => $l['offline_folio_id'] ?: ("FOL-" . $l['booking_id']),
-            "Room No"      => $l['room_number'] ?: "-",
-            "Room Type"    => $l['category_name'] ?: "-",
-            "Full Name"    => $l['guest_name'] ?: "-",
-            "Amount Paid"  => (float)$l['amount'],
-            "Payment Type" => $paymentType,
-            "Month"        => date('M-Y', $recTs),
-            "Payment Date" => date('Y-m-d H:i:s', $recTs),
-            "Category"     => $l['description'] ?: ucfirst($l['transaction_type']),
-            "user"         => $staffUser,
-            "User"         => $staffUser
+            "Payment ID"       => $stablePaymentId,
+            "Receipt No"       => $receiptNo,
+            "Booking ID"       => $l['booking_display_id'] ?: ("BKG-" . $l['booking_id']),
+            "Folio No"         => $l['offline_folio_id'] ?: ("FOL-" . $l['booking_id']),
+            "Room No"          => $l['room_number'] ?: "-",
+            "Room Type"        => $l['category_name'] ?: "-",
+            "Full Name"        => $l['guest_name'] ?: "-",
+            "Amount Paid"      => $isRefund ? -$amountAbs : $amountAbs,
+            "Payment Type"     => $paymentType,
+            "Month"            => date('M-Y', $recTs),
+            "Payment Date"     => date('Y-m-d H:i:s', $recTs),
+            "Category"         => $payCat,
+            "Payment Category" => $payCat,
+            "Notes"            => (string)($l['description'] ?? ''),
+            "user"             => $staffUser,
+            "User"             => $staffUser,
+            "property_id"      => (int)($l['property_id'] ?? 0),
         ]);
+    }
+
+    /**
+     * Map folio_ledger.category to a human payment-category label (Room Revenue, F&B, …).
+     */
+    private static function paymentCategoryLabel(string $category, string $description = ''): string {
+        $raw = trim($category);
+        $aliases = [
+            'booking' => 'Room Revenue',
+            'room rent' => 'Room Revenue',
+            'room_revenue' => 'Room Revenue',
+            'room revenue' => 'Room Revenue',
+            'f&b' => 'F&B',
+            'fb' => 'F&B',
+            'pos' => 'F&B',
+            'pos_order' => 'F&B',
+            'incidentals' => 'Other',
+            'other' => 'Other',
+            'misc' => 'Other',
+            'laundry' => 'Laundry',
+        ];
+        if ($raw !== '') {
+            $key = strtolower($raw);
+            if (isset($aliases[$key])) {
+                return $aliases[$key];
+            }
+            return $raw;
+        }
+        $desc = strtolower($description);
+        if (str_contains($desc, 'f&b') || str_contains($desc, 'pos') || str_contains($desc, 'dining')) {
+            return 'F&B';
+        }
+        if (str_contains($desc, 'room') || str_contains($desc, 'rent') || str_contains($desc, 'booking')) {
+            return 'Room Revenue';
+        }
+        return 'Other';
     }
 
     private static function buildExpenseData($pdo, $expenseId) {
@@ -501,8 +550,8 @@ class GoogleSheetService {
                 'Check-in/Check-Out', 'user',
             ],
             'payment' => [
-                'Payment ID', 'Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Amount Paid',
-                'Payment Type', 'Month', 'Payment Date', 'Category', 'user',
+                'Payment ID', 'Receipt No', 'Booking ID', 'Folio No', 'Room No', 'Room Type', 'Full Name', 'Amount Paid',
+                'Payment Type', 'Month', 'Payment Date', 'Category', 'Payment Category', 'Notes', 'user',
             ],
             'expense' => [
                 'Expense ID', 'Category', 'Amount', 'Description', 'Payment Method', 'Month',
@@ -512,6 +561,13 @@ class GoogleSheetService {
     }
 
     private static function applyFieldFilter($pdo, int $propertyId, string $type, array $row): array {
+        // Upsert keys must always sync or Apps Script will append duplicates.
+        $requiredKeys = match ($type) {
+            'payment' => ['Payment ID'],
+            'booking' => ['Booking ID'],
+            'expense' => ['Expense ID'],
+            default => [],
+        };
         if ($propertyId <= 0) {
             return $row;
         }
@@ -529,9 +585,18 @@ class GoogleSheetService {
         if ($enabled === []) {
             return $row;
         }
+        foreach ($requiredKeys as $req) {
+            if (!in_array($req, $enabled, true)) {
+                $enabled[] = $req;
+            }
+        }
+        // Prefer Payment Category when Category is enabled (legacy header).
+        if ($type === 'payment' && in_array('Category', $enabled, true) && !in_array('Payment Category', $enabled, true)) {
+            $enabled[] = 'Payment Category';
+        }
         $out = [];
         foreach ($row as $k => $v) {
-            if ($k === 'property_id' || in_array($k, $enabled, true)) {
+            if ($k === 'property_id' || in_array($k, $enabled, true) || in_array($k, $requiredKeys, true)) {
                 $out[$k] = $v;
             }
         }

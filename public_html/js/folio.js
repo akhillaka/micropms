@@ -598,9 +598,10 @@ async function recordManualPayment(btn, method) {
             body: JSON.stringify(payload)
         });
         const data = await res.json();
-        if(data.success) location.reload(); else { showToast(data.message); btn.innerHTML = originalHTML; btn.disabled = false; }
+        if(data.success) location.reload(); else showToast(data.message);
     } catch(e) {
         showToast('Request failed');
+    } finally {
         btn.innerHTML = originalHTML;
         btn.disabled = false;
     }

@@ -165,6 +165,9 @@ $paymentTpl = BookingImportService::templateCsv('payment');
 $expenseTpl = BookingImportService::templateCsv('expense');
 assert_true(str_contains($bookingTpl, 'Check-In TIme') && str_contains($bookingTpl, 'Booking ID'), 'booking import template matches Google Sheet headers');
 assert_true(str_contains($paymentTpl, 'Payment ID') && str_contains($paymentTpl, 'Amount Paid'), 'payment import template matches Google Sheet Payments tab');
+assert_true(str_contains($paymentTpl, 'Payment Category') && str_contains($paymentTpl, 'Room Revenue'), 'payment template includes payment category');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/GoogleSheetService.php') ?: '', "LED-' . (int)\$l['ledger_id']") || str_contains(file_get_contents(__DIR__ . '/../pms_core/GoogleSheetService.php') ?: '', 'LED-'), 'payment sync uses stable LED- Payment ID');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/google_sheets/Code.gs') ?: '', 'findTargetRow'), 'Apps Script upserts payment rows by Payment ID');
 assert_true(str_contains($expenseTpl, 'Expense ID') && str_contains($expenseTpl, 'Expense Date'), 'expense import template matches Google Sheet Expenses tab');
 foreach ($gsHeaders['booking'] as $h) {
     assert_true(str_contains($bookingTpl, $h), "booking template has column {$h}");
@@ -238,7 +241,7 @@ $actionsSrc = file_get_contents(__DIR__ . '/../pms_core/api_endpoints/admin_acti
 assert_true(str_contains($actionsSrc, "action_kind' => 'mark_clean'") && !str_contains($actionsSrc, '"index.php"'), 'dirty room action is mark_clean not index.php');
 $loginSrc = file_get_contents(__DIR__ . '/../public_html/admin/login.php') ?: '';
 assert_true(str_contains($loginSrc, 'name="remember"') && str_contains($loginSrc, 'toggleLoginPassword'), 'staff login has remember me and show password');
-assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/NotificationRelay.php') ?: '', 'WebPushService::notifyProperty'), 'bell insert fans out web push');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/NotificationRelay.php') ?: '', "QueueService::push('web_push'"), 'bell insert queues web push after commit');
 assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/api_routes.php') ?: '', 'admin_push_subscribe.php'), 'push subscribe endpoint is routed');
 assert_true(is_file(__DIR__ . '/../db_migrations/034_staff_pwa_push.sql'), 'migration 034 staff PWA push is packaged');
 assert_true(is_file(__DIR__ . '/../public_html/sw.js') && is_file(__DIR__ . '/../public_html/manifest.webmanifest'), 'staff PWA manifest and service worker exist');
@@ -252,7 +255,9 @@ assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/NotificationR
 
 assert_true(NotificationRelay::isEnabled('booking_confirmed') === true, 'booking_confirmed telegram is on by default');
 assert_true(NotificationRelay::isEnabled('new_booking') === true, 'new_booking aliases booking_confirmed');
-assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/NotificationRelay.php') ?: '', 'deliverTelegram'), 'telegram alerts send immediately');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/NotificationRelay.php') ?: '', "QueueService::push('telegram'"), 'telegram alerts are queued after commit');
+assert_true(is_file(__DIR__ . '/../pms_core/DeferredSideEffects.php'), 'deferred side effects helper exists');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/NotificationRelay.php') ?: '', "QueueService::push('whatsapp'"), 'whatsapp automations queue instead of sync HTTP');
 
 require_once __DIR__ . '/../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../pms_core/services/StayPolicy.php';

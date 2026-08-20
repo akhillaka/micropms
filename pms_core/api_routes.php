@@ -4,7 +4,6 @@ return array (
   'admin_actions.php' => '/api/admin/actions',
   'admin_add_automation_event.php' => '/api/admin/add_automation_event',
   'admin_add_finance.php' => '/api/admin/add_finance',
-  'admin_add_folio.php' => '/api/admin/add_folio',
   'admin_booking_status.php' => '/api/admin/booking_status',
   'admin_calendar_data.php' => '/api/admin/calendar_data',
   'admin_create_phonepe_payment.php' => '/api/admin/create_phonepe_payment',

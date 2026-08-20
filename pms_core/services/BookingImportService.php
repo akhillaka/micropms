@@ -29,7 +29,7 @@ class BookingImportService {
     public static function templateCsv(string $sheet = 'booking'): string {
         if ($sheet === 'payment') {
             return self::csvFromRows(self::sheetHeaders('payment'), [
-                ['', 'IMP-001', 'FLO-IMP-1', '101', 'Deluxe', 'Asha Kumar', '2000.00', 'Cash', 'Aug-2026', '2026-08-01 14:10:00', 'Advance collected', 'Import'],
+                ['LED-IMP-1', 'RCP-IMP-1', 'IMP-001', 'FLO-IMP-1', '101', 'Deluxe', 'Asha Kumar', '2000.00', 'Cash', 'Aug-2026', '2026-08-01 14:10:00', 'Room Revenue', 'Room Revenue', 'Advance collected', 'Import'],
             ]);
         }
         if ($sheet === 'expense') {
@@ -664,7 +664,7 @@ class BookingImportService {
                 'booking_id' => $bookingId,
                 'amount' => $amount,
                 'payment_method' => self::cell($row, ['payment type', 'payment_type', 'payment method']),
-                'category' => self::cell($row, ['category']),
+                'category' => self::cell($row, ['payment category', 'category']) ?: 'Room Revenue',
                 'payment_date' => self::cell($row, ['payment date', 'payment_date']),
                 'error' => null,
                 'line' => $line,

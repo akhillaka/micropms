@@ -160,14 +160,15 @@ ApiHandler::run(function(\PDO $db) {
         $completedItemIds = is_array($data['completed_items'] ?? null) ? $data['completed_items'] : [];
         $notes = trim((string)($data['notes'] ?? ''));
 
-        // Update room state to clean
-        $stmt = $db->prepare("UPDATE rooms SET state = 'clean' WHERE id = :id AND state = 'dirty'");
-        $stmt->execute(['id' => $roomId]);
+        // Update room state to clean (tenant-scoped)
+        $propertyId = AuthHelper::getPropertyId();
+        $stmt = $db->prepare("UPDATE rooms SET state = 'clean' WHERE id = :id AND property_id = :pid AND state = 'dirty'");
+        $stmt->execute(['id' => $roomId, 'pid' => $propertyId]);
 
         if ($stmt->rowCount() > 0) {
             $staffId = (int)($_SESSION['user_id'] ?? 0);
             require_once __DIR__ . '/../../../pms_core/services/HousekeepingFlow.php';
-            HousekeepingFlow::afterRoomClean($db, AuthHelper::getPropertyId(), $roomId, false);
+            HousekeepingFlow::afterRoomClean($db, $propertyId, $roomId, false);
             
             // Log housekeeping record
             $logStmt = $db->prepare("

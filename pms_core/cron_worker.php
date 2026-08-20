@@ -107,6 +107,34 @@ while (time() < $endTime) {
         }
     }
 
+    // Process Web Push Queue
+    $pushJob = QueueService::pop('web_push');
+    if ($pushJob) {
+        $jobProcessed = true;
+        echo "Processing Web Push Job #{$pushJob['id']}...\n";
+        try {
+            require_once __DIR__ . '/services/WebPushService.php';
+            require_once __DIR__ . '/Database.php';
+            $db = Database::getInstance()->getConnection();
+            $propertyId = (int)($pushJob['property_id'] ?? ($pushJob['payload']['property_id'] ?? 0));
+            if ($propertyId <= 0) {
+                throw new \Exception('Missing property_id for web_push job');
+            }
+            WebPushService::notifyProperty(
+                $db,
+                $propertyId,
+                (string)($pushJob['payload']['title'] ?? 'MicroPMS'),
+                (string)($pushJob['payload']['message'] ?? ''),
+                (string)($pushJob['payload']['url'] ?? '/admin')
+            );
+            QueueService::complete($pushJob['id']);
+            echo "Completed Web Push Job #{$pushJob['id']}\n";
+        } catch (\Throwable $e) {
+            QueueService::fail($pushJob['id'], $e);
+            echo "Failed Web Push Job #{$pushJob['id']}: " . $e->getMessage() . "\n";
+        }
+    }
+
     
     // Process Default Queue (allowlisted handlers only)
     $defaultJob = QueueService::pop('default');

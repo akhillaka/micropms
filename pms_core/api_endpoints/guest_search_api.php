@@ -77,7 +77,21 @@ if ($otpEnabled) {
         $_SESSION['guest_otp_attempts'] = 0;
 
         $message = "Your MicroPMS verification OTP is: *{$otp}*. It is valid for 5 minutes.";
-        NotificationRelay::sendWhatsAppSync($phone, $message, false);
+        session_write_close();
+        // Prefer queue; fall back to sync only if queue push is unavailable
+        try {
+            require_once __DIR__ . '/../../pms_core/services/QueueService.php';
+            QueueService::push('whatsapp', [
+                'phoneNumber' => PhoneHelper::toE164($phone) ?? $phone,
+                'payload' => $message,
+                'isTemplate' => false,
+                'eventKey' => 'guest_otp',
+                'templateName' => 'otp',
+                'property_id' => $propertyId,
+            ], 0, $propertyId);
+        } catch (\Throwable $e) {
+            NotificationRelay::sendWhatsAppSync($phone, $message, false, $propertyId);
+        }
     }
 
     echo json_encode([

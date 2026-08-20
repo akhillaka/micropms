@@ -4,43 +4,51 @@ declare(strict_types=1);
  * ui_head.php — Global head component
  * Injects CDN scripts, Tailwind config, design system CSS, global JS helpers,
  * toast system, confirm modal, and loading overlay.
- * Pulls hotel name/logo from PROPERTY_NAME / PROPERTY_LOGO_BASE64 constants.
+ * App chrome uses MicroPMS product branding; hotel logo is for receipts/portal only.
  */
 
-// Resolve hotel branding (set by config.php load_db_settings)
 $_pms_hotel_name = defined('PROPERTY_NAME') ? PROPERTY_NAME : 'MicroPMS';
-$_pms_hotel_logo = defined('PROPERTY_LOGO_BASE64') ? PROPERTY_LOGO_BASE64 : '';
 
 $nightAuditActions = [];
+$uriPath = parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?: '';
+$skipNightAudit = str_contains($uriPath, '/login') || str_contains($uriPath, 'invoice') || str_contains($uriPath, 'run_migration');
 try {
-    if (class_exists('AuthHelper') && class_exists('Database')) {
+    $loggedIn = class_exists('AuthHelper') && isset($_SESSION['user_id']) && (int)$_SESSION['user_id'] > 0;
+    if ($loggedIn && !$skipNightAudit && class_exists('Database')) {
         $propId = AuthHelper::getPropertyId();
         $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("
-            SELECT a.*, r.room_number, g.name as guest_name, b.display_id AS booking_display_id
-            FROM night_audit_actions a 
-            JOIN bookings b ON a.booking_id = b.id 
-            JOIN rooms r ON b.room_id = r.id 
-            LEFT JOIN guests g ON b.guest_id = g.id
-            WHERE a.property_id = ? AND a.status = 'pending'
-        ");
-        $stmt->execute([$propId]);
-        $nightAuditActions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $countStmt = $db->prepare("SELECT COUNT(*) FROM night_audit_actions WHERE property_id = ? AND status = 'pending'");
+        $countStmt->execute([$propId]);
+        if ((int)$countStmt->fetchColumn() > 0) {
+            $stmt = $db->prepare("
+                SELECT a.*, r.room_number, g.name as guest_name, b.display_id AS booking_display_id
+                FROM night_audit_actions a
+                JOIN bookings b ON a.booking_id = b.id
+                JOIN rooms r ON b.room_id = r.id
+                LEFT JOIN guests g ON b.guest_id = g.id
+                WHERE a.property_id = ? AND a.status = 'pending'
+            ");
+            $stmt->execute([$propId]);
+            $nightAuditActions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
     }
 } catch (\Exception $e) {
     // Ignore if tables not yet setup
 }
 ?>
-<!-- Phosphor Icons -->
-<script src="https://unpkg.com/@phosphor-icons/web"></script>
-<!-- Tailwind CSS -->
+<link rel="preconnect" href="https://unpkg.com" crossorigin>
+<link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script src="https://unpkg.com/@phosphor-icons/web" defer></script>
 <script src="https://cdn.tailwindcss.com"></script>
-<!-- Google Fonts: Plus Jakarta Sans -->
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link href="/css/app_theme.css" rel="stylesheet">
+<link href="/css/mobile-input-zoom.css" rel="stylesheet">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<?php include __DIR__ . '/micropms_icons.php'; ?>
 <meta name="theme-color" content="#1e3a8a">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="MicroPMS">
 
@@ -505,7 +513,29 @@ try {
     // ─── Global PMS Helpers ───────────────────────────────────────────────
 
     window.PMS_HOTEL_NAME = <?= json_encode($_pms_hotel_name) ?>;
-    window.PMS_HOTEL_LOGO = <?= json_encode($_pms_hotel_logo) ?>;
+    window.PMS_PRODUCT_LOGO = '/icons/logo.svg';
+
+    (function injectMicroPmsHeaderMark() {
+        function run() {
+            document.querySelectorAll('header').forEach(function (header) {
+                if (header.querySelector('.micropms-header-mark')) return;
+                var left = header.querySelector(':scope > .flex.items-center') || header.querySelector('.flex.items-center');
+                if (!left) return;
+                var img = document.createElement('img');
+                img.src = '/icons/logo.svg';
+                img.alt = 'MicroPMS';
+                img.width = 36;
+                img.height = 36;
+                img.className = 'micropms-header-mark w-9 h-9 rounded-xl object-contain bg-white border border-slate-200 shrink-0';
+                left.insertBefore(img, left.firstChild);
+            });
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', run);
+        } else {
+            run();
+        }
+    })();
 
     async function pmsMarkRoomClean(roomId, btn) {
         if (!roomId) return false;
@@ -655,10 +685,13 @@ try {
 </script>
 <script src="/js/api-client.js"></script>
 <script src="/js/ui.js"></script>
-<script src="/js/staff-alert-sound.js"></script>
+<script src="/js/staff-alert-sound.js?v=3"></script>
 <script src="/js/photo_capture.js"></script>
 <?php if (!empty($_SESSION['user_id'])): ?>
-<script>window.PMS_STAFF_PUSH = true;</script>
+<script>
+window.PMS_STAFF_PUSH = true;
+window.PMS_PROPERTY_ID = <?= (int)(class_exists('AuthHelper') ? AuthHelper::getPropertyId() : ($_SESSION['property_id'] ?? 0)) ?>;
+</script>
 <?php endif; ?>
 <script src="/js/pwa.js" defer></script>
 

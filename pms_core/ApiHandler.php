@@ -9,6 +9,8 @@ require_once __DIR__ . '/TenantScope.php';
 require_once __DIR__ . '/ErrorTracker.php';
 require_once __DIR__ . '/SaaSMiddleware.php';
 require_once __DIR__ . '/ApiSuccessException.php';
+require_once __DIR__ . '/DeferredSideEffects.php';
+require_once __DIR__ . '/services/QueueService.php';
 
 class ApiHandler {
     
@@ -93,6 +95,12 @@ class ApiHandler {
                 CsrfToken::requireValid();
             }
 
+            // Release session lock for authenticated APIs so background polls
+            // do not block check-in, payments, and other staff actions.
+            if ($requireAdmin) {
+                AuthHelper::releaseSession();
+            }
+
             $db = Database::getInstance()->getConnection();
             SaaSMiddleware::resolveAndGuardTenant($db);
 
@@ -107,11 +115,13 @@ class ApiHandler {
             if ($useTransaction && $db->inTransaction()) {
                 $db->commit();
             }
+            self::afterSuccessfulRequest();
 
         } catch (ApiSuccessException $e) {
             if ($useTransaction && isset($db) && $db->inTransaction()) {
                 $db->commit();
             }
+            self::afterSuccessfulRequest();
             
             while (ob_get_level() > 0) {
                 ob_end_clean();
@@ -127,6 +137,7 @@ class ApiHandler {
             if (isset($db) && $db->inTransaction()) {
                 $db->rollBack();
             }
+            DeferredSideEffects::discard();
 
             try {
                 ErrorTracker::fromException($e);
@@ -147,6 +158,10 @@ class ApiHandler {
             }
             ApiResponse::sendErrorResponse($message, $code, $extra);
         }
+    }
+
+    private static function afterSuccessfulRequest(): void {
+        DeferredSideEffects::flushAndDrain(4, 800);
     }
 
 }

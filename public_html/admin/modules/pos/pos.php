@@ -36,7 +36,7 @@ if (!$posEnabled) {
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <title>POS Upgrade Required | StayFlexi</title>
         <?php include __DIR__ . '/../../components/ui_head.php'; ?>
         
@@ -180,7 +180,7 @@ $posCounterLabel = get_db_setting($db, 'POS_COUNTER_LABEL', (int)$propertyId, 'W
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>POS & Inventory | StayFlexi</title>
     <?= CsrfToken::meta() ?>
     <?php include __DIR__ . '/../../components/ui_head.php'; ?>
@@ -1694,27 +1694,36 @@ $posCounterLabel = get_db_setting($db, 'POS_COUNTER_LABEL', (int)$propertyId, 'W
 
         // Order Notification Polling
         let lastOrderId = <?= htmlspecialchars((string)(!empty($pendingOrders) ? (int)$pendingOrders[0]['id'] : (!empty($orderHistory) ? (int)$orderHistory[0]['id'] : 0)), ENT_QUOTES, 'UTF-8') ?>;
-        
+        let posPollInFlight = false;
+
         function playNotificationBeep() {
             if (typeof window.playStaffAlertSound === 'function') {
                 window.playStaffAlertSound();
                 return;
             }
             try {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const audioCtx = window.__micropmsAlertCtx || new (window.AudioContext || window.webkitAudioContext)();
+                window.__micropmsAlertCtx = audioCtx;
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume().catch(function () {});
+                }
                 const osc = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
+                const t = audioCtx.currentTime;
                 osc.connect(gain);
                 gain.connect(audioCtx.destination);
-                osc.type = 'square';
-                osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-                gain.gain.setValueAtTime(0.45, audioCtx.currentTime);
-                osc.start(audioCtx.currentTime);
-                osc.stop(audioCtx.currentTime + 1.6);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, t);
+                gain.gain.setValueAtTime(0.2, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+                osc.start(t);
+                osc.stop(t + 0.4);
             } catch(e) { console.error('Beep failed', e); }
         }
 
         setInterval(async () => {
+            if (posPollInFlight || document.hidden) return;
+            posPollInFlight = true;
             try {
                 const res = await fetch('/api/admin/pos_actions', {
                     method: 'POST',
@@ -1737,10 +1746,16 @@ $posCounterLabel = get_db_setting($db, 'POS_COUNTER_LABEL', (int)$propertyId, 'W
                             ordersTab.innerHTML += `<span class="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[8px] font-black animate-bounce">${data.new_count}</span>`;
                         }
                     } else if (ordersTab && ordersTab.className.includes('bg-indigo-50')) {
-                        setTimeout(() => location.reload(), 1500); // Reload if they are already on the orders tab
+                        // Soft refresh orders list if present; avoid full page reload mid-action
+                        if (typeof loadOrders === 'function') {
+                            loadOrders();
+                        } else if (typeof switchTab === 'function') {
+                            switchTab('orders');
+                        }
                     }
                 }
             } catch(e) { }
+            finally { posPollInFlight = false; }
         }, 15000); // Poll every 15 seconds
     </script>
 </body>

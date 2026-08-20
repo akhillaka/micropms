@@ -192,9 +192,9 @@ class FolioService {
             $absAmount = abs($amount);
             
             $catLabel = $category;
-            if ($category === 'booking') {
-                $catLabel = 'Room Rent';
-            } elseif ($category === 'F&B') {
+            if ($category === 'booking' || strcasecmp($category, 'Room Rent') === 0) {
+                $catLabel = 'Room Revenue';
+            } elseif ($category === 'F&B' || $category === 'pos_order') {
                 $catLabel = 'F&B';
             }
 
@@ -239,6 +239,7 @@ class FolioService {
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', $entryId, 'SEQ_RECEIPT_FORMAT');
 
             try {
+                $staffId = $_SESSION['user_id'] ?? null;
                 $finType = $isRefund ? 'expense' : 'income';
                 $finCat = ($category === 'F&B' || $category === 'pos_order') ? 'pos' : (in_array($category, ['booking', 'Room Rent'], true) ? 'booking' : $category);
                 $finStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()))");
@@ -276,7 +277,7 @@ class FolioService {
                 $db->commit();
             }
 
-            if (!$skipGoogleSheets && !$isRefund && $ledgerAmount < 0) {
+            if (!$skipGoogleSheets) {
                 try {
                     require_once __DIR__ . '/../GoogleSheetService.php';
                     GoogleSheetService::syncPayment($db, $entryId);
@@ -303,10 +304,19 @@ class FolioService {
                 }
             }
 
+            if ($shouldCommit) {
+                require_once __DIR__ . '/../DeferredSideEffects.php';
+                DeferredSideEffects::flushAndDrain(3, 600);
+            }
+
             return $entryId;
         } catch (\Throwable $e) {
             if ($shouldCommit && $db->inTransaction()) {
                 $db->rollBack();
+            }
+            if ($shouldCommit) {
+                require_once __DIR__ . '/../DeferredSideEffects.php';
+                DeferredSideEffects::discard();
             }
             throw $e;
         }

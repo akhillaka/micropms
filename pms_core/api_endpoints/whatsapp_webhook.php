@@ -225,6 +225,9 @@ elseif ($raw_phone && $message_id) {
     }
 }
 
+require_once __DIR__ . '/../../pms_core/DeferredSideEffects.php';
+DeferredSideEffects::flushAndDrain(2, 400);
+
 // Always 200 OK
 http_response_code(200);
 echo json_encode(['status' => 'success']);
