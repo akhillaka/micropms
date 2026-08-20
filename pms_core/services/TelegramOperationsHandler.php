@@ -6,6 +6,9 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/FolioService.php';
 require_once __DIR__ . '/CheckoutService.php';
 require_once __DIR__ . '/TelegramDeskFlows.php';
+require_once __DIR__ . '/TelegramCalendar.php';
+require_once __DIR__ . '/BookingService.php';
+require_once __DIR__ . '/HousekeepingFlow.php';
 
 class TelegramOperationsHandler {
     use TelegramDeskFlows;
@@ -96,6 +99,16 @@ class TelegramOperationsHandler {
         // Answer callback to remove loading state on button
         $this->answerCallbackQuery($callbackQueryId);
 
+        $cal = TelegramCalendar::parse($data);
+        if ($cal) {
+            $perm = $cal['flow'] === 'eb' ? 'edit_booking' : 'create_booking';
+            if (!$this->requireAction($chatId, $perm)) {
+                return;
+            }
+            $this->handleCalendarCallback($chatId, $cal);
+            return;
+        }
+
         if ($data === 'main_menu') {
             $this->clearSession($chatId);
             $this->sendMainMenu($chatId);
@@ -147,12 +160,35 @@ class TelegramOperationsHandler {
         } elseif ($data === 'cmd_new_booking') {
             if (!$this->requireAction($chatId, 'create_booking')) return;
             $this->startNewBookingFlow($chatId);
-        } elseif ($data === 'nb_in_today' || $data === 'nb_in_tom') {
+        } elseif ($data === 'nb_in_today' || $data === 'nb_in_tom' || $data === 'nb_in_p2' || $data === 'nb_in_p3') {
             if (!$this->requireAction($chatId, 'create_booking')) return;
             $session = $this->getSession($chatId);
             $context = $session ? (json_decode((string)$session['context_data'], true) ?: []) : [];
-            $date = $data === 'nb_in_today' ? date('Y-m-d') : date('Y-m-d', strtotime('+1 day'));
-            $this->askNewBookingNights($chatId, $context, $date);
+            $offset = match ($data) {
+                'nb_in_today' => 0,
+                'nb_in_tom' => 1,
+                'nb_in_p2' => 2,
+                default => 3,
+            };
+            $date = date('Y-m-d', strtotime('+' . $offset . ' day'));
+            $this->askNewBookingTime($chatId, $context, $date);
+        } elseif (preg_match('/^nb_t(now|\d{4})$/', $data)) {
+            if (!$this->requireAction($chatId, 'create_booking')) return;
+            $session = $this->getSession($chatId);
+            $context = $session ? (json_decode((string)$session['context_data'], true) ?: []) : [];
+            $time = $this->timeFromCallback($data, (string)($context['check_in_date'] ?? date('Y-m-d')));
+            if (!$time) {
+                $this->sendMessage($chatId, "Could not read that time. Type `HH:MM`.");
+                return;
+            }
+            $this->askNewBookingCheckout($chatId, $context, $time);
+        } elseif (preg_match('/^nb_out_(\d+)$/', $data, $m)) {
+            if (!$this->requireAction($chatId, 'create_booking')) return;
+            $session = $this->getSession($chatId);
+            $context = $session ? (json_decode((string)$session['context_data'], true) ?: []) : [];
+            $inDate = (string)($context['check_in_date'] ?? date('Y-m-d', strtotime((string)($context['check_in'] ?? 'now'))));
+            $outDate = date('Y-m-d', strtotime($inDate . ' +' . (int)$m[1] . ' days'));
+            $this->showAvailableRoomsForStay($chatId, $context, $outDate);
         } elseif (preg_match('/^nb_n(\d+)$/', $data, $m)) {
             if (!$this->requireAction($chatId, 'create_booking')) return;
             $session = $this->getSession($chatId);
@@ -188,6 +224,16 @@ class TelegramOperationsHandler {
         } elseif ($data === 'eb_guest') {
             if (!$this->requireAction($chatId, 'edit_booking')) return;
             $this->beginEditGuest($chatId);
+        } elseif ($data === 'eb_cancel') {
+            if (!$this->requireAction($chatId, 'cancel_booking')) return;
+            $this->beginCancelStay($chatId);
+        } elseif ($data === 'cmd_cancel_booking' || strpos($data, 'cx_room_') === 0) {
+            if (!$this->requireAction($chatId, 'cancel_booking')) return;
+            if ($data === 'cmd_cancel_booking') {
+                $this->startCancelBookingFlow($chatId);
+            } else {
+                $this->beginCancelStayForRoom($chatId, (int)str_replace('cx_room_', '', $data));
+            }
         } elseif (strpos($data, 'eb_r') === 0) {
             if (!$this->requireAction($chatId, 'edit_booking')) return;
             $this->applyChangeRoom($chatId, (int)substr($data, 4));
@@ -261,21 +307,17 @@ class TelegramOperationsHandler {
             $propertyId = $context['property_id'];
 
             try {
-                // Get current check_out
                 $stmt = $this->db->prepare("SELECT check_out FROM bookings WHERE id = ? AND property_id = ?");
                 $stmt->execute([$bookingId, $propertyId]);
                 $booking = $stmt->fetch();
-                
-                $currentCheckOut = new DateTime($booking['check_out']);
+                if (!$booking) {
+                    throw new \Exception('Booking not found');
+                }
+                $currentCheckOut = new DateTime((string)$booking['check_out']);
                 $currentCheckOut->modify("+$days days");
-                $newCheckOut = $currentCheckOut->format('Y-m-d');
-
-                $stmt = $this->db->prepare("UPDATE bookings SET check_out = ? WHERE id = ? AND property_id = ?");
-                $stmt->execute([$newCheckOut, $bookingId, $propertyId]);
-
-                // Clear session
+                $newCheckOut = $currentCheckOut->format('Y-m-d H:i:s');
+                BookingService::extendStay($this->db, (int)$bookingId, $newCheckOut, (int)$propertyId);
                 $this->clearSession($chatId);
-                
                 $keyboard = [
                     'inline_keyboard' => [
                         [['text' => '🔙 Main Menu', 'callback_data' => 'main_menu']]
@@ -298,6 +340,9 @@ class TelegramOperationsHandler {
         }
         if ($this->roleAllows($role, 'edit_booking')) {
             $buttons[] = ['text' => '✏️ Edit Stay', 'callback_data' => 'cmd_edit_booking'];
+        }
+        if ($this->roleAllows($role, 'cancel_booking')) {
+            $buttons[] = ['text' => '❌ Cancel Booking', 'callback_data' => 'cmd_cancel_booking'];
         }
         if ($this->roleAllows($role, 'check_in')) {
             $buttons[] = ['text' => '🔑 Check-In', 'callback_data' => 'cmd_check_in'];
@@ -765,6 +810,7 @@ class TelegramOperationsHandler {
         $stmt->execute([$roomId, $propertyId]);
 
         if ($stmt->rowCount() > 0) {
+            HousekeepingFlow::afterRoomClean($this->db, $propertyId, $roomId, true);
             $stmt = $this->db->prepare("SELECT room_number FROM rooms WHERE id = ?");
             $stmt->execute([$roomId]);
             $roomNumber = $stmt->fetchColumn();
@@ -857,18 +903,9 @@ class TelegramOperationsHandler {
     }
 
     private function roleAllows(string $role, string $action): bool {
-        $role = strtolower(trim($role));
-        $matrix = [
-            'admin' => ['*'],
-            'manager' => ['room_status', 'add_payment', 'quick_checkout', 'extend_stay', 'today_revenue', 'mark_room_clean', 'arrivals', 'departures', 'create_booking', 'edit_booking', 'check_in', 'id_proof'],
-            'staff' => ['room_status', 'add_payment', 'quick_checkout', 'extend_stay', 'arrivals', 'departures', 'create_booking', 'edit_booking', 'check_in', 'id_proof'],
-            'receptionist' => ['room_status', 'add_payment', 'quick_checkout', 'extend_stay', 'arrivals', 'departures', 'create_booking', 'edit_booking', 'check_in', 'id_proof'],
-            'housekeeping' => ['room_status', 'mark_room_clean'],
-            'hk' => ['room_status', 'mark_room_clean'],
-            'user' => ['room_status', 'add_payment', 'quick_checkout', 'extend_stay', 'arrivals', 'departures', 'create_booking', 'edit_booking', 'check_in', 'id_proof'],
-        ];
-        $allowed = $matrix[$role] ?? $matrix['staff'];
-        return in_array('*', $allowed, true) || in_array($action, $allowed, true);
+        require_once __DIR__ . '/../AuthHelper.php';
+        $perm = AuthHelper::telegramActionPermission($action);
+        return AuthHelper::roleCan($role, $perm);
     }
 
     private function requireAction(string $chatId, string $action): bool {

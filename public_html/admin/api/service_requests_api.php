@@ -5,6 +5,10 @@ require_once __DIR__ . '/../../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../../pms_core/services/FolioService.php';
+require_once __DIR__ . '/../../../pms_core/services/BookingService.php';
+require_once __DIR__ . '/../../../pms_core/services/HousekeepingFlow.php';
+require_once __DIR__ . '/../../../pms_core/services/BookingService.php';
+require_once __DIR__ . '/../../../pms_core/services/HousekeepingFlow.php';
 
 ApiHandler::run(function(\PDO $db) {
     AuthHelper::requireLogin();
@@ -63,8 +67,7 @@ ApiHandler::run(function(\PDO $db) {
             $feeStmt->execute([$propertyId]);
             $fee = (float)($feeStmt->fetchColumn() ?: 500);
             FolioService::postCharge($db, (int)$req['booking_id'], $fee, 'Late Checkout Fee (Approved)', 'other');
-            $newCheckout = date('Y-m-d H:i:s', strtotime($req['check_out'] . ' +3 hours'));
-            $db->prepare("UPDATE bookings SET check_out = ? WHERE id = ?")->execute([$newCheckout, $req['booking_id']]);
+            BookingService::applyLateCheckoutHours($db, (int)$req['booking_id'], $propertyId, 3);
         }
 
         if ($status === 'completed' && in_array($typeKey, ['housekeeping', 'stayoverclean', 'extratowels', 'toiletries', 'blanket'], true)) {

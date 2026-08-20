@@ -44,6 +44,18 @@ class NotificationRelay {
         };
     }
 
+    private static function resolveNotifyPropertyId(?int $propertyId): int {
+        if ($propertyId !== null && (int)$propertyId > 0) {
+            return (int)$propertyId;
+        }
+        require_once __DIR__ . '/AuthHelper.php';
+        try {
+            return (int)AuthHelper::getPropertyId();
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
     /**
      * @return array{token: string, chat_ids: list<string>}
      */
@@ -204,11 +216,11 @@ class NotificationRelay {
         require_once __DIR__ . '/Database.php';
         $db = Database::getInstance()->getConnection();
 
-        if ($propertyId === null) {
-            require_once __DIR__ . '/AuthHelper.php';
-            $propertyId = AuthHelper::getPropertyId();
+        $propertyId = self::resolveNotifyPropertyId($propertyId);
+        if ($propertyId <= 0) {
+            error_log('Telegram send skipped: no property context');
+            return false;
         }
-        $propertyId = (int)$propertyId;
 
         if ($eventKey !== null && !self::isEnabled($eventKey)) {
             return false;
@@ -250,12 +262,12 @@ class NotificationRelay {
         require_once __DIR__ . '/Database.php';
         $db = Database::getInstance()->getConnection();
 
-        if ($propertyId === null) {
-            require_once __DIR__ . '/AuthHelper.php';
-            $propertyId = AuthHelper::getPropertyId();
+        $propertyId = self::resolveNotifyPropertyId($propertyId);
+        if ($propertyId <= 0) {
+            error_log('Telegram sync send skipped: no property context');
+            return false;
         }
 
-        $propertyId = (int)$propertyId;
         if ($eventKey !== null && !self::isEnabled($eventKey)) {
             return false;
         }

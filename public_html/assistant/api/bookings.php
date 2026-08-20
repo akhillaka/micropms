@@ -68,6 +68,7 @@ ApiHandler::run(function(\PDO $db) {
 
     // Action: Create booking (supports single or multi-room)
     elseif ($action === 'create') {
+        AuthHelper::requirePermission('create_booking');
         // Support multi-room via room_ids array
         $roomIds = [];
         if (isset($data['room_ids']) && is_array($data['room_ids'])) {
@@ -107,6 +108,7 @@ ApiHandler::run(function(\PDO $db) {
 
     // Action: Sync offline drafts
     elseif ($action === 'sync') {
+        AuthHelper::requirePermission('create_booking');
         $drafts = $data['drafts'] ?? [];
         if (empty($drafts)) {
             ApiResponse::success(['synced' => []]);
@@ -143,6 +145,7 @@ ApiHandler::run(function(\PDO $db) {
 
     // Action: Extend stay
     elseif ($action === 'extend_stay') {
+        AuthHelper::requirePermission('edit_booking');
         $bookingId = (int)($data['booking_id'] ?? 0);
         $newCheckOut = $data['check_out'] ?? '';
 
@@ -152,7 +155,7 @@ ApiHandler::run(function(\PDO $db) {
 
         try {
             $db->beginTransaction();
-            $result = BookingService::extendStay($db, $bookingId, $newCheckOut);
+            $result = BookingService::extendStay($db, $bookingId, $newCheckOut, AuthHelper::getPropertyId());
             $db->commit();
             ApiResponse::success([
                 'message' => 'Stay extended successfully',

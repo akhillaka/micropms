@@ -10,6 +10,8 @@ require_once __DIR__ . '/../PhoneHelper.php';
 require_once __DIR__ . '/../GuestAccessToken.php';
 require_once __DIR__ . '/../AuditLogger.php';
 require_once __DIR__ . '/../NotificationRelay.php';
+require_once __DIR__ . '/StayPolicy.php';
+require_once __DIR__ . '/TelegramCalendar.php';
 
 /**
  * Front-desk flows for the Telegram operations bot.
@@ -36,6 +38,28 @@ trait TelegramDeskFlows {
 
     private function startIdProofFlow(string $chatId): void {
         $this->promptStayPicker($chatId, 'id_room_', "Select a guest to attach ID photos:", ['booked', 'checked_in']);
+    }
+
+    private function startCancelBookingFlow(string $chatId): void {
+        $this->promptStayPicker($chatId, 'cx_room_', "Select a *booked* stay to cancel:", ['booked']);
+    }
+
+    private function beginCancelStayForRoom(string $chatId, int $roomId): void {
+        $propertyId = $this->getPropertyIdForChat($chatId);
+        if (!$propertyId) {
+            return;
+        }
+        $booking = $this->activeStayForRoom($roomId, $propertyId, ['booked']);
+        if (!$booking) {
+            $this->sendMessage($chatId, "No booked reservation found for that room.");
+            return;
+        }
+        $this->setSession($chatId, 'EB_CANCEL', [
+            'property_id' => $propertyId,
+            'booking_id' => $booking['id'],
+            'room_name' => $booking['room_number'],
+        ]);
+        $this->sendMessage($chatId, "Type the cancellation reason for Room {$booking['room_number']} — {$booking['guest_name']}:");
     }
 
     private function promptStayPicker(string $chatId, string $callbackPrefix, string $title, array $statuses): void {
@@ -102,16 +126,7 @@ trait TelegramDeskFlows {
                 return true;
             }
             $context['guest_phone'] = $phone;
-            $this->setSession($chatId, 'NB_CHECKIN', $context);
-            $this->sendMessage($chatId, "Check-in date? Use a button or type `YYYY-MM-DD`.", [
-                'inline_keyboard' => [
-                    [
-                        ['text' => 'Today', 'callback_data' => 'nb_in_today'],
-                        ['text' => 'Tomorrow', 'callback_data' => 'nb_in_tom'],
-                    ],
-                    [['text' => '🔙 Cancel', 'callback_data' => 'main_menu']],
-                ],
-            ]);
+            $this->promptCheckInDate($chatId, $context);
             return true;
         }
 
@@ -121,7 +136,37 @@ trait TelegramDeskFlows {
                 $this->sendMessage($chatId, "Send check-in as `YYYY-MM-DD` (example: " . date('Y-m-d') . ").");
                 return true;
             }
-            $this->askNewBookingNights($chatId, $context, $date);
+            $this->askNewBookingTime($chatId, $context, $date);
+            return true;
+        }
+
+        if ($state === 'NB_TIME') {
+            $time = $this->parseDeskTime($text, (string)($context['check_in_date'] ?? date('Y-m-d')));
+            if (!$time) {
+                $this->sendMessage($chatId, "Send check-in time as `HH:MM` (example: `14:00`), or tap a button.");
+                return true;
+            }
+            $this->askNewBookingCheckout($chatId, $context, $time);
+            return true;
+        }
+
+        if ($state === 'NB_CHECKOUT') {
+            $date = $this->parseDeskDate($text);
+            if (!$date) {
+                $this->sendMessage($chatId, "Send checkout date as `YYYY-MM-DD` (example: " . date('Y-m-d', strtotime('+1 day')) . ").");
+                return true;
+            }
+            $this->askStayTime($chatId, $context, 'nb', 'out', $date);
+            return true;
+        }
+
+        if ($state === 'NB_OUT_TIME') {
+            $time = $this->parseDeskTime($text, (string)($context['check_out_date'] ?? date('Y-m-d')));
+            if (!$time) {
+                $this->sendMessage($chatId, "Send checkout time as `HH:MM` (example: `11:00`).");
+                return true;
+            }
+            $this->finishNewBookingCheckoutTime($chatId, $context, $time);
             return true;
         }
 
@@ -135,17 +180,55 @@ trait TelegramDeskFlows {
             return true;
         }
 
-        if ($state === 'EB_DATES') {
-            if (!preg_match('/(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/', $text, $m)) {
-                $this->sendMessage($chatId, "Send two dates: `YYYY-MM-DD YYYY-MM-DD`\nExample: `" . date('Y-m-d') . " " . date('Y-m-d', strtotime('+1 day')) . "`");
+        if ($state === 'EB_DATES' || $state === 'EB_CHECKIN' || $state === 'EB_CHECKOUT') {
+            if (preg_match('/(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/', $text, $m)) {
+                $this->applyEditDates($chatId, $context, $m[1], $m[2]);
                 return true;
             }
-            $this->applyEditDates($chatId, $context, $m[1], $m[2]);
+            $date = $this->parseDeskDate($text);
+            if ($date && ($state === 'EB_CHECKIN' || ($context['edit_which'] ?? '') === 'in')) {
+                $this->askStayTime($chatId, $context, 'eb', 'in', $date);
+                return true;
+            }
+            if ($date && ($state === 'EB_CHECKOUT' || ($context['edit_which'] ?? '') === 'out')) {
+                $this->askStayTime($chatId, $context, 'eb', 'out', $date);
+                return true;
+            }
+            $this->sendMessage($chatId, "Tap a date on the calendar, or type `YYYY-MM-DD`. You can still send both dates as `YYYY-MM-DD YYYY-MM-DD`.");
             return true;
         }
 
-        if ($state === 'EB_GUEST') {
-            $this->applyEditGuest($chatId, $context, $text);
+        if ($state === 'EB_TIME') {
+            $which = (string)($context['edit_which'] ?? 'in');
+            $dateKey = $which === 'out' ? 'check_out_date' : 'check_in_date';
+            $time = $this->parseDeskTime($text, (string)($context[$dateKey] ?? date('Y-m-d')));
+            if (!$time) {
+                $this->sendMessage($chatId, "Send time as `HH:MM` (example: `14:00`).");
+                return true;
+            }
+            $this->applyEditTime($chatId, $context, $which, $time);
+            return true;
+        }
+
+        if ($state === 'EB_CANCEL') {
+            $reason = trim($text);
+            if (strlen($reason) < 3) {
+                $this->sendMessage($chatId, "Type a cancellation reason (at least 3 characters).");
+                return true;
+            }
+            try {
+                $result = BookingService::cancelBooking(
+                    $this->db,
+                    (int)$context['booking_id'],
+                    (int)$context['property_id'],
+                    $reason,
+                    ['source' => 'telegram']
+                );
+                $this->clearSession($chatId);
+                $this->sendMessage($chatId, "✅ " . $result['message'], $this->menuKeyboard());
+            } catch (\Throwable $e) {
+                $this->sendMessage($chatId, "Could not cancel: " . $e->getMessage());
+            }
             return true;
         }
 
@@ -162,29 +245,134 @@ trait TelegramDeskFlows {
         return false;
     }
 
+    private function promptCheckInDate(string $chatId, array $context): void {
+        $this->sendStayCalendar($chatId, $context, 'nb', 'in', date('Ym'), 'NB_CHECKIN');
+    }
+
+    private function sendStayCalendar(string $chatId, array $context, string $flow, string $which, string $yearMonth, string $state): void {
+        $context['cal_flow'] = $flow;
+        $context['cal_which'] = $which;
+        $this->setSession($chatId, $state, $context);
+        $label = $which === 'in' ? 'check-in' : 'checkout';
+        $this->sendMessage(
+            $chatId,
+            "Pick a {$label} date on the calendar, or type `YYYY-MM-DD`.",
+            TelegramCalendar::monthKeyboard($flow, $which, $yearMonth)
+        );
+    }
+
+    private function askStayTime(string $chatId, array $context, string $flow, string $which, string $date): void {
+        if ($which === 'in') {
+            $context['check_in_date'] = $date;
+        } else {
+            $context['check_out_date'] = $date;
+        }
+        $context['cal_flow'] = $flow;
+        $context['cal_which'] = $which;
+        $context['edit_which'] = $which;
+        $state = $flow === 'eb' ? 'EB_TIME' : ($which === 'out' ? 'NB_OUT_TIME' : 'NB_TIME');
+        $this->setSession($chatId, $state, $context);
+        $pretty = date('D, d M Y', strtotime($date));
+        $kb = TelegramCalendar::hourKeyboard($flow, $which);
+        if ($which === 'out') {
+            array_unshift($kb['inline_keyboard'], [[
+                'text' => '11:00 default',
+                'callback_data' => "t:{$flow}:out:m1100",
+            ]]);
+        }
+        $this->sendMessage($chatId, ($which === 'in' ? 'Check-in' : 'Checkout') . " *{$pretty}*. Pick the hour, then minutes — or type `HH:MM`.", $kb);
+    }
+
+    private function askNewBookingTime(string $chatId, array $context, string $checkInDate): void {
+        $this->askStayTime($chatId, $context, 'nb', 'in', $checkInDate);
+    }
+
+    private function askNewBookingCheckout(string $chatId, array $context, string $checkInTime): void {
+        $inDate = (string)($context['check_in_date'] ?? date('Y-m-d'));
+        $context['check_in'] = $inDate . ' ' . $checkInTime;
+        $this->sendStayCalendar($chatId, $context, 'nb', 'out', date('Ym', strtotime($inDate . ' +1 day') ?: time()), 'NB_CHECKOUT');
+    }
+
+    private function finishNewBookingCheckoutTime(string $chatId, array $context, string $checkOutTime): void {
+        $outDate = (string)($context['check_out_date'] ?? '');
+        if ($outDate === '') {
+            $this->sendMessage($chatId, "Pick a checkout date first.");
+            return;
+        }
+        $context['check_out'] = $outDate . ' ' . $checkOutTime;
+        $this->showAvailableRoomsForStay($chatId, $context, $outDate);
+    }
+
+    private function handleCalendarCallback(string $chatId, array $parsed): void {
+        $session = $this->getSession($chatId);
+        $context = $session ? (json_decode((string)$session['context_data'], true) ?: []) : [];
+        $flow = $parsed['flow'];
+        $which = $parsed['which'];
+        $kind = $parsed['kind'];
+
+        if ($kind === 'month') {
+            $state = (string)($session['state'] ?? ($flow === 'eb' ? 'EB_CHECKIN' : 'NB_CHECKIN'));
+            $this->sendStayCalendar($chatId, $context, $flow, $which, $parsed['year_month'], $state);
+            return;
+        }
+        if ($kind === 'day') {
+            $this->askStayTime($chatId, $context, $flow, $which, $parsed['date']);
+            return;
+        }
+        if ($kind === 'hour') {
+            $kb = TelegramCalendar::minuteKeyboard($flow, $which, (int)$parsed['hour']);
+            $hh = sprintf('%02d', (int)$parsed['hour']);
+            $this->sendMessage($chatId, "Hour *{$hh}:00*. Pick minutes:", $kb);
+            return;
+        }
+        if ($kind === 'minute') {
+            $time = sprintf('%02d:%02d:00', (int)$parsed['hour'], (int)$parsed['minute']);
+            if ($flow === 'nb' && $which === 'in') {
+                $this->askNewBookingCheckout($chatId, $context, $time);
+                return;
+            }
+            if ($flow === 'nb' && $which === 'out') {
+                $this->finishNewBookingCheckoutTime($chatId, $context, $time);
+                return;
+            }
+            if ($flow === 'eb') {
+                $this->applyEditTime($chatId, $context, $which, $time);
+            }
+        }
+    }
+
     private function askNewBookingNights(string $chatId, array $context, string $checkInDate): void {
-        $context['check_in'] = $checkInDate . ' 14:00:00';
-        $this->setSession($chatId, 'NB_NIGHTS', $context);
-        $this->sendMessage($chatId, "Check-in *{$checkInDate}*. How many nights?", [
-            'inline_keyboard' => [
-                [
-                    ['text' => '1 night', 'callback_data' => 'nb_n1'],
-                    ['text' => '2 nights', 'callback_data' => 'nb_n2'],
-                ],
-                [
-                    ['text' => '3 nights', 'callback_data' => 'nb_n3'],
-                    ['text' => '7 nights', 'callback_data' => 'nb_n7'],
-                ],
-                [['text' => '🔙 Cancel', 'callback_data' => 'main_menu']],
-            ],
-        ]);
+        $this->askNewBookingTime($chatId, $context, $checkInDate);
     }
 
     private function showAvailableRoomsForNewBooking(string $chatId, array $context, int $nights): void {
+        $inDate = date('Y-m-d', strtotime((string)($context['check_in'] ?? $context['check_in_date'] ?? 'now')));
+        $outDate = date('Y-m-d', strtotime($inDate . " +{$nights} days"));
+        $this->showAvailableRoomsForStay($chatId, $context, $outDate);
+    }
+
+    private function showAvailableRoomsForStay(string $chatId, array $context, string $checkoutDate): void {
         $propertyId = (int)$context['property_id'];
-        $checkIn = (string)$context['check_in'];
-        $checkOut = date('Y-m-d H:i:s', strtotime($checkIn . " +{$nights} days"));
-        $checkOut = date('Y-m-d', strtotime($checkOut)) . ' 11:00:00';
+        $checkIn = (string)($context['check_in'] ?? '');
+        if ($checkIn === '') {
+            $this->sendMessage($chatId, "Session expired. Type /start.");
+            return;
+        }
+        $inDate = date('Y-m-d', strtotime($checkIn));
+        if (!empty($context['check_out']) && strlen((string)$context['check_out']) > 10) {
+            $checkOut = (string)$context['check_out'];
+        } else {
+            $outTime = ($checkoutDate === $inDate) ? '18:00:00' : '11:00:00';
+            $checkOut = $checkoutDate . ' ' . $outTime;
+        }
+        if (strtotime($checkOut) <= strtotime($checkIn)) {
+            $this->sendMessage(
+                $chatId,
+                "Checkout must be after check-in (" . date('d M Y, g:i A', strtotime($checkIn)) . "). Pick a later date or type `YYYY-MM-DD`."
+            );
+            return;
+        }
+        $nights = max(1, (int)round((strtotime($checkoutDate . ' 12:00:00') - strtotime($inDate . ' 12:00:00')) / 86400));
         $context['check_out'] = $checkOut;
         $context['nights'] = $nights;
 
@@ -207,9 +395,10 @@ trait TelegramDeskFlows {
             $keyboard['inline_keyboard'][] = $row;
         }
         $keyboard['inline_keyboard'][] = [['text' => '🔙 Cancel', 'callback_data' => 'main_menu']];
-        $inShort = date('d M', strtotime($checkIn));
+        $inShort = date('d M, g:i A', strtotime($checkIn));
         $outShort = date('d M', strtotime($checkOut));
-        $this->sendMessage($chatId, "Stay {$inShort} → {$outShort} ({$nights} night" . ($nights === 1 ? '' : 's') . "). Pick a room:", $keyboard);
+        $nightLabel = $nights === 1 ? '1 night' : "{$nights} nights";
+        $this->sendMessage($chatId, "Stay {$inShort} → {$outShort} ({$nightLabel}). Pick a room:", $keyboard);
     }
 
     private function confirmCreateBooking(string $chatId, int $roomId): void {
@@ -237,9 +426,11 @@ trait TelegramDeskFlows {
             $roomNo = $this->roomNumber($roomId, $propertyId);
             $this->setSession($chatId, 'NB_DONE', $context);
             $total = number_format((float)$result['total_amount'], 2);
+            $inPretty = date('d M, g:i A', strtotime((string)$context['check_in']));
+            $outPretty = date('d M', strtotime((string)$context['check_out']));
             $this->sendMessage(
                 $chatId,
-                "✅ Booking *{$result['display_id']}*\nGuest: {$context['guest_name']}\nRoom: {$roomNo}\nTotal: ₹{$total}",
+                "✅ Booking *{$result['display_id']}*\nGuest: {$context['guest_name']}\nRoom: {$roomNo}\nStay: {$inPretty} → {$outPretty}\nTotal: ₹{$total}",
                 [
                     'inline_keyboard' => [
                         [
@@ -289,28 +480,35 @@ trait TelegramDeskFlows {
             $this->sendMessage($chatId, "Stay not found.");
             return;
         }
+        $ui = StayPolicy::ui($booking);
         $this->setSession($chatId, 'EB_MENU', [
             'property_id' => $propertyId,
             'booking_id' => $booking['id'],
             'room_id' => $roomId,
             'guest_id' => $booking['guest_id'],
             'room_name' => $booking['room_number'],
+            'check_in' => $booking['check_in'],
+            'check_out' => $booking['check_out'],
         ]);
+        $rows = [];
+        if ($ui['check_in'] || $ui['check_out']) {
+            $rows[] = [['text' => '📅 Change dates', 'callback_data' => 'eb_dates']];
+        }
+        if ($ui['room']) {
+            $rows[] = [['text' => '🛏 Change room', 'callback_data' => 'eb_chgroom']];
+        }
+        if ($ui['guest']) {
+            $rows[] = [['text' => '👤 Guest name/phone', 'callback_data' => 'eb_guest']];
+        }
+        if ($ui['cancel']) {
+            $rows[] = [['text' => '❌ Cancel booking', 'callback_data' => 'eb_cancel']];
+        }
+        $rows[] = [['text' => '🔙 Menu', 'callback_data' => 'main_menu']];
         $this->sendMessage(
             $chatId,
-            "Edit Room {$booking['room_number']} — {$booking['guest_name']}\nIn: {$booking['check_in']}\nOut: {$booking['check_out']}",
-            [
-                'inline_keyboard' => [
-                    [
-                        ['text' => '📅 Change dates', 'callback_data' => 'eb_dates'],
-                        ['text' => '🛏 Change room', 'callback_data' => 'eb_chgroom'],
-                    ],
-                    [
-                        ['text' => '👤 Guest name/phone', 'callback_data' => 'eb_guest'],
-                    ],
-                    [['text' => '🔙 Menu', 'callback_data' => 'main_menu']],
-                ],
-            ]
+            "Edit Room {$booking['room_number']} — {$booking['guest_name']}\nIn: {$booking['check_in']}\nOut: {$booking['check_out']}"
+            . ($ui['check_in'] ? '' : "\n_Check-in time is locked after arrival._"),
+            ['inline_keyboard' => $rows]
         );
     }
 
@@ -321,8 +519,37 @@ trait TelegramDeskFlows {
             return;
         }
         $context = json_decode((string)$session['context_data'], true) ?: [];
-        $this->setSession($chatId, 'EB_DATES', $context);
-        $this->sendMessage($chatId, "Send new dates as:\n`YYYY-MM-DD YYYY-MM-DD`\n(check-in then check-out)");
+        $booking = $this->bookingRow((int)$context['booking_id'], (int)$context['property_id']);
+        if (!$booking) {
+            $this->sendMessage($chatId, "Booking not found.");
+            return;
+        }
+        $ui = StayPolicy::ui($booking);
+        $context['check_in'] = $booking['check_in'];
+        $context['check_out'] = $booking['check_out'];
+        $context['check_in_date'] = date('Y-m-d', strtotime((string)$booking['check_in']));
+        $context['check_out_date'] = date('Y-m-d', strtotime((string)$booking['check_out']));
+        if ($ui['check_in']) {
+            $this->sendStayCalendar($chatId, $context, 'eb', 'in', date('Ym', strtotime((string)$booking['check_in']) ?: time()), 'EB_CHECKIN');
+            return;
+        }
+        if ($ui['check_out']) {
+            $this->sendStayCalendar($chatId, $context, 'eb', 'out', date('Ym', strtotime((string)$booking['check_out']) ?: time()), 'EB_CHECKOUT');
+            return;
+        }
+        $this->sendMessage($chatId, "Dates cannot be changed on this stay.");
+    }
+
+    private function applyEditTime(string $chatId, array $context, string $which, string $time): void {
+        if ($which === 'in') {
+            $date = (string)($context['check_in_date'] ?? date('Y-m-d', strtotime((string)($context['check_in'] ?? 'now'))));
+            $context['check_in'] = $date . ' ' . $time;
+            $this->sendStayCalendar($chatId, $context, 'eb', 'out', date('Ym', strtotime($date . ' +1 day') ?: time()), 'EB_CHECKOUT');
+            return;
+        }
+        $date = (string)($context['check_out_date'] ?? date('Y-m-d', strtotime((string)($context['check_out'] ?? 'now'))));
+        $context['check_out'] = $date . ' ' . $time;
+        $this->applyEditDates($chatId, $context, (string)$context['check_in'], (string)$context['check_out']);
     }
 
     private function applyEditDates(string $chatId, array $context, string $checkIn, string $checkOut): void {
@@ -342,6 +569,23 @@ trait TelegramDeskFlows {
         }
     }
 
+    private function beginCancelStay(string $chatId): void {
+        $session = $this->getSession($chatId);
+        if (!$session) {
+            $this->sendMessage($chatId, "Session expired. Type /start.");
+            return;
+        }
+        $context = json_decode((string)$session['context_data'], true) ?: [];
+        $booking = $this->bookingRow((int)$context['booking_id'], (int)$context['property_id']);
+        if (!$booking) {
+            $this->sendMessage($chatId, "Booking not found.");
+            return;
+        }
+        StayPolicy::assert($booking, StayPolicy::CANCEL);
+        $this->setSession($chatId, 'EB_CANCEL', $context);
+        $this->sendMessage($chatId, "Type the cancellation reason for Room {$context['room_name']}:");
+    }
+
     private function beginChangeRoom(string $chatId): void {
         $session = $this->getSession($chatId);
         if (!$session) {
@@ -354,6 +598,7 @@ trait TelegramDeskFlows {
             $this->sendMessage($chatId, "Booking not found.");
             return;
         }
+        StayPolicy::assert($booking, StayPolicy::ROOM);
         $rooms = $this->listAvailableRooms((int)$context['property_id'], (string)$booking['check_in'], (string)$booking['check_out'], (int)$booking['id']);
         if (!$rooms) {
             $this->sendMessage($chatId, "No other rooms free for this stay.");
@@ -633,6 +878,55 @@ trait TelegramDeskFlows {
         $ts = strtotime($text);
         if ($ts) {
             return date('Y-m-d', $ts);
+        }
+        return null;
+    }
+
+    private function parseDeskTime(string $text, string $checkInDate): ?string {
+        $text = strtolower(trim($text));
+        if ($text === 'now' || $text === 'now()') {
+            return $this->checkInTimeNow($checkInDate);
+        }
+        if (preg_match('/^(\d{1,2}):(\d{2})$/', $text, $m)) {
+            $h = (int)$m[1];
+            $min = (int)$m[2];
+            if ($h >= 0 && $h <= 23 && $min >= 0 && $min <= 59) {
+                return sprintf('%02d:%02d:00', $h, $min);
+            }
+        }
+        if (preg_match('/^(\d{1,2})\s*(am|pm)$/', $text, $m)) {
+            $h = (int)$m[1];
+            if ($h < 1 || $h > 12) {
+                return null;
+            }
+            if ($m[2] === 'pm' && $h !== 12) {
+                $h += 12;
+            }
+            if ($m[2] === 'am' && $h === 12) {
+                $h = 0;
+            }
+            return sprintf('%02d:00:00', $h);
+        }
+        return null;
+    }
+
+    private function checkInTimeNow(string $checkInDate): string {
+        if ($checkInDate === date('Y-m-d')) {
+            return date('H:i:00');
+        }
+        return '14:00:00';
+    }
+
+    private function timeFromCallback(string $data, string $checkInDate): ?string {
+        if ($data === 'nb_tnow') {
+            return $this->checkInTimeNow($checkInDate);
+        }
+        if (preg_match('/^nb_t(\d{2})(\d{2})$/', $data, $m)) {
+            $h = (int)$m[1];
+            $min = (int)$m[2];
+            if ($h >= 0 && $h <= 23 && $min >= 0 && $min <= 59) {
+                return sprintf('%02d:%02d:00', $h, $min);
+            }
         }
         return null;
     }

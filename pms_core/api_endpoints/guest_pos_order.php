@@ -137,7 +137,7 @@ try {
         $itemSummaries[] = "{$vi['name']} x{$vi['qty']}";
     }
     $description = "POS Charge ({$orderDisplayId}): " . mb_substr(implode(', ', $itemSummaries), 0, 180);
-    FolioService::postCharge($db, (int)$bookingId, $totalAmount, $description, 'F&B');
+    FolioService::postCharge($db, (int)$bookingId, $totalAmount, $description, 'pos_order');
 
     try {
         $gsr = $db->prepare("

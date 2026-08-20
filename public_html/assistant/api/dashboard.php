@@ -314,6 +314,51 @@ ApiHandler::run(function(\PDO $db) {
         }
     }
 
+    // New bookings created recently (Telegram / walk-in / PMS) so they surface even if check-in is later
+    $seenBookingIds = [];
+    foreach ($alerts as $existing) {
+        if (!empty($existing['booking_id'])) {
+            $seenBookingIds[(int)$existing['booking_id']] = true;
+        }
+    }
+    try {
+        $recentStmt = $db->prepare("
+            SELECT b.id as booking_id, b.check_in, b.check_out, b.created_at, b.booking_source,
+                   r.room_number, g.name as guest_name
+            FROM bookings b
+            JOIN rooms r ON b.room_id = r.id
+            LEFT JOIN guests g ON b.guest_id = g.id
+            WHERE b.property_id = ?
+              AND b.payment_status != 'cancelled'
+              AND b.booking_status IN ('booked', 'checked_in')
+              AND b.created_at >= DATE_SUB(NOW(), INTERVAL 12 HOUR)
+            ORDER BY b.created_at DESC
+            LIMIT 10
+        ");
+        $recentStmt->execute([$propertyId]);
+        foreach ($recentStmt->fetchAll(\PDO::FETCH_ASSOC) as $nb) {
+            $bid = (int)$nb['booking_id'];
+            if (isset($seenBookingIds[$bid])) {
+                continue;
+            }
+            $seenBookingIds[$bid] = true;
+            $inPretty = date('d M, g:i A', strtotime((string)$nb['check_in']));
+            $source = trim((string)($nb['booking_source'] ?? ''));
+            $sourceBit = $source !== '' ? " via {$source}" : '';
+            $alerts[] = [
+                'id' => 'new_booking_' . $bid,
+                'type' => 'new_booking',
+                'severity' => 'warning',
+                'title' => 'New booking',
+                'message' => "{$nb['guest_name']} — Room {$nb['room_number']}{$sourceBit}, check-in {$inPretty}",
+                'booking_id' => $bid,
+                'guest_name' => $nb['guest_name'],
+                'room_number' => $nb['room_number'],
+            ];
+        }
+    } catch (\Throwable $t) {
+    }
+
     // Sort by severity
     $severityOrder = ['critical' => 0, 'danger' => 1, 'warning' => 2, 'info' => 3];
 

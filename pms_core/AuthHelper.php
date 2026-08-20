@@ -20,7 +20,7 @@ class AuthHelper {
             'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
             'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
             'update_room_status', 'inspect_rooms', 'manage_maintenance',
-            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations', 'rollback_booking'
+            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations', 'rollback_booking', 'move_room'
         ],
         'owner' => [
             'view_dashboard', 'create_booking', 'edit_booking', 'cancel_booking', 'check_in_out',
@@ -32,7 +32,7 @@ class AuthHelper {
             'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
             'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
             'update_room_status', 'inspect_rooms', 'manage_maintenance',
-            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations', 'rollback_booking'
+            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations', 'rollback_booking', 'move_room'
         ],
         'admin' => [
             'view_dashboard', 'create_booking', 'edit_booking', 'cancel_booking', 'check_in_out',
@@ -44,7 +44,7 @@ class AuthHelper {
             'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
             'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
             'update_room_status', 'inspect_rooms', 'manage_maintenance',
-            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations', 'rollback_booking'
+            'export_reports', 'export_guest_data', 'manage_payment_gateways', 'manage_automations', 'rollback_booking', 'move_room'
         ],
         'manager' => [
             'view_dashboard', 'create_booking', 'edit_booking', 'cancel_booking', 'check_in_out',
@@ -55,10 +55,11 @@ class AuthHelper {
             'override_room_rates', 'apply_discounts', 'void_folio_item', 'waive_cancellation_fee',
             'void_pos_order', 'discount_pos_order', 'manage_inventory', 'view_pos_reports',
             'update_room_status', 'inspect_rooms', 'manage_maintenance',
-            'export_reports', 'manage_automations'
+            'export_reports', 'manage_automations', 'move_room'
         ],
         'receptionist' => [
-            'view_dashboard', 'create_booking', 'edit_booking', 'check_in_out',
+            'view_dashboard', 'create_booking', 'edit_booking', 'cancel_booking', 'check_in_out',
+            'move_room',
             'view_folio', 'record_payment', 'generate_payment_link', 'manage_guests',
             'upload_document', 'housekeeping', 'send_whatsapp',
             'update_room_status', 'view_pos_reports'
@@ -174,8 +175,8 @@ class AuthHelper {
             return false;
         }
         
-        $role = self::getRole();
-        if ($role === null) {
+        $role = self::normalizeRoleName((string)(self::getRole() ?? ''));
+        if ($role === '') {
             return false;
         }
         
@@ -186,6 +187,124 @@ class AuthHelper {
         
         $allowedPerms = self::PERMISSIONS[$role] ?? [];
         return in_array($permission, $allowedPerms, true);
+    }
+
+    public static function normalizeRoleName(string $role): string {
+        $role = strtolower(trim($role));
+        return match ($role) {
+            'staff', 'user', 'front_desk' => 'receptionist',
+            'hk' => 'housekeeping',
+            default => $role,
+        };
+    }
+
+    public static function roleCan(string $role, string $permission): bool {
+        $role = self::normalizeRoleName($role);
+        if ($role === 'superadmin') {
+            return true;
+        }
+        $allowed = self::PERMISSIONS[$role] ?? [];
+        return in_array($permission, $allowed, true);
+    }
+
+    public static function telegramActionPermission(string $action): string {
+        return match ($action) {
+            'add_payment' => 'record_payment',
+            'check_in', 'quick_checkout' => 'check_in_out',
+            'extend_stay' => 'edit_booking',
+            'id_proof' => 'upload_document',
+            'mark_room_clean' => 'update_room_status',
+            'today_revenue' => 'view_finance',
+            'arrivals', 'departures', 'room_status' => 'view_dashboard',
+            'cancel_booking' => 'cancel_booking',
+            default => $action,
+        };
+    }
+
+    /**
+     * Map Settings role picker (built-in or custom_N) to staff_users columns.
+     *
+     * @return array{access_level: string, role_name: string, role_id: int|null}
+     */
+    public static function resolveStaffRoleInput(\PDO $db, int $propertyId, string $roleInput): array {
+        $validRoles = ['owner', 'admin', 'manager', 'receptionist', 'housekeeping', 'maintenance', 'fb_cashier', 'night_auditor'];
+        if (str_starts_with($roleInput, 'custom_')) {
+            $roleId = (int)substr($roleInput, 7);
+            $stmt = $db->prepare("SELECT id, name FROM roles WHERE id = ? AND property_id = ?");
+            $stmt->execute([$roleId, $propertyId]);
+            $customRole = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$customRole) {
+                throw new \Exception('Invalid custom role selected');
+            }
+            return [
+                'access_level' => 'manager',
+                'role_name' => (string)$customRole['name'],
+                'role_id' => $roleId,
+            ];
+        }
+        if (!in_array($roleInput, $validRoles, true)) {
+            throw new \Exception('Invalid role selection');
+        }
+        return [
+            'access_level' => $roleInput,
+            'role_name' => $roleInput,
+            'role_id' => null,
+        ];
+    }
+
+    public static function assistantRoleAlias(string $accessLevel): string {
+        $accessLevel = self::normalizeRoleName($accessLevel);
+        return match ($accessLevel) {
+            'owner', 'admin', 'superadmin' => 'owner',
+            'manager' => 'manager',
+            'housekeeping' => 'housekeeping',
+            default => 'receptionist',
+        };
+    }
+
+    public static function applyCustomPermissions(\PDO $db, mixed $roleId): void {
+        unset($_SESSION['custom_permissions']);
+        if (empty($roleId)) {
+            return;
+        }
+        try {
+            $roleStmt = $db->prepare("SELECT permissions FROM roles WHERE id = ?");
+            $roleStmt->execute([(int)$roleId]);
+            $roleData = $roleStmt->fetch(\PDO::FETCH_ASSOC);
+            if ($roleData && !empty($roleData['permissions'])) {
+                $decoded = json_decode((string)$roleData['permissions'], true);
+                if (is_array($decoded)) {
+                    $_SESSION['custom_permissions'] = $decoded;
+                }
+            }
+        } catch (\PDOException $e) {
+        }
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    public static function assistantUiPermissions(string $role): array {
+        $role = self::normalizeRoleName($role);
+        $check = static function (string $permission) use ($role): bool {
+            if (!empty($_SESSION['user_id'])) {
+                return self::can($permission);
+            }
+            return self::roleCan($role, $permission);
+        };
+        return [
+            'check_in_out' => $check('check_in_out'),
+            'collect_payment' => $check('record_payment'),
+            'add_charge' => $check('edit_folio'),
+            'edit_charge' => $check('edit_folio'),
+            'edit_checkout' => $check('edit_booking'),
+            'housekeeping' => $check('housekeeping') || $check('update_room_status'),
+            'pos_access' => $check('manage_pos'),
+            'view_bill' => $check('view_folio'),
+            'view_reports' => $check('view_reports'),
+            'create_booking' => $check('create_booking'),
+            'cancel_booking' => $check('cancel_booking'),
+        ];
     }
 
     public static function getBuiltInRoles(): array {
@@ -213,6 +332,7 @@ class AuthHelper {
             'view_dashboard' => 'View Dashboard',
             'create_booking' => 'Create Booking',
             'edit_booking' => 'Edit Booking',
+            'move_room' => 'Move Room',
             'cancel_booking' => 'Cancel Booking',
             'check_in_out' => 'Check-in / Check-out',
             'view_folio' => 'View Folio',
@@ -273,6 +393,7 @@ class AuthHelper {
             'Front Desk & Bookings' => [
                 'create_booking' => 'Create Booking',
                 'edit_booking' => 'Edit Booking',
+                'move_room' => 'Move Room',
                 'cancel_booking' => 'Cancel Booking',
                 'check_in_out' => 'Check-in / Check-out',
                 'rollback_booking' => 'Rollback Check-out',
@@ -564,17 +685,7 @@ class AuthHelper {
                 $_SESSION['saas_admin_username'] = $row['username'];
                 $_SESSION['saas_admin_role'] = 'superadmin';
             }
-            if (!empty($row['role_id'])) {
-                try {
-                    $roleStmt = $db->prepare("SELECT permissions FROM roles WHERE id = ?");
-                    $roleStmt->execute([(int)$row['role_id']]);
-                    $roleData = $roleStmt->fetch();
-                    if ($roleData && !empty($roleData['permissions'])) {
-                        $_SESSION['custom_permissions'] = json_decode((string)$roleData['permissions'], true) ?? [];
-                    }
-                } catch (\PDOException $e) {
-                }
-            }
+            self::applyCustomPermissions($db, $row['role_id'] ?? null);
             self::extendSessionCookie(2592000);
         } catch (\Throwable $e) {
         }

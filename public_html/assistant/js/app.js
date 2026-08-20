@@ -142,6 +142,10 @@ class BookingAssistant {
   }
 
   playChime() {
+    if (typeof window.playStaffAlertSound === 'function') {
+      window.playStaffAlertSound();
+      return;
+    }
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = ctx.createOscillator();
@@ -807,6 +811,7 @@ class BookingAssistant {
             const iconMap = {
               dirty_room:        ['#f59e0b', '<path d="M243.31,115.48,208,80.18V48a8,8,0,0,0-8-8H56a8,8,0,0,0-8,8V80.18l-35.32,35.3A8,8,0,0,0,24,128H40v80a8,8,0,0,0,8,8H208a8,8,0,0,0,8-8V128h16a8,8,0,0,0,5.66-13.52Z"/>'],
               today_arrival:     ['#10b981', '<path d="M141.66,133.66l-40,40a8,8,0,0,1-11.32-11.32L116.69,136H24a8,8,0,0,1,0-16h92.69L90.34,93.66a8,8,0,0,1,11.32-11.32l40,40A8,8,0,0,1,141.66,133.66ZM192,32H160a8,8,0,0,0,0,16h32V208H160a8,8,0,0,0,0,16h32a16,16,0,0,0,16-16V48A16,16,0,0,0,192,32Z"/>'],
+              new_booking:       ['#2563eb', '<path d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32Zm0,176H48V88H208Z"/>'],
               today_departure:   ['#ef4444', '<path d="M114.34,122.34a8,8,0,0,1,11.32,0l40,40a8,8,0,0,1-11.32,11.32L128,147.31V240a8,8,0,0,1-16,0V147.31L85.66,173.66a8,8,0,0,1-11.32-11.32ZM192,32H96a16,16,0,0,0-16,16V80a8,8,0,0,0,16,0V48h96V208H96V176a8,8,0,0,0-16,0v32a16,16,0,0,0,16,16h96a16,16,0,0,0,16-16V48A16,16,0,0,0,192,32Z"/>'],
               missing_id:        ['#6366f1', '<path d="M72,88a32,32,0,1,1,32,32A32,32,0,0,1,72,88Zm152,88H200V160a8,8,0,0,0-16,0v16H152a8,8,0,0,0,0,16h32v16a8,8,0,0,0,16,0V192h32a8,8,0,0,0,0-16Z"/>'],
               pending_payment:   ['#16a34a', '<path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48Zm0,144H32V64H224Z"/>'],
@@ -873,6 +878,12 @@ class BookingAssistant {
   handleAlertClick(alert) {
     if (alert.type === 'dirty_room') {
       this.showScreen('rooms');
+    } else if (alert.type === 'new_booking') {
+      if (alert.booking_id) {
+        this.openBookingActionById(alert.booking_id);
+      } else {
+        this.showScreen('history');
+      }
     } else if (alert.type === 'today_arrival') {
       this.showCheckInScreen();
     } else if (alert.type === 'today_departure') {
@@ -3200,7 +3211,11 @@ class BookingAssistant {
     };
     const inEl = document.getElementById('extend-checkin-datetime');
     const outEl = document.getElementById('extend-checkout-datetime');
-    if (inEl) inEl.value = toLocal(this.activeActionCheckIn);
+    if (inEl) {
+      inEl.value = toLocal(this.activeActionCheckIn);
+      const locked = (this.activeActionBooking && this.activeActionBooking.booking_status === 'checked_in');
+      inEl.disabled = !!locked;
+    }
     if (outEl) outEl.value = toLocal(this.activeActionCheckOut);
     
     document.getElementById('extend-stay-popup').classList.add('active');
@@ -3759,7 +3774,7 @@ class BookingAssistant {
           
           let icon = 'info';
           if (alert.type === 'dirty_room') icon = 'brush';
-          else if (alert.type === 'today_arrival') icon = 'user-check';
+          else if (alert.type === 'today_arrival' || alert.type === 'new_booking') icon = 'user-check';
           else if (alert.type === 'today_departure') icon = 'log-out';
           else if (alert.type === 'missing_id') icon = 'contact-2';
           else if (alert.type === 'pending_payment') icon = 'wallet-cards';

@@ -133,6 +133,9 @@ assert_true(is_file(__DIR__ . '/../pms_core/services/PropertyOnboardService.php'
 $tgHandler = file_get_contents(__DIR__ . '/../pms_core/services/TelegramOperationsHandler.php') ?: '';
 $tgDesk = file_get_contents(__DIR__ . '/../pms_core/services/TelegramDeskFlows.php') ?: '';
 assert_true(str_contains($tgHandler, 'cmd_new_booking'), 'telegram menu can create a booking');
+assert_true(str_contains($tgHandler, 'nb_t(now') && str_contains($tgHandler, 'nb_out_'), 'telegram new booking picks check-in time and checkout date');
+assert_true(str_contains($tgDesk, 'askNewBookingTime') && str_contains($tgDesk, 'askNewBookingCheckout'), 'telegram desk asks for check-in time then checkout date');
+assert_true(str_contains($tgDesk, 'NB_TIME') && str_contains($tgDesk, 'NB_CHECKOUT'), 'telegram desk has time and checkout states');
 assert_true(str_contains($tgHandler, 'cmd_check_in'), 'telegram menu can check in');
 assert_true(str_contains($tgHandler, 'cmd_edit_booking'), 'telegram menu can edit a stay');
 assert_true(str_contains($tgHandler, 'cmd_id_proof'), 'telegram menu can collect ID photos');
@@ -222,7 +225,7 @@ assert_true(str_contains($auth, "'night_auditor'") && str_contains($auth, 'recor
 assert_true(is_file(__DIR__ . '/../pms_core/services/HousekeepingFlow.php'), 'housekeeping flow completes stayover tickets on 1-click clean');
 assert_true(is_file(__DIR__ . '/../db_migrations/033_room_dnd.sql'), 'migration 033 room DND is packaged');
 $posRep = file_get_contents(__DIR__ . '/../pms_core/api_endpoints/admin_pos_reports.php') ?: '';
-assert_true(str_contains($posRep, 'DATE(o.recorded_at)') && str_contains($posRep, 'order_channel'), 'POS order report uses calendar dates and room vs counter');
+assert_true(str_contains($posRep, 'o.recorded_at >=') && str_contains($posRep, 'order_channel'), 'POS order report uses calendar dates and room vs counter');
 $uiHead = file_get_contents(__DIR__ . '/../public_html/admin/components/ui_head.php') ?: '';
 assert_true(str_contains($uiHead, '/admin/folio') && !str_contains($uiHead, 'target="_blank"'), 'night audit opens folio on the same tab');
 assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/schema_master.sql') ?: '', 'linked_pos_order_id'), 'schema_master links POS orders to service requests');
@@ -242,10 +245,55 @@ assert_true(is_file(__DIR__ . '/../public_html/sw.js') && is_file(__DIR__ . '/..
 assert_true(is_file(__DIR__ . '/../public_html/icons/icon-192.png') && is_file(__DIR__ . '/../public_html/icons/icon-512.png'), 'staff PWA icons exist');
 $bookingSvc = file_get_contents(__DIR__ . '/../pms_core/services/BookingService.php') ?: '';
 assert_true(str_contains($bookingSvc, "sendInAppNotification") && str_contains($bookingSvc, 'check_in'), 'check-in writes bell notifications');
+assert_true(str_contains($bookingSvc, "], \$propertyId);") && str_contains($bookingSvc, "'new_booking'"), 'new booking telegram uses property id from webhook context');
+assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/NotificationRelay.php') ?: '', 'resolveNotifyPropertyId'), 'telegram send does not require a staff session');
 
 assert_true(NotificationRelay::isEnabled('booking_confirmed') === true, 'booking_confirmed telegram is on by default');
 assert_true(NotificationRelay::isEnabled('new_booking') === true, 'new_booking aliases booking_confirmed');
 assert_true(str_contains(file_get_contents(__DIR__ . '/../pms_core/NotificationRelay.php') ?: '', 'deliverTelegram'), 'telegram alerts send immediately');
+
+require_once __DIR__ . '/../pms_core/AuthHelper.php';
+require_once __DIR__ . '/../pms_core/services/StayPolicy.php';
+require_once __DIR__ . '/../pms_core/services/TelegramCalendar.php';
+
+$bookedStay = ['booking_status' => 'booked', 'payment_status' => 'pending'];
+$inHouseStay = ['booking_status' => 'checked_in', 'payment_status' => 'partial'];
+$doneStay = ['booking_status' => 'checked_out', 'payment_status' => 'completed_paid'];
+assert_true(StayPolicy::can($bookedStay, StayPolicy::CHECK_IN) && StayPolicy::can($bookedStay, StayPolicy::CANCEL), 'booked stay can change check-in and cancel');
+assert_true(StayPolicy::can($inHouseStay, StayPolicy::CHECK_OUT) && !StayPolicy::can($inHouseStay, StayPolicy::CHECK_IN), 'checked-in stay locks check-in and allows checkout edit');
+assert_true(!StayPolicy::can($inHouseStay, StayPolicy::CANCEL), 'checked-in stay cannot cancel without rollback');
+assert_true(!StayPolicy::can($doneStay, StayPolicy::CHECK_OUT) && !StayPolicy::can($doneStay, StayPolicy::ROOM), 'checked-out stay is view only');
+$lockedCheckIn = false;
+try {
+    StayPolicy::assert($inHouseStay, StayPolicy::CHECK_IN);
+} catch (\Throwable $e) {
+    $lockedCheckIn = str_contains($e->getMessage(), 'cannot be changed');
+}
+assert_true($lockedCheckIn, 'StayPolicy rejects check-in change after check-in');
+assert_true(str_contains($bookingSvc, 'StayPolicy::assert($booking, StayPolicy::CHECK_IN)'), 'reschedule asserts check-in via StayPolicy');
+
+assert_true(TelegramCalendar::maxCallbackLength() <= 64, 'telegram calendar callbacks stay under 64 bytes');
+$cal = TelegramCalendar::monthKeyboard('nb', 'in', '202608');
+$calOk = true;
+foreach ($cal['inline_keyboard'] as $row) {
+    foreach ($row as $btn) {
+        if (strlen((string)($btn['callback_data'] ?? '')) > 64) {
+            $calOk = false;
+        }
+    }
+}
+assert_true($calOk, 'month calendar callback data is <= 64 bytes');
+$parsedDay = TelegramCalendar::parse('c:nb:in:20260820');
+assert_true(($parsedDay['kind'] ?? '') === 'day' && ($parsedDay['date'] ?? '') === '2026-08-20', 'calendar day callback parses YYYY-MM-DD');
+
+assert_true(AuthHelper::roleCan('receptionist', 'cancel_booking'), 'receptionist can cancel booked stays');
+assert_true(AuthHelper::roleCan('receptionist', 'move_room'), 'receptionist can move rooms');
+assert_true(!AuthHelper::roleCan('housekeeping', 'create_booking'), 'housekeeping cannot create bookings');
+assert_true(AuthHelper::telegramActionPermission('add_payment') === 'record_payment', 'telegram payment maps to record_payment');
+assert_true(is_file(__DIR__ . '/../db_migrations/035_staff_roles_enum.sql'), 'migration 035 staff roles enum is packaged');
+assert_true(is_file(__DIR__ . '/../pms_core/services/StayPolicy.php') && is_file(__DIR__ . '/../pms_core/services/TelegramCalendar.php'), 'stay kernel files exist');
+$zipScript = file_get_contents(__DIR__ . '/../scripts/build_deployment_zip.sh') ?: '';
+assert_true(str_contains($zipScript, '035_staff_roles_enum.sql') && str_contains($zipScript, 'StayPolicy.php'), 'deployment zip requires stay kernel files');
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed > 0 ? 1 : 0);

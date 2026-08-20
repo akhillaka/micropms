@@ -237,6 +237,26 @@ class FolioService {
             $stmt->execute($params);
             $entryId = (int)$db->lastInsertId();
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', $entryId, 'SEQ_RECEIPT_FORMAT');
+
+            try {
+                $finType = $isRefund ? 'expense' : 'income';
+                $finCat = ($category === 'F&B' || $category === 'pos_order') ? 'pos' : (in_array($category, ['booking', 'Room Rent'], true) ? 'booking' : $category);
+                $finStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()))");
+                $finStmt->execute([
+                    $propertyId,
+                    $finType,
+                    $finCat !== '' ? $finCat : 'booking',
+                    $bookingId,
+                    $absAmount,
+                    $description,
+                    strtolower($method),
+                    $staffId,
+                    $recordedAt,
+                ]);
+                SequenceGenerator::assignDisplayId($db, 'finance_transactions', (int)$db->lastInsertId(), 'SEQ_TRANSACTION_FORMAT');
+            } catch (\PDOException $e) {
+                error_log('FolioService finance write skipped: ' . $e->getMessage());
+            }
             
 
 

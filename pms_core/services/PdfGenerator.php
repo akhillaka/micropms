@@ -41,7 +41,7 @@ class PdfGenerator {
             FROM bookings b 
             JOIN rooms r ON b.room_id = r.id 
             JOIN guests g ON b.guest_id = g.id 
-            WHERE b.property_id = ? AND b.check_in = ? AND b.booking_status = 'confirmed'
+            WHERE b.property_id = ? AND DATE(b.check_in) = ? AND b.booking_status = 'booked'
         ");
         $stmt->execute([$propertyId, $today]);
         $arrivals = $stmt->fetchAll();

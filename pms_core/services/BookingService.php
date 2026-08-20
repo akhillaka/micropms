@@ -8,6 +8,7 @@ require_once __DIR__ . '/../NotificationRelay.php';
 require_once __DIR__ . '/../AuditLogger.php';
 require_once __DIR__ . '/../GoogleSheetService.php';
 require_once __DIR__ . '/FolioService.php';
+require_once __DIR__ . '/StayPolicy.php';
 
 /**
  * BookingService - Shared booking logic for both Admin API and Assistant PWA.
@@ -209,7 +210,14 @@ class BookingService {
             }
 
             if (empty($params['skip_notifications'])) {
-                // Trigger WhatsApp automation + Telegram notification
+                $guestName = (string)($params['guest_name'] ?? 'Guest');
+                $roomNum   = (string)($room['room_number'] ?? 'N/A');
+                $catName   = (string)($room['category_name'] ?? '');
+                $checkInFmt  = date('d M Y, g:i A', strtotime($checkIn));
+                $checkOutFmt = date('d M Y, g:i A', strtotime($checkOut));
+                $source = ucfirst($bookingSource ?: 'front_desk');
+                $folioUrl = '/admin/folio?id=' . rawurlencode((string)$bookingDisplayId);
+
                 try {
                     $phoneStmt = $db->prepare("SELECT phone FROM guests WHERE id = ? AND property_id = ?");
                     $phoneStmt->execute([$guestId, $propertyId]);
@@ -230,14 +238,11 @@ class BookingService {
                             $propertyId
                         );
                     }
+                } catch (\Throwable $t) {
+                    error_log('Booking WhatsApp notify failed: ' . $t->getMessage());
+                }
 
-                    // Telegram alert to staff for every new booking
-                    $guestName = $params['guest_name'] ?? 'Guest';
-                    $roomNum   = $room['room_number'] ?? 'N/A';
-                    $catName   = $room['category_name'] ?? '';
-                    $checkInFmt  = date('d M Y, g:i A', strtotime($checkIn));
-                    $checkOutFmt = date('d M Y, g:i A', strtotime($checkOut));
-                    $source = ucfirst($bookingSource ?: 'front_desk');
+                try {
                     $tgMsg = "🏨 <b>New Booking Created</b>\n\n" .
                         "<b>Guest:</b> {$guestName}\n" .
                         "<b>Room:</b> {$roomNum}" . ($catName ? " ({$catName})" : '') . "\n" .
@@ -252,14 +257,18 @@ class BookingService {
                         'check_out'    => $checkOutFmt,
                         'total_amount' => number_format($totalAmount, 2),
                         'source'       => $source,
-                    ]);
-                    $folioUrl = '/admin/folio?id=' . rawurlencode((string)$bookingDisplayId);
+                    ], $propertyId);
+                } catch (\Throwable $t) {
+                    error_log('Booking Telegram notify failed: ' . $t->getMessage());
+                }
+
+                try {
                     NotificationRelay::sendInAppNotification($propertyId, 'New Booking Confirmed', "Room {$roomNum} booked for {$guestName} (₹" . number_format($totalAmount, 2) . ")", 'booking_confirmed', $folioUrl);
                     if ($bookingStatus === 'checked_in') {
                         NotificationRelay::sendInAppNotification($propertyId, 'Guest Checked In', "{$guestName} checked into Room {$roomNum}", 'check_in', $folioUrl);
                     }
                 } catch (\Throwable $t) {
-                    // Ignore notification errors
+                    error_log('Booking in-app notify failed: ' . $t->getMessage());
                 }
             }
 
@@ -440,9 +449,7 @@ class BookingService {
             if (!$booking) {
                 throw new \Exception('Booking not found');
             }
-            if ($booking['booking_status'] === 'checked_out') {
-                throw new \Exception('Cannot extend stay for a booking that is already checked out');
-            }
+            StayPolicy::assert($booking, StayPolicy::CHECK_OUT);
             if ($booking['payment_status'] === 'cancelled') {
                 throw new \Exception('Cannot extend stay for a cancelled booking');
             }
@@ -728,9 +735,7 @@ class BookingService {
         if (!$booking) {
             throw new \Exception('Booking not found');
         }
-        if (($booking['booking_status'] ?? '') !== 'booked') {
-            throw new \Exception("Can only check-in from 'booked' status");
-        }
+        StayPolicy::assert($booking, StayPolicy::CHECK_IN_ACTION);
 
         $upd = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = :id AND property_id = :pid");
         $upd->execute(['id' => $bookingId, 'pid' => $propertyId]);
@@ -792,18 +797,10 @@ class BookingService {
 
     /**
      * Change stay dates and/or room, then rebuild room-charge folio lines.
+     *
+     * @param array{rate_plan_name?: string, tax_preference?: string} $opts
      */
-    public static function reschedule(\PDO $db, int $bookingId, int $propertyId, string $checkIn, string $checkOut, ?int $newRoomId = null): array {
-        if (strlen($checkIn) === 10) {
-            $checkIn .= ' 14:00:00';
-        }
-        if (strlen($checkOut) === 10) {
-            $checkOut .= ' 11:00:00';
-        }
-        if (strtotime($checkOut) <= strtotime($checkIn)) {
-            throw new \Exception('Check-out must be after check-in');
-        }
-
+    public static function reschedule(\PDO $db, int $bookingId, int $propertyId, string $checkIn, string $checkOut, ?int $newRoomId = null, array $opts = []): array {
         $shouldCommit = false;
         if (!$db->inTransaction()) {
             $db->beginTransaction();
@@ -817,11 +814,45 @@ class BookingService {
             if (!$booking) {
                 throw new \Exception('Booking not found');
             }
-            if (in_array((string)$booking['booking_status'], ['checked_out', 'cancelled'], true) || ($booking['payment_status'] ?? '') === 'cancelled') {
-                throw new \Exception('Cannot edit a checked-out or cancelled booking');
+
+            $checkIn = StayPolicy::normalizeDateTime($checkIn, (string)$booking['check_in'], '14:00:00');
+            $checkOut = StayPolicy::normalizeDateTime($checkOut, (string)$booking['check_out'], '11:00:00');
+            if (strtotime($checkOut) <= strtotime($checkIn)) {
+                throw new \Exception('Check-out must be after check-in');
             }
 
+            $checkInChanged = !StayPolicy::sameInstant($checkIn, (string)$booking['check_in']);
+            $checkOutChanged = !StayPolicy::sameInstant($checkOut, (string)$booking['check_out']);
             $roomId = $newRoomId ?: (int)$booking['room_id'];
+            $roomChanged = $roomId !== (int)$booking['room_id'];
+
+            if ($checkInChanged) {
+                StayPolicy::assert($booking, StayPolicy::CHECK_IN);
+            }
+            if ($checkOutChanged) {
+                StayPolicy::assert($booking, StayPolicy::CHECK_OUT);
+            }
+            if ($roomChanged) {
+                StayPolicy::assert($booking, StayPolicy::ROOM);
+            }
+            if (!$checkInChanged && !$checkOutChanged && !$roomChanged && empty($opts['rate_plan_name']) && empty($opts['tax_preference'])) {
+                throw new \Exception('No stay changes to save');
+            }
+
+            if ($checkInChanged === false && $roomChanged === false && $checkOutChanged
+                && (string)$booking['booking_status'] === 'checked_in'
+                && empty($opts['rate_plan_name']) && empty($opts['tax_preference'])) {
+                $result = self::extendStay($db, $bookingId, $checkOut, $propertyId);
+                if ($shouldCommit && $db->inTransaction()) {
+                    $db->commit();
+                }
+                return [
+                    'new_total' => $result['new_total'],
+                    'room_number' => self::roomNumber($db, (int)$booking['room_id'], $propertyId),
+                    'check_in' => (string)$booking['check_in'],
+                    'check_out' => $checkOut,
+                ];
+            }
             $roomStmt = $db->prepare("SELECT r.id, r.room_number, r.category_id, c.name as category_name FROM rooms r JOIN room_categories c ON r.category_id = c.id WHERE r.id = :id AND r.property_id = :pid FOR UPDATE");
             $roomStmt->execute(['id' => $roomId, 'pid' => $propertyId]);
             $room = $roomStmt->fetch(\PDO::FETCH_ASSOC);
@@ -832,24 +863,32 @@ class BookingService {
                 throw new \Exception('Room is not available for those dates');
             }
 
-            $ratePlan = $booking['rate_plan_name'] ?? null;
+            $ratePlan = $opts['rate_plan_name'] ?? ($booking['rate_plan_name'] ?? null);
             try {
                 $newTotal = PricingEngine::calculateTotalCost((int)$room['category_id'], $checkIn, $checkOut, $ratePlan);
             } catch (\Exception $e) {
                 $newTotal = self::calculateDays($checkIn, $checkOut) * 1000.00;
             }
 
-            $upd = $db->prepare("UPDATE bookings SET room_id = :room_id, check_in = :cin, check_out = :cout, total_amount = :total WHERE id = :id AND property_id = :pid");
-            $upd->execute([
+            $setSql = "room_id = :room_id, check_in = :cin, check_out = :cout, total_amount = :total, rate_plan_name = :rate";
+            $updParams = [
                 'room_id' => $roomId,
                 'cin' => $checkIn,
                 'cout' => $checkOut,
                 'total' => $newTotal,
+                'rate' => $ratePlan,
                 'id' => $bookingId,
                 'pid' => $propertyId,
-            ]);
+            ];
+            if (array_key_exists('tax_preference', $booking) || array_key_exists('tax_preference', $opts)) {
+                $setSql .= ", tax_preference = :tax";
+                $updParams['tax'] = $opts['tax_preference'] ?? ($booking['tax_preference'] ?? null);
+            }
+            $upd = $db->prepare("UPDATE bookings SET {$setSql} WHERE id = :id AND property_id = :pid");
+            $upd->execute($updParams);
 
-            if ($roomId !== (int)$booking['room_id']) {
+            if ($roomChanged) {
+                require_once __DIR__ . '/HousekeepingFlow.php';
                 $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = :id AND property_id = :pid")->execute(['id' => $booking['room_id'], 'pid' => $propertyId]);
             }
 
@@ -880,6 +919,113 @@ class BookingService {
             }
             throw $e;
         }
+    }
+
+    /**
+     * Cancel a booked reservation. Ledger is kept; staff refunds separately if paid.
+     *
+     * @return array{message: string, refund_alert?: bool, refund_amount?: float}
+     */
+    public static function cancelBooking(\PDO $db, int $bookingId, int $propertyId, string $reason, array $opts = []): array {
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new \Exception('Reason is required for cancellation');
+        }
+
+        $shouldCommit = false;
+        if (!$db->inTransaction()) {
+            $db->beginTransaction();
+            $shouldCommit = true;
+        }
+
+        try {
+            $stmt = $db->prepare("SELECT * FROM bookings WHERE id = :id AND property_id = :pid FOR UPDATE");
+            $stmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
+            $booking = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$booking) {
+                throw new \Exception('Booking not found');
+            }
+            StayPolicy::assert($booking, StayPolicy::CANCEL);
+
+            $pmtStmt = $db->prepare("SELECT COALESCE(SUM(amount), 0) FROM folio_ledger WHERE booking_id = :id AND amount < 0");
+            $pmtStmt->execute(['id' => $bookingId]);
+            $totalPaid = abs((float)$pmtStmt->fetchColumn());
+
+            $db->prepare("UPDATE bookings SET booking_status = 'cancelled', payment_status = 'cancelled' WHERE id = :id AND property_id = :pid")
+                ->execute(['id' => $bookingId, 'pid' => $propertyId]);
+
+            try {
+                $db->prepare("DELETE FROM jobs_queue WHERE property_id = :pid AND status = 'pending' AND JSON_EXTRACT(payload_json, '$.booking_id') = :id")
+                    ->execute(['pid' => $propertyId, 'id' => $bookingId]);
+            } catch (\PDOException $e) {
+            }
+
+            try {
+                $posStmt = $db->prepare("SELECT id FROM pos_orders WHERE booking_id = :id AND status IN ('posted', 'pending') AND property_id = :pid");
+                $posStmt->execute(['id' => $bookingId, 'pid' => $propertyId]);
+                $activePosOrders = $posStmt->fetchAll(\PDO::FETCH_COLUMN);
+                if (!empty($activePosOrders)) {
+                    $updatePos = $db->prepare("UPDATE pos_orders SET status = 'cancelled' WHERE id = ?");
+                    $restock = $db->prepare("UPDATE inventory_items ii JOIN pos_order_items poi ON ii.id = poi.item_id SET ii.stock_qty = ii.stock_qty + poi.quantity WHERE poi.order_id = ?");
+                    foreach ($activePosOrders as $oid) {
+                        $restock->execute([$oid]);
+                        $updatePos->execute([$oid]);
+                    }
+                }
+            } catch (\PDOException $e) {
+            }
+
+            AuditLogger::log($opts['staff_id'] ?? ($_SESSION['user_id'] ?? null), 'CANCEL_BOOKING', 'BOOKING', $bookingId, [
+                'action' => 'cancel',
+                'from_status' => $booking['booking_status'],
+                'to_status' => 'cancelled',
+                'reason' => $reason,
+                'total_paid' => $totalPaid,
+                'refund_needed' => $totalPaid > 0,
+                'source' => $opts['source'] ?? 'admin',
+            ]);
+
+            NotificationRelay::triggerAutomation('booking_cancelled', null, $bookingId, [], $propertyId);
+            try {
+                GoogleSheetService::syncBooking($db, $bookingId);
+            } catch (\Throwable $t) {
+                error_log('Google Sheets sync error in cancelBooking: ' . $t->getMessage());
+            }
+
+            if ($shouldCommit) {
+                $db->commit();
+            }
+
+            $out = ['message' => 'Booking cancelled'];
+            if ($totalPaid > 0) {
+                $out['refund_alert'] = true;
+                $out['refund_amount'] = $totalPaid;
+                $out['message'] = 'Booking cancelled. Guest paid ₹' . number_format($totalPaid, 2) . ' — please process a refund.';
+            }
+            return $out;
+        } catch (\Throwable $e) {
+            if ($shouldCommit && $db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    public static function applyLateCheckoutHours(\PDO $db, int $bookingId, int $propertyId, int $hours = 3): array {
+        $stmt = $db->prepare("SELECT check_out FROM bookings WHERE id = ? AND property_id = ?");
+        $stmt->execute([$bookingId, $propertyId]);
+        $current = $stmt->fetchColumn();
+        if (!$current) {
+            throw new \Exception('Booking not found');
+        }
+        $newCheckOut = date('Y-m-d H:i:s', strtotime((string)$current . " +{$hours} hours"));
+        return self::extendStay($db, $bookingId, $newCheckOut, $propertyId);
+    }
+
+    private static function roomNumber(\PDO $db, int $roomId, int $propertyId): string {
+        $stmt = $db->prepare("SELECT room_number FROM rooms WHERE id = ? AND property_id = ?");
+        $stmt->execute([$roomId, $propertyId]);
+        return (string)($stmt->fetchColumn() ?: $roomId);
     }
 
     /**

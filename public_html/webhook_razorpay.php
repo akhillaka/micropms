@@ -8,7 +8,7 @@ require_once __DIR__ . '/../pms_core/config.php';
 require_once __DIR__ . '/../pms_core/Database.php';
 require_once __DIR__ . '/../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../pms_core/AuditLogger.php';
-require_once __DIR__ . '/../pms_core/SequenceGenerator.php';
+require_once __DIR__ . '/../pms_core/services/FolioService.php';
 
 $db = Database::getInstance()->getConnection();
 
@@ -84,28 +84,7 @@ try {
                     $updateStmt->execute(['id' => $booking['id']]);
                 }
 
-                $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, property_id, transaction_type, amount, transaction_ref, description, payment_method) VALUES (:booking_id, :property_id, 'payment', :amount, :ref, 'Payment - ONLINE', 'online')");
-                $ledgerStmt->execute([
-                    'booking_id' => $booking['id'],
-                    'property_id' => $booking['property_id'],
-                    'amount' => -$amountPaid,
-                    'ref' => $paymentId
-                ]);
-                $ledgerId = (int)$db->lastInsertId();
-                SequenceGenerator::assignDisplayId($db, 'folio_ledger', $ledgerId, 'SEQ_RECEIPT_FORMAT');
-
-                // Fetch display ID
-                $receiptStmt = $db->prepare("SELECT display_id FROM folio_ledger WHERE id = ?");
-                $receiptStmt->execute([$ledgerId]);
-                $receiptDisplayId = $receiptStmt->fetchColumn() ?: 'RCPT-' . $ledgerId;
-
-                // Record finance transaction
-                $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id) VALUES (?, 'income', 'booking', ?, ?, ?, 'razorpay', NULL)");
-                $desc = "Payment - Razorpay (Webhook Receipt {$receiptDisplayId})";
-                $financeStmt->execute([(int)$booking['property_id'], $booking['id'], $amountPaid, $desc]);
-
-                $financeId = (int)$db->lastInsertId();
-                SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
+                FolioService::recordPayment($db, (int)$booking['id'], $amountPaid, 'Razorpay', (string)$paymentId, 'webhook');
 
                 $db->commit();
 

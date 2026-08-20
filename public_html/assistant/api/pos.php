@@ -80,6 +80,7 @@ ApiHandler::run(function(\PDO $db) {
 
     // ── POS: Post order and charge to room ───────────────────────────────────
     elseif ($action === 'post_order') {
+        AuthHelper::requirePermission('manage_pos');
         // Permission check
         $perms = $_SESSION['assistant_permissions'] ?? [];
         if (empty($perms['pos_access'])) {
@@ -193,7 +194,7 @@ ApiHandler::run(function(\PDO $db) {
             $folioDesc = "POS Charge ({$orderDisplayId}): " . mb_substr($itemNames, 0, 180);
 
             // Post to folio ledger via FolioService
-            FolioService::postCharge($db, $bookingId, $total, $folioDesc, 'F&B');
+            FolioService::postCharge($db, $bookingId, $total, $folioDesc, 'pos_order');
 
             AuditLogger::log($_SESSION['user_id'], 'POS_POST_TO_ROOM', 'BOOKING', $bookingId, [
                 'order_id'      => $orderId,

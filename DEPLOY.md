@@ -117,7 +117,7 @@ URLs have **no `.php`**.
 
 1. Open `https://yourdomain.com/` — landing page.
 2. If setup is not done, `/setup` runs. Otherwise log in at `https://yourdomain.com/login`.
-3. Open `https://yourdomain.com/admin/run_migration` and click run (applies pending SQL, including `028`–`034`). Safe to click again.
+3. Open `https://yourdomain.com/admin/run_migration` and click run (applies pending SQL, including `028`–`035`). Safe to click again.
 4. SaaS: `https://yourdomain.com/saas-admin` — **Leads** tab for landing requests; **Onboarding** to create a property when you grant access.
 
 ### H. Cron (not created by the Action)

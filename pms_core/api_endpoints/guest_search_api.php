@@ -57,7 +57,7 @@ $stmt = $db->prepare("
     JOIN guests g ON b.guest_id = g.id
     WHERE b.property_id = ? 
       AND g.phone = ?
-      AND b.booking_status IN ('confirmed', 'checked_in', 'booked')
+      AND b.booking_status IN ('booked', 'checked_in')
       AND (b.check_out IS NULL OR b.check_out >= DATE_SUB(NOW(), INTERVAL 7 DAY))
     ORDER BY b.check_in ASC
 ");

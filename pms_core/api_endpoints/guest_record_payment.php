@@ -7,7 +7,6 @@ require_once __DIR__ . '/../../pms_core/config.php';
 require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
-require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 require_once __DIR__ . '/../../pms_core/services/FolioService.php';
 require_once __DIR__ . '/../../pms_core/services/RazorpayService.php';
 
@@ -94,21 +93,6 @@ try {
     $receiptStmt = $db->prepare("SELECT display_id FROM folio_ledger WHERE id = ?");
     $receiptStmt->execute([$entryId]);
     $receiptDisplayId = $receiptStmt->fetchColumn() ?: 'RCPT-' . $entryId;
-
-    // Record finance transaction
-    $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id) VALUES (?, 'income', 'booking', ?, ?, ?, 'razorpay', NULL)");
-    $desc = "Payment - Razorpay (Receipt {$receiptDisplayId})";
-    $financeStmt->execute([(int)$booking['property_id'], $bookingId, $amount, $desc]);
-    
-    $financeId = (int)$db->lastInsertId();
-    SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
-
-    $txnStmt = $db->prepare("SELECT display_id FROM finance_transactions WHERE id = ?");
-    $txnStmt->execute([$financeId]);
-    $txnDisplayId = $txnStmt->fetchColumn();
-    if ($txnDisplayId) {
-        $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref = 'MANUAL' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $entryId]);
-    }
 
     // Audit log
     AuditLogger::log(0, 'PORTAL_PAYMENT_RECORDED', 'FOLIO', $bookingId, [

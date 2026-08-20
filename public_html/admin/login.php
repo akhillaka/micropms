@@ -133,16 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 if (!empty($user['role_id'])) {
-                    try {
-                        $roleStmt = $db->prepare("SELECT permissions FROM roles WHERE id = ?");
-                        $roleStmt->execute([$user['role_id']]);
-                        $roleData = $roleStmt->fetch();
-                        if ($roleData && !empty($roleData['permissions'])) {
-                            $_SESSION['custom_permissions'] = json_decode($roleData['permissions'], true) ?? [];
-                        }
-                    } catch (\PDOException $e) {
-                        // ignore if roles table doesn't exist yet
-                    }
+                    AuthHelper::applyCustomPermissions($db, $user['role_id']);
                 }
                 
 
@@ -174,7 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Staff Login | MicroPMS</title>
     <?php include __DIR__ . '/components/ui_head.php'; ?>
     <style>

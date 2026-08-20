@@ -8,7 +8,7 @@ ApiHandler::run(function(\PDO $db) {
     $propertyId = AuthHelper::getPropertyId();
     
     // 1. Total Guest LTV (Lifetime Value) - Sum of total_amount of all completed/checked-out bookings
-    $stmt = $db->prepare("SELECT SUM(total_amount) as total_ltv FROM bookings WHERE status IN ('checked_out', 'confirmed') AND property_id = :prop_id");
+    $stmt = $db->prepare("SELECT SUM(total_amount) as total_ltv FROM bookings WHERE booking_status IN ('checked_out', 'booked', 'checked_in') AND property_id = :prop_id");
     $stmt->execute(['prop_id' => $propertyId]);
     $totalLtv = (float)($stmt->fetchColumn() ?: 0);
 
@@ -29,7 +29,7 @@ ApiHandler::run(function(\PDO $db) {
     $stmt = $db->prepare("
         SELECT AVG(DATEDIFF(check_out, check_in)) as avg_los 
         FROM bookings 
-        WHERE status NOT IN ('cancelled', 'no_show') AND property_id = :prop_id
+        WHERE booking_status NOT IN ('cancelled') AND property_id = :prop_id
     ");
     $stmt->execute(['prop_id' => $propertyId]);
     $avgLos = round((float)($stmt->fetchColumn() ?: 0), 1);

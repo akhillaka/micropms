@@ -122,82 +122,24 @@ ApiHandler::run(function(\PDO $db) {
             throw new \Exception('Could not determine room rate. Please set up pricing for this category.');
         }
 
-        // Insert booking directly (already in transaction — don't let BookingService start a nested one)
-        $insertStmt = $db->prepare("
-            INSERT INTO bookings
-                (room_id, guest_id, check_in, check_out, payment_status, booking_status,
-                 total_amount, booking_source, price_override, adults, children, extra_bed, rate_plan_name, property_id)
-            VALUES
-                (:room_id, :guest_id, :check_in, :check_out, 'completed_paid', 'checked_in',
-                 :total_amount, :booking_source, :price_override, 1, 0, 0, :rate_plan_name, :prop_id)
-        ");
-        $insertStmt->execute([
-            'room_id'        => $roomId,
-            'guest_id'       => $guestId,
-            'check_in'       => $checkIn,
-            'check_out'      => $checkOut,
-            'total_amount'   => $totalAmount,
+        $result = BookingService::createBooking($db, [
+            'property_id' => $propertyId,
+            'room_id' => $roomId,
+            'guest_id' => $guestId,
+            'check_in' => $checkIn,
+            'check_out' => $checkOut,
+            'booking_status' => 'checked_in',
             'booking_source' => $bookingSource,
-            'price_override' => $priceOverride,
             'rate_plan_name' => $ratePlanName,
-            'prop_id'        => $propertyId
+            'price_override' => $priceOverride !== null ? $priceOverride : $totalAmount,
+            'guest_name' => $guestName,
+            'payment_collected' => $totalAmount,
+            'payment_method' => $paymentMethod,
         ]);
-        $bookingId = (int)$db->lastInsertId();
+        $bookingId = (int)$result['booking_id'];
+        $displayId = (string)$result['display_id'];
+        $totalAmount = (float)$result['total_amount'];
 
-        // Assign sequence display IDs
-        SequenceGenerator::assignDisplayId($db, 'bookings', $bookingId, 'SEQ_BOOKING_FORMAT', 'display_id');
-        SequenceGenerator::assignDisplayId($db, 'bookings', $bookingId, 'SEQ_FOLIO_FORMAT', 'offline_folio_id');
-
-        // BUG-13 fix: Occupancy status is dynamic, no need to update rooms.state to invalid value
-        $dispStmt = $db->prepare("SELECT display_id FROM bookings WHERE id = ? AND property_id = ?");
-        $dispStmt->execute([$bookingId, $propertyId]);
-        $displayId = $dispStmt->fetchColumn() ?: ('BKG-' . $bookingId);
-
-        // Post room charge to folio (separate INSERT statements — no multi-value with reused params)
-        $chargeStmt = $db->prepare("
-            INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description, property_id)
-            VALUES (:bid, 'ROOM_CHARGE', :amt, :ref, :desc, :prop_id)
-        ");
-        $chargeStmt->execute([
-            'bid'  => $bookingId,
-            'amt'  => $totalAmount,
-            'ref'  => FolioService::uniqueRef('RC'),
-            'desc' => "Room Tariff - {$room['category_name']} ({$durationHours}H Walk-in)",
-            'prop_id' => $propertyId
-        ]);
-        SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
-
-        // Post payment entry (separate statement — fixes duplicate named param bug)
-        $paymentStmt = $db->prepare("
-            INSERT INTO folio_ledger (booking_id, transaction_type, amount, transaction_ref, description, payment_method, property_id)
-            VALUES (:bid, 'payment', :amt, :ref, :desc, :method, :prop_id)
-        ");
-        $paymentStmt->execute([
-            'bid'    => $bookingId,
-            'amt'    => -$totalAmount,
-            'ref'    => FolioService::uniqueRef('PAY'),
-            'desc'   => 'Express Walk-in Payment - ' . ucfirst(strtolower($paymentMethod)),
-            'method' => strtolower($paymentMethod),
-            'prop_id' => $propertyId
-        ]);
-        SequenceGenerator::assignDisplayId($db, 'folio_ledger', (int)$db->lastInsertId(), 'SEQ_RECEIPT_FORMAT');
-
-        // Finance transaction record
-        $finStmt = $db->prepare("
-            INSERT INTO finance_transactions (type, category, booking_id, amount, description, payment_method, staff_id, property_id)
-            VALUES ('income', 'booking', :bid, :amt, :desc, :method, :staff, :prop_id)
-        ");
-        $finStmt->execute([
-            'bid'    => $bookingId,
-            'amt'    => $totalAmount,
-            'desc'   => "Express Walk-in - {$displayId}",
-            'method' => strtolower($paymentMethod),
-            'staff'  => $_SESSION['user_id'] ?? null,
-            'prop_id' => $propertyId
-        ]);
-        SequenceGenerator::assignDisplayId($db, 'finance_transactions', (int)$db->lastInsertId(), 'SEQ_TRANSACTION_FORMAT');
-
-        // Audit log
         AuditLogger::log($_SESSION['user_id'] ?? null, 'EXPRESS_WALKIN', 'BOOKING', $bookingId, [
             'room_id'       => $roomId,
             'guest_id'      => $guestId,
@@ -207,16 +149,6 @@ ApiHandler::run(function(\PDO $db) {
         ]);
 
         $db->commit();
-
-        // Post-commit: notifications (non-blocking)
-        try {
-            NotificationRelay::triggerAutomation('booking_confirmed', null, $bookingId);
-            NotificationRelay::triggerAutomation('guest_check_in', null, $bookingId);
-            $folioUrl = '/admin/folio?id=' . rawurlencode((string)$displayId);
-            NotificationRelay::sendInAppNotification((int)$propertyId, 'Guest Checked In', "{$guestName} checked into Room {$room['room_number']}", 'check_in', $folioUrl);
-        } catch (\Throwable $t) {
-            // ignore
-        }
 
         ApiResponse::success([
             'booking_id' => $bookingId,

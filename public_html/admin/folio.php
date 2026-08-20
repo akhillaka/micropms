@@ -12,6 +12,7 @@ CsrfToken::checkTimeout();
 
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
+require_once __DIR__ . '/../../pms_core/services/StayPolicy.php';
 $db = Database::getInstance()->getConnection();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -64,7 +65,10 @@ $id = $bookingPk;
 $propertyId = (int)$booking['property_id'];
 $paymentMethods = get_payment_methods($db, $propertyId);
 $activeGateways = get_active_payment_gateways($db, $propertyId);
-$stayEditable = !in_array(($booking['booking_status'] ?? 'booked'), ['checked_out', 'cancelled'], true);
+$stayPolicy = StayPolicy::ui($booking);
+$stayEditable = $stayPolicy['stay_open'];
+$checkInLocked = !$stayPolicy['check_in'];
+$checkOutLocked = !$stayPolicy['check_out'];
 
 $paymentCategories = get_payment_categories($db, $propertyId);
 
@@ -165,7 +169,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
 <head>
     <?= CsrfToken::meta() ?>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, ">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Booking #<?= htmlspecialchars((string)($booking['display_id'] ?? $id), ENT_QUOTES, 'UTF-8') ?> | MicroPMS</title>
     
     <?php include __DIR__ . '/components/mobile_nav.php'; ?>
@@ -648,12 +652,12 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check In <?= htmlspecialchars((string)(!$stayEditable ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
-                            <input type="datetime-local" id="edit_check_in" step="60" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime($booking['check_in']))), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)(!$stayEditable ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(!$stayEditable ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check In <?= htmlspecialchars((string)($checkInLocked ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
+                            <input type="datetime-local" id="edit_check_in" step="60" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime($booking['check_in']))), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)($checkInLocked ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)($checkInLocked ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check Out <?= htmlspecialchars((string)(!$stayEditable ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
-                            <input type="datetime-local" id="edit_check_out" step="60" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime($booking['check_out']))), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)(!$stayEditable ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)(!$stayEditable ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Check Out <?= htmlspecialchars((string)($checkOutLocked ? '<span class="text-rose-500">(Locked)</span>' : ''), ENT_QUOTES, 'UTF-8') ?></label>
+                            <input type="datetime-local" id="edit_check_out" step="60" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime($booking['check_out']))), ENT_QUOTES, 'UTF-8') ?>" <?= htmlspecialchars((string)($checkOutLocked ? 'disabled' : ''), ENT_QUOTES, 'UTF-8') ?> class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none <?= htmlspecialchars((string)($checkOutLocked ? 'opacity-60 cursor-not-allowed' : ''), ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                         <?php if ($taxEnabled): ?>
                         <div>
@@ -670,6 +674,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                 </div>
 
                 <!-- Quick Extend Widget -->
+                <?php if ($stayPolicy['check_out']): ?>
                 <div class="bg-white border border-slate-100 rounded-2xl shadow-sm p-6 max-w-xl">
                     <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">Quick Extend</h3>
                     <div class="grid grid-cols-3 gap-3">
@@ -678,6 +683,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                         <button onclick="extendStay(this, 24)" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold py-3.5 rounded-xl text-xs uppercase tracking-wider transition-colors shadow-sm">+ 24 Hours</button>
                     </div>
                 </div>
+                <?php endif; ?>
             </div>
 
             <!-- Guest Details Tab Panel -->

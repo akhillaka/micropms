@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../../pms_core/PhoneHelper.php';
 require_once __DIR__ . '/../../../pms_core/TenantScope.php';
 require_once __DIR__ . '/../../../pms_core/services/CheckoutService.php';
+require_once __DIR__ . '/../../../pms_core/services/BookingService.php';
 
 ApiHandler::run(function(\PDO $db) {
     // Session is checked by ApiHandler
@@ -116,6 +117,7 @@ ApiHandler::run(function(\PDO $db) {
 
     // Action: Execute Checkout
     elseif ($action === 'checkout') {
+        AuthHelper::requirePermission('check_in_out');
         CheckoutService::performCheckout($db, $bookingId, $propertyId, [
             'source' => 'assistant',
             'staff_id' => $_SESSION['user_id'] ?? null,
@@ -126,7 +128,7 @@ ApiHandler::run(function(\PDO $db) {
     // Action: Edit a folio charge (manager/owner only)
     elseif ($action === 'edit_charge') {
         $perms = $_SESSION['assistant_permissions'] ?? [];
-        if (empty($perms['edit_charge'])) {
+        if (empty($perms['edit_charge']) || !AuthHelper::can('edit_folio')) {
             http_response_code(403);
             ApiResponse::error('Permission denied. Manager or Owner role required.');
         }
@@ -194,7 +196,7 @@ ApiHandler::run(function(\PDO $db) {
     // Action: Delete (void) a folio charge — creates reversal, never hard deletes
     elseif ($action === 'delete_charge') {
         $perms = $_SESSION['assistant_permissions'] ?? [];
-        if (empty($perms['edit_charge'])) {
+        if (empty($perms['edit_charge']) || !AuthHelper::can('edit_folio')) {
             http_response_code(403);
             ApiResponse::error('Permission denied. Manager or Owner role required.');
         }
@@ -239,7 +241,7 @@ ApiHandler::run(function(\PDO $db) {
     // Action: Update checkout date/time + auto-recalculate room rent
     elseif ($action === 'update_checkout') {
         $perms = $_SESSION['assistant_permissions'] ?? [];
-        if (empty($perms['edit_checkout'])) {
+        if (empty($perms['edit_checkout']) || !AuthHelper::can('edit_booking')) {
             http_response_code(403);
             ApiResponse::error('Permission denied. Manager or Owner role required.');
         }
@@ -271,65 +273,17 @@ ApiHandler::run(function(\PDO $db) {
         if ($newCheckOutStr === $oldCheckOut) ApiResponse::error('New checkout is same as current');
         if ($newCheckOutTs <= strtotime($checkIn)) ApiResponse::error('Checkout must be after check-in');
 
-        require_once __DIR__ . '/../../../pms_core/PricingEngine.php';
-
-        // Calculate old and new room rent
         try {
-            $oldRent = PricingEngine::calculateTotalCost(
-                (int)$bdata['category_id'], $checkIn, $oldCheckOut, $bdata['rate_plan_name'] ?: null
-            );
-            $newRent = PricingEngine::calculateTotalCost(
-                (int)$bdata['category_id'], $checkIn, $newCheckOutStr, $bdata['rate_plan_name'] ?: null
-            );
-        } catch (\Exception $e) {
-            ApiResponse::error('Could not recalculate rent: ' . $e->getMessage());
-        }
-
-        $diff = round($newRent - $oldRent, 2);
-        $isPrepone = $newCheckOutTs < strtotime($oldCheckOut);
-
-        $db->beginTransaction();
-        try {
-            // Update booking checkout time
-            $db->prepare("UPDATE bookings SET check_out = :co WHERE id = :id AND property_id = :pid")
-               ->execute(['co' => $newCheckOutStr, 'id' => $bookingId, 'pid' => $propertyId]);
-
-            // Post adjustment folio entry if rent changes
-            if (abs($diff) > 0.01) {
-                $adjDesc = $isPrepone
-                    ? "Room Rent Adjustment (Early Checkout to " . date('d M, g:i A', $newCheckOutTs) . ")"
-                    : "Room Rent Adjustment (Extended Stay to " . date('d M, g:i A', $newCheckOutTs) . ")";
-
-                $propId = (int)($bdata['property_id'] ?? AuthHelper::getPropertyId());
-                $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, description, transaction_ref)
-                              VALUES (:pid, :bid, 'ROOM_CHARGE', :amt, :desc, 'ADJUSTMENT')")
-                   ->execute([
-                       'pid'  => $propId,
-                       'bid'  => $bookingId,
-                       'amt'  => $diff,   // negative when preponed = credit
-                       'desc' => $adjDesc
-                   ]);
-            }
-
-            AuditLogger::log($_SESSION['user_id'], 'UPDATE_CHECKOUT', 'BOOKING', $bookingId, [
-                'old_checkout' => $oldCheckOut,
-                'new_checkout' => $newCheckOutStr,
-                'old_rent'     => $oldRent,
-                'new_rent'     => $newRent,
-                'adjustment'   => $diff,
-                'source'       => 'assistant'
-            ]);
-
-            $db->commit();
+            $result = BookingService::reschedule($db, $bookingId, $propertyId, (string)$checkIn, $newCheckOutStr);
+            $diff = round(((float)($result['new_total'] ?? 0)) - (float)($bdata['total_amount'] ?? 0), 2);
             ApiResponse::success([
-                'message'    => ($isPrepone ? 'Checkout preponed' : 'Stay extended') . ' successfully',
+                'message'    => ($newCheckOutTs < strtotime($oldCheckOut) ? 'Checkout preponed' : 'Stay extended') . ' successfully',
                 'new_checkout' => date('d M Y, g:i A', $newCheckOutTs),
                 'adjustment' => $diff,
-                'new_rent'   => $newRent
+                'new_rent'   => $result['new_total'] ?? null
             ]);
-        } catch (\Exception $ex) {
-            $db->rollBack();
-            ApiResponse::error('Failed to update checkout: ' . $ex->getMessage());
+        } catch (\Exception $e) {
+            ApiResponse::error($e->getMessage());
         }
     }
 

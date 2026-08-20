@@ -103,15 +103,7 @@ class MigrationRunner {
                     throw new \RuntimeException("Could not read migration file: $filename");
                 }
 
-                $statements = preg_split('/;\s*(?=(?:[^\'"]*[\'"][^\'"]*[\'"])*[^\'"]*$)/', $sql) ?: [];
-                foreach ($statements as $statement) {
-                    $statement = trim($statement);
-                    // Strip leading -- comments so the real SQL still runs
-                    $statement = preg_replace('/^(?:\s*--[^\n]*\n)+/', '', $statement) ?? $statement;
-                    $statement = trim($statement);
-                    if ($statement === '' || str_starts_with($statement, '--')) {
-                        continue;
-                    }
+                foreach ($this->splitStatements($sql) as $statement) {
                     $this->db->exec($statement);
                 }
 
@@ -187,5 +179,34 @@ class MigrationRunner {
             'pending' => count($allFiles) - count($applied),
             'migrations' => $migrations,
         ];
+    }
+
+    /**
+     * Split a migration file into executable statements.
+     * Line comments (-- and #) are removed first so a semicolon in a comment
+     * cannot glue leftover words onto the next ALTER/CREATE.
+     *
+     * @return list<string>
+     */
+    private function splitStatements(string $sql): array {
+        $kept = [];
+        foreach (preg_split("/\r\n|\n|\r/", $sql) ?: [] as $line) {
+            $trim = ltrim($line);
+            if ($trim === '' || str_starts_with($trim, '--') || str_starts_with($trim, '#')) {
+                continue;
+            }
+            $kept[] = $line;
+        }
+        $blob = implode("\n", $kept);
+        $parts = preg_split('/;\s*(?=(?:[^\'"]*[\'"][^\'"]*[\'"])*[^\'"]*$)/', $blob) ?: [];
+        $out = [];
+        foreach ($parts as $statement) {
+            $statement = trim($statement);
+            if ($statement === '') {
+                continue;
+            }
+            $out[] = $statement;
+        }
+        return $out;
     }
 }

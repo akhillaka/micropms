@@ -20,6 +20,7 @@ ApiHandler::run(function(\PDO $db) {
 
     // Action: Post a quick charge
     elseif ($action === 'add') {
+        AuthHelper::requirePermission('edit_folio');
         $bookingId = (int)($data['booking_id'] ?? 0);
         $name = trim($data['name'] ?? '');
         $amount = (float)($data['amount'] ?? 0);

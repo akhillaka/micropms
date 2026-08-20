@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../pms_core/Database.php';
+require_once __DIR__ . '/../../pms_core/AuthHelper.php';
 require_once __DIR__ . '/../../pms_core/services/SaaSEntitlementsService.php';
 
 $db = Database::getInstance()->getConnection();
@@ -48,13 +49,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $invitation) {
             // Insert new staff user
             $passHash = password_hash($password, PASSWORD_BCRYPT);
             $pinHash = password_hash($pin, PASSWORD_BCRYPT);
-            $accessLevel = $invitation['role'] === 'owner' ? 'owner' : 'manager';
+            $resolvedRole = AuthHelper::resolveStaffRoleInput($db, (int)$invitation['property_id'], (string)$invitation['role']);
             
             $userStmt = $db->prepare("
-                INSERT INTO staff_users (username, password_hash, pin_hash, access_level, role, property_id, is_active) 
-                VALUES (?, ?, ?, ?, ?, ?, 1)
+                INSERT INTO staff_users (username, password_hash, pin_hash, access_level, role, role_id, assistant_role, property_id, is_active) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
             ");
-            $userStmt->execute([$username, $passHash, $pinHash, $accessLevel, ucfirst($invitation['role']), $invitation['property_id']]);
+            $userStmt->execute([
+                $username,
+                $passHash,
+                $pinHash,
+                $resolvedRole['access_level'],
+                $resolvedRole['role_name'],
+                $resolvedRole['role_id'],
+                AuthHelper::assistantRoleAlias($resolvedRole['access_level']),
+                $invitation['property_id'],
+            ]);
+            $newStaffId = (int)$db->lastInsertId();
+            try {
+                $db->prepare("INSERT INTO staff_properties (staff_id, property_id, role_id) VALUES (?, ?, ?)
+                    ON DUPLICATE KEY UPDATE role_id = VALUES(role_id)")
+                    ->execute([$newStaffId, (int)$invitation['property_id'], $resolvedRole['role_id']]);
+            } catch (PDOException $e) {
+            }
             
             // Delete token so it cannot be reused
             $delStmt = $db->prepare("DELETE FROM team_invitations WHERE id = ?");
@@ -73,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $invitation) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Accept Workspace Invitation | MicroPMS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">

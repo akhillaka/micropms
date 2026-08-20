@@ -141,9 +141,13 @@ try {
     ");
     $gStmt->execute([$name, $email, $phone, $city, $state, $idFrontPath, $idBackPath, $signatureData, $booking['guest_id'], $booking['property_id']]);
 
+    require_once __DIR__ . '/../../pms_core/services/BookingService.php';
+
     // Update Booking to Checked In
-    $statusStmt = $db->prepare("UPDATE bookings SET booking_status = 'checked_in' WHERE id = ? AND property_id = ?");
-    $statusStmt->execute([$bookingId, $booking['property_id']]);
+    BookingService::checkIn($db, (int)$bookingId, (int)$booking['property_id'], [
+        'source' => 'guest_portal',
+        'staff_id' => 0,
+    ]);
 
     // Log the event
     AuditLogger::log(0, 'PORTAL_SELF_CHECKIN', 'BOOKING', $bookingId, [

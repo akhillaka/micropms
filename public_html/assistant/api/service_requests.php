@@ -5,6 +5,8 @@ require_once __DIR__ . '/../../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../../pms_core/AuditLogger.php';
 require_once __DIR__ . '/../../../pms_core/services/FolioService.php';
+require_once __DIR__ . '/../../../pms_core/services/BookingService.php';
+require_once __DIR__ . '/../../../pms_core/services/HousekeepingFlow.php';
 
 ApiHandler::run(function(\PDO $db) {
     try {
@@ -23,6 +25,7 @@ ApiHandler::run(function(\PDO $db) {
     $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
     $action = $data['action'] ?? $_GET['action'] ?? '';
     
+    AuthHelper::requirePermission('housekeeping');
     $propertyId = AuthHelper::getPropertyId();
 
     if ($action === 'update_status') {
@@ -34,7 +37,7 @@ ApiHandler::run(function(\PDO $db) {
         }
 
         $stmt = $db->prepare("
-            SELECT gsr.*, b.check_out, g.name as guest_name
+            SELECT gsr.*, b.check_out, b.room_id AS booking_room_id, g.name as guest_name
             FROM guest_service_requests gsr
             JOIN bookings b ON gsr.booking_id = b.id
             LEFT JOIN guests g ON b.guest_id = g.id
@@ -60,14 +63,12 @@ ApiHandler::run(function(\PDO $db) {
                 $fee = (float)($feeStmt->fetchColumn() ?: 500);
 
                 FolioService::postCharge($db, (int)$req['booking_id'], $fee, 'Late Checkout Fee (Approved)', 'other');
-
-                $newCheckout = date('Y-m-d H:i:s', strtotime($req['check_out'] . ' +3 hours'));
-                $extStmt = $db->prepare("UPDATE bookings SET check_out = ? WHERE id = ?");
-                $extStmt->execute([$newCheckout, $req['booking_id']]);
+                $extended = BookingService::applyLateCheckoutHours($db, (int)$req['booking_id'], $propertyId, 3);
 
                 AuditLogger::log($_SESSION['user_id'] ?? 0, 'APPROVE_LATE_CHECKOUT', 'BOOKING', $req['booking_id'], [
                     'charge' => $fee,
-                    'new_checkout' => $newCheckout
+                    'new_checkout' => $extended['new_total'] ?? null,
+                    'extra_cost' => $extended['extra_cost'] ?? null
                 ], $propertyId);
 
                 $db->prepare("UPDATE guest_service_requests SET status = 'completed', resolved_at = NOW() WHERE id = ?")->execute([$requestId]);
@@ -79,6 +80,18 @@ ApiHandler::run(function(\PDO $db) {
                 ApiResponse::error('Failed to apply late checkout: ' . $e->getMessage());
             }
         } else {
+            if ($status === 'completed' && in_array($typeKey, ['housekeeping', 'stayoverclean', 'extratowels', 'toiletries', 'blanket'], true)) {
+                $roomId = (int)($req['room_id'] ?: ($req['booking_room_id'] ?? 0));
+                if ($roomId > 0) {
+                    HousekeepingFlow::afterRoomClean($db, $propertyId, $roomId, false);
+                }
+            }
+            if (in_array($status, ['completed', 'rejected'], true) && $typeKey === 'donotdisturb') {
+                $roomId = (int)($req['room_id'] ?: ($req['booking_room_id'] ?? 0));
+                if ($roomId > 0) {
+                    HousekeepingFlow::setDoNotDisturb($db, $propertyId, $roomId, false);
+                }
+            }
             // For other requests like rejected late checkout or completed housekeeping
             if ($status === 'completed' || $status === 'rejected') {
                 $db->prepare("UPDATE guest_service_requests SET status = ?, resolved_at = NOW() WHERE id = ?")->execute([$status, $requestId]);

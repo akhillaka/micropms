@@ -19,6 +19,7 @@ ApiHandler::run(function(\PDO $db) {
     }
 
     TenantScope::guest($db, $guestId);
+    AuthHelper::requirePermission('upload_document');
     
     $validTypes = ['id_proof_front', 'id_proof_back', 'photo', 'guest_photo'];
     if (!in_array($idType, $validTypes, true)) {

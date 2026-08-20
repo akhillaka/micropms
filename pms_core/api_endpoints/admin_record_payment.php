@@ -5,7 +5,6 @@ require_once __DIR__ . '/../../pms_core/ApiHandler.php';
 require_once __DIR__ . '/../../pms_core/ApiResponse.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/AuditLogger.php';
-require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 require_once __DIR__ . '/../../pms_core/services/FolioService.php';
 
 ApiHandler::run(function(\PDO $db) {
@@ -134,40 +133,6 @@ ApiHandler::run(function(\PDO $db) {
             $receiptStmt->execute([$entryId]);
             $rId = $receiptStmt->fetchColumn() ?: 'RCPT-' . $entryId;
             $receipts[] = $rId;
-
-            // Insert into finance
-            $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id, recorded_at) VALUES (:prop_id, 'income', :cat, :bid, :amount, :desc, :method, :staff, :recorded_at)");
-            
-            $catLabel = $splitCat;
-            if ($splitCat === 'booking') {
-                $catLabel = 'Room Rent';
-            } elseif ($splitCat === 'F&B') {
-                $catLabel = 'F&B';
-            }
-            $desc = "Split Payment " . strtoupper($method) . " - " . $catLabel . " (Receipt {$rId})";
-            
-            $financeParams = [
-                'prop_id' => $propertyId,
-                'cat'     => $splitCat,
-                'bid'     => $bookingId,
-                'amount'  => $splitAmt,
-                'desc'    => $desc,
-                'method'  => strtolower($method),
-                'staff'   => $_SESSION['user_id'] ?? null,
-                'recorded_at' => $recordedAt ?: date('Y-m-d H:i:s')
-            ];
-            // BUG-1 fix: execute was missing — finance record was never saved
-            $financeStmt->execute($financeParams);
-            $financeId = (int)$db->lastInsertId();
-            SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
-
-            // Link generated transaction ID to the split folio entry
-            $txnStmt = $db->prepare("SELECT display_id FROM finance_transactions WHERE id = ?");
-            $txnStmt->execute([$financeId]);
-            $txnDisplayId = $txnStmt->fetchColumn();
-            if ($txnDisplayId) {
-                $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref LIKE 'MANUAL%' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $entryId]);
-            }
         }
         $receiptDisplayId = implode(', ', $receipts);
     } else {
@@ -178,8 +143,8 @@ ApiHandler::run(function(\PDO $db) {
         $receiptStmt = $db->prepare("SELECT display_id FROM folio_ledger WHERE id = ?");
         $receiptStmt->execute([$entryId]);
         $receiptDisplayId = $receiptStmt->fetchColumn() ?: 'RCPT-' . $entryId;
-        
-        if (strtoupper($method) === 'CITY_LEDGER') {
+
+        if (strtoupper($method) === 'CITY_LEDGER' && !empty($booking['company_id'])) {
             $cityStmt = $db->prepare("INSERT INTO city_ledger (property_id, company_id, booking_id, amount, type, status, recorded_at) VALUES (:pid, :cid, :bid, :amount, 'charge', 'pending', :recorded_at)");
             $cityStmt->execute([
                 'pid' => $propertyId,
@@ -188,40 +153,7 @@ ApiHandler::run(function(\PDO $db) {
                 'amount' => $amount,
                 'recorded_at' => $recordedAt ?: date('Y-m-d H:i:s')
             ]);
-            
-            // Update company balance
             $db->prepare("UPDATE companies SET balance = balance + ? WHERE id = ? AND property_id = ?")->execute([$amount, $booking['company_id'], $propertyId]);
-        } else {
-            $financeStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id, recorded_at) VALUES (:prop_id, 'income', :cat, :bid, :amount, :desc, :method, :staff, :recorded_at)");
-            
-            $catLabel = $category;
-            if ($category === 'booking') {
-                $catLabel = 'Room Rent';
-            } elseif ($category === 'F&B') {
-                $catLabel = 'F&B';
-            }
-            $desc = "Payment - " . ucfirst($method) . " - " . $catLabel . " (Receipt {$receiptDisplayId})";
-            
-            $financeStmt->execute([
-                'prop_id' => $propertyId,
-                'cat' => $category,
-                'bid' => $bookingId,
-                'amount' => $amount,
-                'desc' => $desc,
-                'method' => strtolower($method),
-                'staff' => $_SESSION['user_id'] ?? null,
-                'recorded_at' => $recordedAt ?: date('Y-m-d H:i:s')
-            ]);
-            $financeId = (int)$db->lastInsertId();
-            SequenceGenerator::assignDisplayId($db, 'finance_transactions', $financeId, 'SEQ_TRANSACTION_FORMAT');
-
-            // Link generated transaction ID to the folio entry
-            $txnStmt = $db->prepare("SELECT display_id FROM finance_transactions WHERE id = ?");
-            $txnStmt->execute([$financeId]);
-            $txnDisplayId = $txnStmt->fetchColumn();
-            if ($txnDisplayId) {
-                $db->prepare("UPDATE folio_ledger SET transaction_ref = ? WHERE id = ? AND (transaction_ref LIKE 'MANUAL%' OR transaction_ref = '' OR transaction_ref IS NULL)")->execute([$txnDisplayId, $entryId]);
-            }
         }
     }
 

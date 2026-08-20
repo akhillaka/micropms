@@ -11,25 +11,19 @@ ApiHandler::run(function(\PDO $db) {
 
     $data = json_decode(file_get_contents('php://input'), true);
     $action = $data['action'] ?? null;
-    $validRoles = ['owner', 'admin', 'manager', 'receptionist', 'housekeeping', 'maintenance', 'fb_cashier', 'night_auditor'];
     $propertyId = AuthHelper::getPropertyId();
 
-    // Helper function to resolve role input to access_level and role_id
-    $resolveRole = function(string $roleInput) use ($db, $validRoles, $propertyId) {
-        if (str_starts_with($roleInput, 'custom_')) {
-            $roleId = (int)substr($roleInput, 7);
-            $stmt = $db->prepare("SELECT id, name FROM roles WHERE id = ? AND property_id = ?");
-            $stmt->execute([$roleId, $propertyId]);
-            $customRole = $stmt->fetch();
-            if (!$customRole) {
-                throw new Exception("Invalid custom role selected");
-            }
-            return ['access_level' => 'manager', 'role_name' => $customRole['name']];
+    $resolveRole = function(string $roleInput) use ($db, $propertyId) {
+        return AuthHelper::resolveStaffRoleInput($db, $propertyId, $roleInput);
+    };
+
+    $syncStaffAssignment = function(int $staffId, int $pid, ?int $roleId) use ($db) {
+        try {
+            $stmt = $db->prepare("INSERT INTO staff_properties (staff_id, property_id, role_id) VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE role_id = VALUES(role_id)");
+            $stmt->execute([$staffId, $pid, $roleId]);
+        } catch (\PDOException $e) {
         }
-        if (!in_array($roleInput, $validRoles, true)) {
-            throw new Exception("Invalid role selection");
-        }
-        return ['access_level' => $roleInput, 'role_name' => $roleInput];
     };
 
     if ($action === 'add') {
@@ -62,7 +56,7 @@ ApiHandler::run(function(\PDO $db) {
             throw new Exception("Username already exists");
         }
 
-        $stmt = $db->prepare("INSERT INTO staff_users (property_id, username, password_hash, pin_hash, access_level, role, is_active) VALUES (:prop, :u, :p, :pin, :a, :r, 1)");
+        $stmt = $db->prepare("INSERT INTO staff_users (property_id, username, password_hash, pin_hash, access_level, role, role_id, assistant_role, is_active) VALUES (:prop, :u, :p, :pin, :a, :r, :rid, :ar, 1)");
         $hash = password_hash($password, PASSWORD_DEFAULT);
         $pinHash = !empty($pin) ? password_hash($pin, PASSWORD_DEFAULT) : null;
         $stmt->execute([
@@ -71,9 +65,12 @@ ApiHandler::run(function(\PDO $db) {
             'p' => $hash, 
             'pin' => $pinHash,
             'a' => $resolvedRole['access_level'],
-            'r' => $resolvedRole['role_name']
+            'r' => $resolvedRole['role_name'],
+            'rid' => $resolvedRole['role_id'],
+            'ar' => AuthHelper::assistantRoleAlias($resolvedRole['access_level']),
         ]);
-        $newId = $db->lastInsertId();
+        $newId = (int)$db->lastInsertId();
+        $syncStaffAssignment($newId, $propertyId, $resolvedRole['role_id']);
 
         AuditLogger::log($_SESSION['user_id'] ?? null, 'ADD_USER', 'SYSTEM', (int)$newId, [
             'username' => $username,
@@ -130,12 +127,16 @@ ApiHandler::run(function(\PDO $db) {
             "username = :u",
             "access_level = :a",
             "role = :r",
+            "role_id = :rid",
+            "assistant_role = :ar",
             "is_active = :ia"
         ];
         $params = [
             'u' => $username,
             'a' => $resolvedRole['access_level'],
             'r' => $resolvedRole['role_name'],
+            'rid' => $resolvedRole['role_id'],
+            'ar' => AuthHelper::assistantRoleAlias($resolvedRole['access_level']),
             'ia' => $isActive,
             'id' => $userId
         ];
@@ -154,6 +155,7 @@ ApiHandler::run(function(\PDO $db) {
         $sql = "UPDATE staff_users SET " . implode(", ", $updateFields) . " WHERE id = :id AND property_id = :pid";
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
+        $syncStaffAssignment((int)$userId, $propertyId, $resolvedRole['role_id']);
 
         AuditLogger::log($_SESSION['user_id'] ?? null, 'EDIT_USER', 'SYSTEM', (int)$userId, [
             'username' => $username,

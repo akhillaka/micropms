@@ -25,8 +25,9 @@ MicroPMS — extract this zip on Hostinger
 5. PHP 8.1+ with pdo_mysql, curl, mbstring, openssl.
 
 6. Open https://YOUR-HOST/admin/run_migration and click Run
-   (log in first at /login). This applies 029–034 (gateways, guest ID,
-   schema alignment, service-request channels, room DND, staff PWA push).
+   (log in first at /login). This applies 029–035 (gateways, guest ID,
+   schema alignment, service-request channels, room DND, staff PWA push,
+   staff roles ENUM + role_id).
 
 Staff / guest / SaaS (same host, no subdomains):
   https://YOUR-HOST/login

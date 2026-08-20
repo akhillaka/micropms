@@ -135,9 +135,9 @@ ApiHandler::run(function(\PDO $db) {
             session_regenerate_id(true);
             $_SESSION['user_id']          = $user['id'];
             $_SESSION['role']             = $user['access_level'] ?: 'manager';
+            $_SESSION['access_level']     = $user['access_level'] ?: 'manager';
             $_SESSION['username']         = $user['username'];
             $_SESSION['staff_user']       = $user['username'];
-            $_SESSION['assistant_role']   = $user['assistant_role'] ?? 'receptionist';
             $_SESSION['primary_property_id'] = (int)($user['property_id'] ?? 0);
             $_SESSION['property_id'] = (int)($user['property_id'] ?? 0);
             if ($_SESSION['property_id'] <= 0 && $propertyId > 0) {
@@ -147,19 +147,10 @@ ApiHandler::run(function(\PDO $db) {
                 AuthHelper::setPropertyId((int)$_SESSION['property_id']);
             }
 
-            // Compute granular permissions from assistant_role
-            $aRole = $_SESSION['assistant_role'];
-            $permissions = [
-                'check_in_out'    => in_array($aRole, ['receptionist','manager','owner','admin','superadmin']),
-                'collect_payment' => in_array($aRole, ['receptionist','manager','owner','admin','superadmin']),
-                'add_charge'      => in_array($aRole, ['receptionist','manager','owner','admin','superadmin']),
-                'edit_charge'     => in_array($aRole, ['manager','owner','admin','superadmin']),
-                'edit_checkout'   => in_array($aRole, ['manager','owner','admin','superadmin']),
-                'housekeeping'    => in_array($aRole, ['housekeeping','manager','owner','admin','superadmin']),
-                'pos_access'      => in_array($aRole, ['receptionist','manager','owner','admin','superadmin', 'fb_cashier']),
-                'view_bill'       => in_array($aRole, ['receptionist','manager','owner','admin','superadmin']),
-                'view_reports'    => in_array($aRole, ['manager','owner','admin','superadmin']),
-            ];
+            AuthHelper::applyCustomPermissions($db, $user['role_id'] ?? null);
+            $aRole = AuthHelper::assistantRoleAlias((string)($user['access_level'] ?? 'receptionist'));
+            $_SESSION['assistant_role'] = $aRole;
+            $permissions = AuthHelper::assistantUiPermissions($aRole);
             $_SESSION['assistant_permissions'] = $permissions;
 
             $csrfToken = CsrfToken::generate();
@@ -191,23 +182,16 @@ ApiHandler::run(function(\PDO $db) {
         }
 
         if (isset($_SESSION['user_id'])) {
-            $stmt = $db->prepare("SELECT id, username, access_level, assistant_role, pin_hash FROM staff_users WHERE id = :id AND is_active = 1");
+            $stmt = $db->prepare("SELECT id, username, access_level, assistant_role, pin_hash, role_id FROM staff_users WHERE id = :id AND is_active = 1");
             $stmt->execute(['id' => $_SESSION['user_id']]);
             $user = $stmt->fetch();
 
             if ($user) {
-                $aRole = $user['assistant_role'] ?? $_SESSION['assistant_role'] ?? 'receptionist';
-                $permissions = $_SESSION['assistant_permissions'] ?? [
-                    'check_in_out'    => in_array($aRole, ['receptionist','manager','owner']),
-                    'collect_payment' => in_array($aRole, ['receptionist','manager','owner']),
-                    'add_charge'      => in_array($aRole, ['receptionist','manager','owner']),
-                    'edit_charge'     => in_array($aRole, ['manager','owner']),
-                    'edit_checkout'   => in_array($aRole, ['manager','owner']),
-                    'housekeeping'    => in_array($aRole, ['housekeeping','manager','owner']),
-                    'pos_access'      => in_array($aRole, ['receptionist','manager','owner']),
-                    'view_bill'       => in_array($aRole, ['receptionist','manager','owner']),
-                    'view_reports'    => in_array($aRole, ['manager','owner']),
-                ];
+                $aRole = AuthHelper::assistantRoleAlias((string)($user['access_level'] ?? 'receptionist'));
+                AuthHelper::applyCustomPermissions($db, $user['role_id'] ?? ($_SESSION['role_id'] ?? null));
+                $permissions = AuthHelper::assistantUiPermissions($aRole);
+                $_SESSION['assistant_role'] = $aRole;
+                $_SESSION['assistant_permissions'] = $permissions;
                 ApiResponse::success([
                     'logged_in' => true,
                     'user' => [
