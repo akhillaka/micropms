@@ -76,6 +76,7 @@ CREATE TABLE `bookings` (
 
 CREATE TABLE `city_ledger` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) DEFAULT NULL,
   `company_id` int(11) NOT NULL,
   `booking_id` int(11) DEFAULT NULL,
   `amount` decimal(10,2) NOT NULL,
@@ -86,6 +87,7 @@ CREATE TABLE `city_ledger` (
   PRIMARY KEY (`id`),
   KEY `company_id` (`company_id`),
   KEY `booking_id` (`booking_id`),
+  KEY `idx_city_ledger_property` (`property_id`),
   CONSTRAINT `city_ledger_company_fk` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `city_ledger_ibfk_1` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_city_ledger_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE

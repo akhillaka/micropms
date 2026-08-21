@@ -69,8 +69,23 @@ ApiHandler::run(function(\PDO $db) {
 
     $rzKey = trim((string)($data['RAZORPAY_KEY_ID'] ?? ''));
     $rzSecret = trim((string)($data['RAZORPAY_KEY_SECRET'] ?? ''));
+    $rzWebhook = trim((string)($data['RAZORPAY_WEBHOOK_SECRET'] ?? ''));
     if ($rzKey !== '') {
-        upsert_payment_gateway_config($db, $propertyId, 'razorpay', $rzKey, $rzSecret, 1, 'live', null);
+        $extra = null;
+        if ($rzWebhook !== '' && strcasecmp($rzWebhook, 'your_webhook_secret') !== 0) {
+            $extra = json_encode(['webhook_secret' => $rzWebhook], JSON_THROW_ON_ERROR);
+        } else {
+            try {
+                $ex = $db->prepare("SELECT extra_config FROM payment_gateway_configs WHERE property_id = ? AND gateway = 'razorpay' LIMIT 1");
+                $ex->execute([$propertyId]);
+                $prev = $ex->fetchColumn();
+                if (is_string($prev) && $prev !== '') {
+                    $extra = $prev;
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+        upsert_payment_gateway_config($db, $propertyId, 'razorpay', $rzKey, $rzSecret, 1, 'live', $extra);
     }
 
     AuditLogger::log($_SESSION['user_id'], 'UPDATE_SETTINGS', 'SYSTEM', null, ['updated_keys' => array_keys($data)]);

@@ -405,7 +405,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                     <i class="ph ph-whatsapp-logo text-sm"></i> Send Invoice
                 </button>
                 <?php
-                $secureToken = GuestAccessToken::generate((string)$id);
+                $secureToken = GuestAccessToken::generateForBooking((int)$id, (int)$propertyId);
                 $proto = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
                 $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
                 $guestPortalUrl = "{$proto}://{$host}/guest-portal?id={$id}&token={$secureToken}";

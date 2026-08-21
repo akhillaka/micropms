@@ -59,6 +59,55 @@ class RazorpayService {
     }
 
     /**
+     * Global/env Razorpay webhook secret (single-tenant / SaaS fallback).
+     */
+    public static function globalWebhookSecret(): string {
+        $secret = (string)(getenv('RAZORPAY_WEBHOOK_SECRET') ?: ($_ENV['RAZORPAY_WEBHOOK_SECRET'] ?? ''));
+        if ($secret === '' && defined('RAZORPAY_WEBHOOK_SECRET')) {
+            $secret = (string)RAZORPAY_WEBHOOK_SECRET;
+        }
+        return trim($secret);
+    }
+
+    /**
+     * Resolve webhook secret for a property, then fall back to global env/constant.
+     */
+    public static function webhookSecretForProperty(\PDO $db, int $propertyId): string {
+        $placeholders = ['', 'your_webhook_secret', 'rzp_secret_placeholder'];
+
+        if ($propertyId > 0) {
+            require_once __DIR__ . '/../config.php';
+            $fromSettings = trim(get_db_setting($db, 'RAZORPAY_WEBHOOK_SECRET', $propertyId, ''));
+            if (!in_array($fromSettings, $placeholders, true)) {
+                return $fromSettings;
+            }
+
+            try {
+                $stmt = $db->prepare("
+                    SELECT extra_config FROM payment_gateway_configs
+                    WHERE property_id = ? AND gateway = 'razorpay' AND is_active = 1
+                    LIMIT 1
+                ");
+                $stmt->execute([$propertyId]);
+                $raw = $stmt->fetchColumn();
+                if (is_string($raw) && $raw !== '') {
+                    $extra = json_decode($raw, true);
+                    if (is_array($extra)) {
+                        $fromExtra = trim((string)($extra['webhook_secret'] ?? ''));
+                        if (!in_array($fromExtra, $placeholders, true)) {
+                            return $fromExtra;
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Table may not exist yet.
+            }
+        }
+
+        return self::globalWebhookSecret();
+    }
+
+    /**
      * Create a Razorpay Order (one-time payment).
      * 
      * @param int    $amountPaise Amount in paise (INR × 100)

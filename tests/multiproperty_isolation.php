@@ -90,6 +90,26 @@ mp_assert(str_contains($pay, 'FROM companies WHERE id = ? AND property_id = ?'),
 mp_assert(str_contains($saveSet, 'whatsapp_phone_number_id'), 'settings sync WA phone id onto properties');
 mp_assert(str_contains($roomSvc, 'function getAvailable(\\PDO $db, int $propertyId'), 'RoomService.getAvailable requires propertyId');
 
+$rzSvc = file_get_contents($root . '/pms_core/services/RazorpayService.php') ?: '';
+$rzHook = file_get_contents($root . '/public_html/webhook_razorpay.php') ?: '';
+$nightCron = file_get_contents($root . '/pms_core/cron/night_audit_cron.php') ?: '';
+$guestTokSrc = file_get_contents($root . '/pms_core/GuestAccessToken.php') ?: '';
+$citySvc = file_get_contents($root . '/pms_core/services/CityLedgerService.php') ?: '';
+$autoSave = file_get_contents($root . '/pms_core/api_endpoints/admin_save_automation.php') ?: '';
+$waAutoSave = file_get_contents($root . '/pms_core/api_endpoints/admin_save_wa_automation.php') ?: '';
+mp_assert(str_contains($rzSvc, 'webhookSecretForProperty'), 'RazorpayService resolves property webhook secret');
+mp_assert(str_contains($rzHook, 'webhookSecretForProperty') && str_contains($rzHook, 'AND property_id = :pid'), 'Razorpay webhook peeks property then verifies scoped secret');
+mp_assert(str_contains($nightCron, 'COALESCE(NULLIF(TRIM(p.timezone)') && str_contains($nightCron, 'DateTimeZone'), 'night audit cron reads properties.timezone');
+mp_assert(str_contains($nightCron, 'try {') && str_contains($nightCron, 'ErrorTracker::log'), 'night audit isolates property failures');
+mp_assert(str_contains($guestTokSrc, 'generateForBooking') && str_contains($guestTokSrc, "'|'"), 'GuestAccessToken supports property-bound v2 HMAC');
+mp_assert(str_contains($guestTokSrc, 'hash_equals(self::generate($bookingId), $token)'), 'GuestAccessToken still accepts legacy tokens');
+mp_assert(is_file($root . '/db_migrations/040_city_ledger_property.sql'), 'migration 040 city_ledger property exists');
+mp_assert(str_contains(file_get_contents($root . '/db_migrations/040_city_ledger_property.sql') ?: '', 'property_id'), 'migration 040 adds city_ledger.property_id');
+mp_assert(str_contains($citySvc, 'INSERT INTO city_ledger (property_id, company_id, booking_id'), 'CityLedgerService inserts property_id');
+mp_assert(str_contains($autoSave, 'INSERT INTO wa_automations'), 'automation_rules save syncs to wa_automations');
+mp_assert(str_contains($waAutoSave, 'INSERT INTO automation_rules'), 'wa_automations save syncs to automation_rules');
+mp_assert(is_file($root . '/db_migrations/036_system_settings_mediumtext.sql'), 'migration 036 system settings mediumtext exists');
+
 if (!$live) {
     echo "\n{$passed} passed, {$failed} failed (static only). Re-run with MULTIPROPERTY_LIVE=1 for DB fixtures.\n";
     exit($failed > 0 ? 1 : 0);
@@ -382,6 +402,37 @@ try {
     require_once $root . '/pms_core/services/RoomService.php';
     $dirtyForeign = RoomService::markDirty($db, $stayB['room_id'], (int)$a['property_id']);
     mp_assert($dirtyForeign === false, 'RoomService.markDirty cannot dirty foreign room');
+
+    // city_ledger.property_id + guest token cross-property reject + TZ smoke
+    try {
+        $db->exec("ALTER TABLE city_ledger ADD COLUMN property_id INT NULL");
+    } catch (Throwable $e) {
+        // already present
+    }
+    $db->prepare("INSERT INTO companies (property_id, name, credit_limit, balance) VALUES (?, ?, 50000, 0)")
+       ->execute([(int)$a['property_id'], $tag . '-CoA']);
+    $coA = (int)$db->lastInsertId();
+    $db->prepare("INSERT INTO city_ledger (property_id, company_id, booking_id, amount, type, status) VALUES (?, ?, ?, 100.00, 'charge', 'pending')")
+       ->execute([(int)$a['property_id'], $coA, $stayA['booking_id']]);
+    $clId = (int)$db->lastInsertId();
+    $clCheck = $db->prepare('SELECT property_id FROM city_ledger WHERE id = ?');
+    $clCheck->execute([$clId]);
+    mp_assert((int)$clCheck->fetchColumn() === (int)$a['property_id'], 'city_ledger insert stores property_id');
+    $db->prepare('DELETE FROM city_ledger WHERE id = ?')->execute([$clId]);
+    $db->prepare('DELETE FROM companies WHERE id = ?')->execute([$coA]);
+
+    require_once $root . '/pms_core/GuestAccessToken.php';
+    $tokA = GuestAccessToken::generateForBooking($stayA['booking_id'], (int)$a['property_id']);
+    mp_assert(GuestAccessToken::verify($stayA['booking_id'], $tokA, (int)$a['property_id']), 'v2 token verifies for own property');
+    mp_assert(!GuestAccessToken::verify($stayA['booking_id'], $tokA, (int)$b['property_id']), 'v2 token rejects cross-property verify');
+    $legacy = GuestAccessToken::generate($stayA['booking_id']);
+    mp_assert(GuestAccessToken::verify($stayA['booking_id'], $legacy, (int)$a['property_id']), 'legacy token still verifies with property id');
+
+    foreach (['Asia/Kolkata', 'America/New_York'] as $tzName) {
+        $tz = new DateTimeZone($tzName);
+        $now = new DateTime('now', $tz);
+        mp_assert($now->format('Y-m-d') !== '', 'DateTime works for timezone ' . $tzName);
+    }
 
     echo "\nLive fixtures tag: {$tag}\n";
     echo "Hotel A property_id={$a['property_id']} user={$a['username']}\n";

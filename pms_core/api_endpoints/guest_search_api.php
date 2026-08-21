@@ -52,7 +52,7 @@ if (!$propStmt->fetchColumn()) {
 load_db_settings($db, $propertyId);
 
 $stmt = $db->prepare("
-    SELECT b.id, b.display_id, b.check_in, b.check_out, b.booking_status, g.name as guest_name 
+    SELECT b.id, b.display_id, b.check_in, b.check_out, b.booking_status, b.property_id, g.name as guest_name 
     FROM bookings b
     JOIN guests g ON b.guest_id = g.id
     WHERE b.property_id = ? 
@@ -108,13 +108,14 @@ foreach ($bookings as $b) {
     if (!GuestAccessToken::bookingIsAccessible($b)) {
         continue;
     }
+    $pid = (int)($b['property_id'] ?? $propertyId);
     $resolved[] = [
         'id' => $b['id'],
         'display_id' => $b['display_id'],
         'check_in' => $b['check_in'],
         'check_out' => $b['check_out'],
         'guest_name' => $b['guest_name'],
-        'token' => GuestAccessToken::generate((string)$b['id']),
+        'token' => GuestAccessToken::generateForBooking((int)$b['id'], $pid),
     ];
 }
 

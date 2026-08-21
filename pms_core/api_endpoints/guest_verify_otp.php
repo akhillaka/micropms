@@ -49,8 +49,11 @@ foreach ($bookings as $b) {
     if (!GuestAccessToken::bookingIsAccessible($b)) {
         continue;
     }
-    $bookingId = (string)$b['id'];
-    $computedToken = GuestAccessToken::generate($bookingId);
+    $pid = (int)($b['property_id'] ?? ($_SESSION['guest_otp_property_id'] ?? 0));
+    if ($pid <= 0) {
+        continue;
+    }
+    $computedToken = GuestAccessToken::generateForBooking((int)$b['id'], $pid);
     
     $resolvedBookings[] = [
         'id' => $b['id'],

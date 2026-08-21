@@ -47,6 +47,10 @@ assert_true(!InvoiceLink::validate($token, 99), 'invoice link rejects other book
 $guestTok = GuestAccessToken::generate(42);
 assert_true(GuestAccessToken::verify(42, $guestTok), 'guest token verifies matching booking');
 assert_true(!GuestAccessToken::verify(99, $guestTok), 'guest token rejects other booking');
+$guestTokV2 = GuestAccessToken::generateForBooking(42, 7);
+assert_true(GuestAccessToken::verify(42, $guestTokV2, 7), 'guest v2 token verifies with property');
+assert_true(!GuestAccessToken::verify(42, $guestTokV2, 8), 'guest v2 token rejects wrong property');
+assert_true(GuestAccessToken::verify(42, $guestTok, 7), 'legacy guest token still accepted when property known');
 assert_true(GuestAccessToken::bookingIsAccessible(['booking_status' => 'checked_in', 'check_out' => date('Y-m-d', strtotime('+1 day'))]), 'guest stay accessible when checked in');
 assert_true(!GuestAccessToken::bookingIsAccessible(['booking_status' => 'cancelled', 'check_out' => date('Y-m-d', strtotime('+1 day'))]), 'guest stay denied when cancelled');
 assert_true(!GuestAccessToken::bookingIsAccessible(['booking_status' => 'checked_out', 'check_out' => date('Y-m-d', strtotime('-8 days'))]), 'guest stay denied 7 days after checkout');
@@ -342,6 +346,16 @@ assert_true(str_contains($zipScript, '038_push_client.sql'), 'deployment zip req
 assert_true(is_file(__DIR__ . '/../db_migrations/038_push_client.sql'), 'migration 038 push client is packaged');
 assert_true(str_contains($zipScript, '039_wa_tenant_uniques.sql'), 'deployment zip requires WA tenant uniques migration');
 assert_true(is_file(__DIR__ . '/../db_migrations/039_wa_tenant_uniques.sql'), 'migration 039 WA tenant uniques is packaged');
+assert_true(str_contains($zipScript, '040_city_ledger_property.sql'), 'deployment zip requires city_ledger property migration');
+assert_true(is_file(__DIR__ . '/../db_migrations/040_city_ledger_property.sql'), 'migration 040 city_ledger property is packaged');
+$rzSvcSrc = file_get_contents(__DIR__ . '/../pms_core/services/RazorpayService.php') ?: '';
+assert_true(str_contains($rzSvcSrc, 'function webhookSecretForProperty'), 'RazorpayService resolves per-property webhook secrets');
+$rzHook = file_get_contents(__DIR__ . '/../public_html/webhook_razorpay.php') ?: '';
+assert_true(str_contains($rzHook, 'webhookSecretForProperty') && str_contains($rzHook, 'transaction_ref = :ref AND property_id'), 'Razorpay webhook verifies property secret and scopes folio idempotency');
+$nightCron = file_get_contents(__DIR__ . '/../pms_core/cron/night_audit_cron.php') ?: '';
+assert_true(str_contains($nightCron, 'timezone') && str_contains($nightCron, 'DateTimeZone'), 'night audit cron uses per-property timezone');
+$autoSave = file_get_contents(__DIR__ . '/../pms_core/api_endpoints/admin_save_automation.php') ?: '';
+assert_true(str_contains($autoSave, 'INSERT INTO wa_automations'), 'unified automation save mirrors into wa_automations');
 $assistantAuth = file_get_contents(__DIR__ . '/../public_html/assistant/api/auth.php') ?: '';
 assert_true(str_contains($assistantAuth, 'property_id') && str_contains($assistantAuth, 'issueRememberToken'), 'assistant login uses property id and remember token');
 $assistantIndex = file_get_contents(__DIR__ . '/../public_html/assistant/index.html') ?: '';

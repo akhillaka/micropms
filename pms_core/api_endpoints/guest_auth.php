@@ -74,7 +74,7 @@ try {
     }
 
     $booking = $matches[0];
-    $token = GuestAccessToken::generate((string)$booking['id']);
+    $token = GuestAccessToken::generateForBooking((int)$booking['id'], (int)$booking['property_id']);
 
     echo json_encode([
         'success' => true,

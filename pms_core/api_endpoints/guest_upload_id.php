@@ -61,8 +61,8 @@ try {
 
         if (move_uploaded_file($fileTmp, $destPath)) {
             $guestCol = $docType === 'id_proof_back' ? 'id_proof_back' : 'id_proof_front';
-            $gUpd = $db->prepare("UPDATE guests SET `{$guestCol}` = ? WHERE id = ?");
-            $gUpd->execute([$savedFilename, $guestId]);
+            $gUpd = $db->prepare("UPDATE guests SET `{$guestCol}` = ? WHERE id = ? AND property_id = ?");
+            $gUpd->execute([$savedFilename, $guestId, (int)$booking['property_id']]);
 
             try {
                 $chkStmt = $db->prepare("SELECT id FROM guest_documents WHERE guest_id = ? AND document_type = ?");

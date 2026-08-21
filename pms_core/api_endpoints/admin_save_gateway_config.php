@@ -28,6 +28,13 @@ ApiHandler::run(function(\PDO $db) {
     $extraConfig = null;
     if ($gateway === 'phonepe') {
         $extraConfig = json_encode(['salt_index' => $saltIndex]);
+    } elseif ($gateway === 'razorpay') {
+        $webhookSecret = trim((string)($data['webhook_secret'] ?? $data['RAZORPAY_WEBHOOK_SECRET'] ?? ''));
+        if ($webhookSecret !== '' && strcasecmp($webhookSecret, 'your_webhook_secret') !== 0) {
+            $extraConfig = json_encode(['webhook_secret' => $webhookSecret], JSON_THROW_ON_ERROR);
+            $stmt = $db->prepare("INSERT INTO system_settings (property_id, key_name, key_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE key_value = VALUES(key_value)");
+            $stmt->execute([$propId, 'RAZORPAY_WEBHOOK_SECRET', $webhookSecret]);
+        }
     }
 
     upsert_payment_gateway_config($db, $propId, $gateway, $keyId, $keySecret, $isActive, $mode, $extraConfig);

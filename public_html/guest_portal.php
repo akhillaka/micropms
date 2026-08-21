@@ -18,9 +18,7 @@ if (empty($bookingId) || empty($token)) {
     die("Access Denied: Missing parameters.");
 }
 
-GuestAccessToken::assert($bookingId, $token, false);
-
-// Fetch booking & property info
+// Fetch booking & property info, then verify token (legacy or property-bound v2)
 $stmt = $db->prepare("
     SELECT b.*, p.name as property_name, p.logo_url, g.name as guest_name, g.email as guest_email, g.phone as guest_phone, g.digital_signature,
            rc.name as room_type, r.room_number, r.category_id as room_category_id
@@ -34,7 +32,11 @@ $stmt = $db->prepare("
 $stmt->execute([$bookingId]);
 $booking = $stmt->fetch(PDO::FETCH_ASSOC);
 
-if (!$booking || !GuestAccessToken::bookingIsAccessible($booking)) {
+if (!$booking) {
+    die("Booking not found or this stay link has expired.");
+}
+GuestAccessToken::assert($bookingId, $token, false, (int)$booking['property_id']);
+if (!GuestAccessToken::bookingIsAccessible($booking)) {
     die("Booking not found or this stay link has expired.");
 }
 

@@ -102,10 +102,10 @@ class CityLedgerService {
 
             // 4. Record a charge entry in the city_ledger table
             $insertCL = $db->prepare("
-                INSERT INTO city_ledger (company_id, booking_id, amount, type, status)
-                VALUES (?, ?, ?, 'charge', 'pending')
+                INSERT INTO city_ledger (property_id, company_id, booking_id, amount, type, status)
+                VALUES (?, ?, ?, ?, 'charge', 'pending')
             ");
-            $insertCL->execute([$companyId, $bookingId, $guestBalance]);
+            $insertCL->execute([$propertyId, $companyId, $bookingId, $guestBalance]);
 
             // 5. Update company outstanding balance
             $updCompany = $db->prepare("UPDATE companies SET balance = ? WHERE id = ? AND property_id = ?");
@@ -157,10 +157,10 @@ class CityLedgerService {
 
             // 1. Insert payment entry in city_ledger
             $insertCL = $db->prepare("
-                INSERT INTO city_ledger (company_id, amount, type, status)
-                VALUES (?, ?, 'payment', 'paid')
+                INSERT INTO city_ledger (property_id, company_id, amount, type, status)
+                VALUES (?, ?, ?, 'payment', 'paid')
             ");
-            $insertCL->execute([$companyId, $amount]);
+            $insertCL->execute([$propertyId, $companyId, $amount]);
 
             // 2. Reduce company balance
             $newBalance = max(0.00, (float)$company['balance'] - $amount);
@@ -168,17 +168,17 @@ class CityLedgerService {
             $updCompany->execute([$newBalance, $companyId, $propertyId]);
 
             // 3. Mark matching pending charges as paid (FIFO)
-            $pendingStmt = $db->prepare("SELECT cl.* FROM city_ledger cl JOIN companies c ON c.id = cl.company_id WHERE cl.company_id = ? AND c.property_id = ? AND cl.type = 'charge' AND cl.status = 'pending' ORDER BY cl.recorded_at ASC");
+            $pendingStmt = $db->prepare("SELECT cl.* FROM city_ledger cl WHERE cl.company_id = ? AND cl.property_id = ? AND cl.type = 'charge' AND cl.status = 'pending' ORDER BY cl.recorded_at ASC");
             $pendingStmt->execute([$companyId, $propertyId]);
             $pendingCharges = $pendingStmt->fetchAll();
 
             $remainingPayment = $amount;
-            $updateChargeStatus = $db->prepare("UPDATE city_ledger SET status = 'paid' WHERE id = ? AND company_id = ?");
+            $updateChargeStatus = $db->prepare("UPDATE city_ledger SET status = 'paid' WHERE id = ? AND company_id = ? AND property_id = ?");
 
             foreach ($pendingCharges as $charge) {
                 $chargeAmt = (float)$charge['amount'];
                 if ($remainingPayment >= $chargeAmt) {
-                    $updateChargeStatus->execute([$charge['id'], $companyId]);
+                    $updateChargeStatus->execute([$charge['id'], $companyId, $propertyId]);
                     $remainingPayment -= $chargeAmt;
                 } else {
                     break; // Partial payment tracking not implemented; FIFO settles fully paid items
