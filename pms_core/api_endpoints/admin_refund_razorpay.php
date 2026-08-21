@@ -21,11 +21,11 @@ ApiHandler::run(function(\PDO $db) {
     $stmt->execute(['id' => $ledgerId, 'pid' => $propertyId]);
     $ledger = $stmt->fetch();
     
-    if (!$ledger || empty($ledger['transaction_ref']) || !str_starts_with($ledger['transaction_ref'], 'pay_')) {
+    if (!$ledger || empty($ledger['transaction_id']) || !str_starts_with($ledger['transaction_id'], 'pay_')) {
         ApiResponse::error('Invalid or non-Razorpay transaction');
     }
     
-    $paymentId = $ledger['transaction_ref'];
+    $paymentId = $ledger['transaction_id'];
     $amountToRefund = abs((float)$ledger['amount']);
     $amountPaise = (int)round($amountToRefund * 100);
 
@@ -45,7 +45,7 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::error('Razorpay API Error', 400, ['details' => $refund['body'] ?? $refund]);
     }
 
-    $refundStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, property_id, transaction_type, amount, transaction_ref, description, payment_method)
+    $refundStmt = $db->prepare("INSERT INTO folio_ledger (booking_id, property_id, entry_kind, amount, transaction_id, description, payment_method)
                           VALUES (:b, :pid, 'REFUND', :a, :r, :d, 'online_refund')");
     $refundStmt->execute([
         'b'   => $ledger['booking_id'],

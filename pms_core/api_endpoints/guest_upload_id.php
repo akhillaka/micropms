@@ -50,6 +50,23 @@ try {
         if (!in_array($ext, ['jpg', 'jpeg', 'png', 'pdf'], true)) {
             throw new Exception('Unsupported file format. Use JPG, PNG, or PDF.');
         }
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $mime = (string)$finfo->file($fileTmp);
+        $allowedMimes = [
+            'image/jpeg' => true,
+            'image/png' => true,
+            'application/pdf' => true,
+        ];
+        if (!isset($allowedMimes[$mime])) {
+            throw new Exception('File content type is not allowed.');
+        }
+        if ($mime === 'image/jpeg' && !in_array($ext, ['jpg', 'jpeg'], true)) {
+            $ext = 'jpg';
+        } elseif ($mime === 'image/png') {
+            $ext = 'png';
+        } elseif ($mime === 'application/pdf') {
+            $ext = 'pdf';
+        }
 
         $docType = $_POST['document_type'] ?? 'id_proof';
         if (!in_array($docType, ['id_proof_front', 'id_proof_back', 'id_proof'], true)) {

@@ -129,7 +129,7 @@ hPanel → **Cron Jobs**. Add both if they are missing (adjust the PHP path Host
 * * * * * php /home/USER/domains/yourdomain.com/public_html/cron_scheduler.php
 ```
 
-`cron_worker.php` = WhatsApp / Telegram / Sheets queues. `cron_scheduler.php` = night audit and scheduled tasks.
+`cron_worker.php` = WhatsApp / Telegram / Sheets queues. `cron_scheduler.php` = night audit (property timezone), email reports (daily), holds sweep, checkout reminders, and other scheduled tasks.
 
 ---
 

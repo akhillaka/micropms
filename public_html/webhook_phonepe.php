@@ -77,7 +77,7 @@ try {
     if ($code === 'PAYMENT_SUCCESS') {
         $db->beginTransaction();
         
-        $checkRef = $db->prepare("SELECT COUNT(*) FROM folio_ledger WHERE transaction_ref = :ref");
+        $checkRef = $db->prepare("SELECT COUNT(*) FROM folio_ledger WHERE transaction_id = :ref");
         $checkRef->execute(['ref' => $merchantTxnId]);
         if ((int)$checkRef->fetchColumn() > 0) {
             $db->rollBack();

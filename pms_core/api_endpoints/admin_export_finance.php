@@ -20,7 +20,7 @@ $query = "
         CASE WHEN amount > 0 THEN 'Room Charge' ELSE 'collection' END AS `Type`,
         CASE WHEN amount > 0 THEN 'Room Booking' ELSE 'Room Received Payment' END AS `Category`,
         CONCAT('Folio #', booking_id, ' — ', COALESCE(description, '')) AS `Description`,
-        COALESCE(transaction_ref, booking_id) AS `Reference ID`,
+        COALESCE(transaction_id, booking_id) AS `Reference ID`,
         ABS(amount) AS `Amount (INR)`
     FROM folio_ledger
     WHERE amount != 0

@@ -135,7 +135,15 @@ class SaaSMiddleware {
                     }
                 }
             } catch (\Exception $e) {
-                // Fail open — don't block on DB errors during middleware
+                // Fail closed for subscription checks — do not allow access when status cannot be verified
+                error_log('SaaSMiddleware subscription check failed: ' . $e->getMessage());
+                http_response_code(503);
+                header('Content-Type: application/json');
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Unable to verify subscription status. Please try again shortly.'
+                ], JSON_THROW_ON_ERROR);
+                exit;
             }
         }
 

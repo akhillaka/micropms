@@ -41,7 +41,7 @@ try {
         throw new Exception("This stay link has expired or the reservation is no longer accessible");
     }
 
-    $dupStmt = $db->prepare("SELECT id FROM folio_ledger WHERE booking_id = ? AND transaction_ref = ? LIMIT 1");
+    $dupStmt = $db->prepare("SELECT id FROM folio_ledger WHERE booking_id = ? AND transaction_id = ? LIMIT 1");
     $dupStmt->execute([(int)$bookingId, $ref]);
     if ($dupStmt->fetchColumn()) {
         $db->commit();

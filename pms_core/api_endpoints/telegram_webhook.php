@@ -10,12 +10,15 @@ $db = Database::getInstance()->getConnection();
 
 $secret = TelegramOpsConfig::webhookSecret($db);
 $provided = (string)($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? '');
-if ($secret !== '') {
-    if ($provided === '' || !hash_equals($secret, $provided)) {
-        http_response_code(403);
-        echo 'Invalid webhook secret.';
-        exit;
-    }
+if ($secret === '') {
+    http_response_code(503);
+    echo 'Telegram webhook secret is not configured.';
+    exit;
+}
+if ($provided === '' || !hash_equals($secret, $provided)) {
+    http_response_code(403);
+    echo 'Invalid webhook secret.';
+    exit;
 }
 
 $bot = TelegramOpsConfig::resolveBot($db);

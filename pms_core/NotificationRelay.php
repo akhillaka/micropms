@@ -605,53 +605,16 @@ class NotificationRelay {
         return null;
     }
 
-    /**
-     * WhatsApp rules may live in automation_rules (Automations page) or wa_automations
-     * (WhatsApp Automations module). Merge so enabling either UI actually sends.
-     */
+    /** Load automation_rules only (SoT). Soft-deleted rows are ignored. */
     private static function loadAutomationRule(\PDO $db, string $eventKey, int $propertyId): ?array {
         $stmt = $db->prepare("
             SELECT a.*, t.name as wa_template_name, t.language as wa_template_language
             FROM automation_rules a
             LEFT JOIN wa_templates t ON a.wa_template_id = t.id
-            WHERE a.event_key = ? AND a.property_id = ?
+            WHERE a.event_key = ? AND a.property_id = ? AND a.deleted_at IS NULL
         ");
         $stmt->execute([$eventKey, $propertyId]);
-        $auto = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-
-        $waActive = $auto && !empty($auto['is_wa_active']) && !empty($auto['wa_template_id']);
-        if ($waActive) {
-            return $auto;
-        }
-
-        $waStmt = $db->prepare("
-            SELECT a.property_id, a.event_key, a.template_id, a.variable_mapping_json, a.status,
-                   t.name as wa_template_name, t.language as wa_template_language
-            FROM wa_automations a
-            LEFT JOIN wa_templates t ON a.template_id = t.id
-            WHERE a.event_key = ? AND a.property_id = ? AND a.status = 'active'
-        ");
-        $waStmt->execute([$eventKey, $propertyId]);
-        $wa = $waStmt->fetch(\PDO::FETCH_ASSOC);
-        if (!$wa) {
-            return $auto;
-        }
-
-        if (!$auto) {
-            $auto = [
-                'is_email_active' => 0,
-                'is_telegram_active' => 0,
-                'email_subject' => '',
-                'email_body_html' => '',
-                'telegram_body_text' => '',
-            ];
-        }
-        $auto['is_wa_active'] = 1;
-        $auto['wa_template_id'] = $wa['template_id'];
-        $auto['wa_mapping_json'] = $wa['variable_mapping_json'];
-        $auto['wa_template_name'] = $wa['wa_template_name'];
-        $auto['wa_template_language'] = $wa['wa_template_language'];
-        return $auto;
+        return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     }
 
     /**

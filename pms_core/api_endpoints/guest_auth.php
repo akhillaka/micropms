@@ -5,8 +5,16 @@ header('Content-Type: application/json');
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/config.php';
 require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
+require_once __DIR__ . '/../../pms_core/RateLimiter.php';
 
 try {
+    $ip = RateLimiter::clientIp();
+    if (!RateLimiter::allow('guest_auth:' . $ip, 10, 600)) {
+        http_response_code(429);
+        echo json_encode(['success' => false, 'message' => 'Too many attempts. Please wait and try again.']);
+        exit;
+    }
+
     $data = json_decode(file_get_contents('php://input'), true);
     if (!is_array($data)) {
         throw new Exception("Invalid JSON payload.");
@@ -18,6 +26,14 @@ try {
 
     if (empty($pnr) || empty($identity)) {
         throw new Exception("Please provide both Booking Reference and Phone/Email.");
+    }
+
+    // Per-identity throttle (slows credential stuffing against a known PNR)
+    $idKey = 'guest_auth:id:' . hash('sha256', strtolower($pnr . '|' . $identity));
+    if (!RateLimiter::allow($idKey, 8, 900)) {
+        http_response_code(429);
+        echo json_encode(['success' => false, 'message' => 'Too many attempts for this reservation. Try again later.']);
+        exit;
     }
 
     $db = Database::getInstance()->getConnection();

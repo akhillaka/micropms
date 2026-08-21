@@ -9,6 +9,17 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../Database.php';
 require_once __DIR__ . '/../EmailService.php';
 
+function email_report_log(\PDO $db, int $propertyId, string $reportType, string $recipient, string $subject, string $status, ?string $error = null): void {
+    try {
+        $db->prepare("
+            INSERT INTO email_report_logs (property_id, report_type, recipient, subject, status, error_message)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ")->execute([$propertyId, $reportType, $recipient, $subject, $status, $error]);
+    } catch (\Throwable $e) {
+        echo "Log insert skipped: " . $e->getMessage() . "\n";
+    }
+}
+
 try {
     $db = Database::getInstance()->getConnection();
     
@@ -50,10 +61,32 @@ try {
                 $emails = array_map('trim', explode(',', $config['daily_audit_emails']));
                 foreach ($emails as $email) {
                     if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                        EmailService::send($email, $subject, $htmlBody);
-                        echo "Sent Daily Audit to $email for Property ID $propertyId\n";
+                        $ok = false;
+                        $errMsg = null;
+                        try {
+                            $ok = EmailService::send($email, $subject, $htmlBody);
+                            if (!$ok) {
+                                $errMsg = 'EmailService::send returned false';
+                            }
+                        } catch (\Throwable $sendErr) {
+                            $errMsg = $sendErr->getMessage();
+                        }
+                        email_report_log($db, $propertyId, 'daily_audit', $email, $subject, $ok ? 'sent' : 'failed', $errMsg);
+                        echo ($ok ? "Sent" : "Failed") . " Daily Audit to $email for Property ID $propertyId\n";
                     }
                 }
+            } else {
+                $subject = "Daily Night Audit Report - {$yesterday}";
+                email_report_log(
+                    $db,
+                    $propertyId,
+                    'daily_audit',
+                    '(no recipients — audit missing)',
+                    $subject,
+                    'failed',
+                    "No night_audit_log row for {$yesterday}; email skipped"
+                );
+                echo "Skipped Daily Audit for Property ID $propertyId: no audit for {$yesterday}\n";
             }
         }
         
@@ -62,7 +95,7 @@ try {
             $subject = "Weekly Revenue Report ({$lastWeekStart} to {$yesterday})";
             
             // Calculate weekly totals
-            $revStmt = $db->prepare("SELECT COALESCE(SUM(-amount), 0) as total FROM folio_ledger WHERE property_id = ? AND transaction_type = 'payment' AND (is_refund = 0 OR is_refund IS NULL) AND recorded_at BETWEEN ? AND ?");
+            $revStmt = $db->prepare("SELECT COALESCE(SUM(-amount), 0) as total FROM folio_ledger WHERE property_id = ? AND entry_kind = 'payment' AND (is_refund = 0 OR is_refund IS NULL) AND recorded_at BETWEEN ? AND ?");
             $revStmt->execute([$propertyId, $lastWeekStart . ' 00:00:00', $yesterday . ' 23:59:59']);
             $weeklyRev = (float)$revStmt->fetchColumn();
             
@@ -80,8 +113,18 @@ try {
             $emails = array_map('trim', explode(',', $config['weekly_revenue_emails']));
             foreach ($emails as $email) {
                 if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                    EmailService::send($email, $subject, $htmlBody);
-                    echo "Sent Weekly Report to $email for Property ID $propertyId\n";
+                    $ok = false;
+                    $errMsg = null;
+                    try {
+                        $ok = EmailService::send($email, $subject, $htmlBody);
+                        if (!$ok) {
+                            $errMsg = 'EmailService::send returned false';
+                        }
+                    } catch (\Throwable $sendErr) {
+                        $errMsg = $sendErr->getMessage();
+                    }
+                    email_report_log($db, $propertyId, 'weekly_revenue', $email, $subject, $ok ? 'sent' : 'failed', $errMsg);
+                    echo ($ok ? "Sent" : "Failed") . " Weekly Report to $email for Property ID $propertyId\n";
                 }
             }
         }

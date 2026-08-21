@@ -81,7 +81,7 @@ class DailySummaryService
         $mtdTotal = self::moneySum($db, "SELECT COALESCE(SUM(ABS(amount)), 0) FROM folio_ledger WHERE {$payFilter} AND DATE(recorded_at) BETWEEN :fromd AND :tod AND property_id = :pid", ['fromd' => $monthStart, 'tod' => $day, 'pid' => $propertyId]);
 
         $byMethod = self::rows($db,
-            "SELECT COALESCE(NULLIF(TRIM(payment_method), ''), transaction_type, 'Other') AS label, COALESCE(SUM(ABS(amount)), 0) AS total
+            "SELECT COALESCE(NULLIF(TRIM(payment_method), ''), 'Other') AS label, COALESCE(SUM(ABS(amount)), 0) AS total
              FROM folio_ledger
              WHERE {$payFilter} AND DATE(recorded_at) = :d AND property_id = :pid
              GROUP BY 1
@@ -89,7 +89,7 @@ class DailySummaryService
             ['d' => $day, 'pid' => $propertyId]
         );
         $byCategory = self::rows($db,
-            "SELECT COALESCE(NULLIF(TRIM(category), ''), 'Uncategorized') AS label, COALESCE(SUM(ABS(amount)), 0) AS total
+            "SELECT COALESCE(NULLIF(TRIM(payment_category), ''), 'Uncategorized') AS label, COALESCE(SUM(ABS(amount)), 0) AS total
              FROM folio_ledger
              WHERE {$payFilter} AND DATE(recorded_at) = :d AND property_id = :pid
              GROUP BY 1
@@ -98,7 +98,7 @@ class DailySummaryService
         );
 
         $mtdByMethod = self::rows($db,
-            "SELECT COALESCE(NULLIF(TRIM(payment_method), ''), transaction_type, 'Other') AS label, COALESCE(SUM(ABS(amount)), 0) AS total
+            "SELECT COALESCE(NULLIF(TRIM(payment_method), ''), 'Other') AS label, COALESCE(SUM(ABS(amount)), 0) AS total
              FROM folio_ledger
              WHERE {$payFilter} AND DATE(recorded_at) BETWEEN :fromd AND :tod AND property_id = :pid
              GROUP BY 1

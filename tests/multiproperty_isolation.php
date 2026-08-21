@@ -73,7 +73,7 @@ mp_assert(
     && !str_contains($hk, 'DELETE FROM housekeeping_checklist_items WHERE id = ?");'),
     'HK checklist delete requires property_id'
 );
-mp_assert(str_contains($autoDel, 'DELETE FROM wa_automations WHERE event_key = ? AND property_id = ?'), 'automation delete is property-scoped');
+mp_assert(str_contains($autoDel, 'UPDATE automation_rules') && str_contains($autoDel, 'deleted_at = NOW()'), 'automation delete soft-deletes automation_rules');
 mp_assert(str_contains($settings, 'Category not found for this property'), 'settings rejects foreign room categories');
 mp_assert(str_contains($waHook, 'property_id = ? AND (phone = ? OR phone = ?)'), 'WhatsApp guest match prefers property scope');
 mp_assert(str_contains($waHook, 'WHERE property_id = ? AND phone_number = ?'), 'WhatsApp webhook finds conversations property-first');
@@ -98,6 +98,7 @@ $citySvc = file_get_contents($root . '/pms_core/services/CityLedgerService.php')
 $autoSave = file_get_contents($root . '/pms_core/api_endpoints/admin_save_automation.php') ?: '';
 $waAutoSave = file_get_contents($root . '/pms_core/api_endpoints/admin_save_wa_automation.php') ?: '';
 mp_assert(str_contains($rzSvc, 'webhookSecretForProperty'), 'RazorpayService resolves property webhook secret');
+mp_assert(!str_contains($rzSvc, "get_db_setting(\$db, 'RAZORPAY_"), 'RazorpayService no longer reads RAZORPAY_* from system_settings');
 mp_assert(str_contains($rzHook, 'webhookSecretForProperty') && str_contains($rzHook, 'AND property_id = :pid'), 'Razorpay webhook peeks property then verifies scoped secret');
 mp_assert(str_contains($nightCron, 'COALESCE(NULLIF(TRIM(p.timezone)') && str_contains($nightCron, 'DateTimeZone'), 'night audit cron reads properties.timezone');
 mp_assert(str_contains($nightCron, 'try {') && str_contains($nightCron, 'ErrorTracker::log'), 'night audit isolates property failures');
@@ -106,9 +107,33 @@ mp_assert(str_contains($guestTokSrc, 'hash_equals(self::generate($bookingId), $t
 mp_assert(is_file($root . '/db_migrations/040_city_ledger_property.sql'), 'migration 040 city_ledger property exists');
 mp_assert(str_contains(file_get_contents($root . '/db_migrations/040_city_ledger_property.sql') ?: '', 'property_id'), 'migration 040 adds city_ledger.property_id');
 mp_assert(str_contains($citySvc, 'INSERT INTO city_ledger (property_id, company_id, booking_id'), 'CityLedgerService inserts property_id');
-mp_assert(str_contains($autoSave, 'INSERT INTO wa_automations'), 'automation_rules save syncs to wa_automations');
-mp_assert(str_contains($waAutoSave, 'INSERT INTO automation_rules'), 'wa_automations save syncs to automation_rules');
+mp_assert(str_contains($autoSave, 'INSERT INTO automation_rules') && !str_contains($autoSave, 'INSERT INTO wa_automations'), 'automation_rules save does not mirror wa_automations');
+mp_assert(str_contains($waAutoSave, 'INSERT INTO automation_rules') && !str_contains($waAutoSave, 'INSERT INTO wa_automations'), 'WA automation save writes automation_rules only');
 mp_assert(is_file($root . '/db_migrations/036_system_settings_mediumtext.sql'), 'migration 036 system settings mediumtext exists');
+mp_assert(is_file($root . '/db_migrations/041_folio_ledger_rename_columns.sql'), 'migration 041 folio ledger rename exists');
+$mig041 = file_get_contents($root . '/db_migrations/041_folio_ledger_rename_columns.sql') ?: '';
+mp_assert(is_file($root . '/db_migrations/042_email_report_logs.sql'), 'migration 042 email report logs exists');
+mp_assert(str_contains(file_get_contents($root . '/db_migrations/042_email_report_logs.sql') ?: '', 'email_report_logs'), 'migration 042 creates email_report_logs');
+mp_assert(is_file($root . '/db_migrations/043_system_settings_composite_pk.sql'), 'migration 043 system_settings PK exists');
+mp_assert(str_contains(file_get_contents($root . '/db_migrations/043_system_settings_composite_pk.sql') ?: '', 'property_id`, `key_name'), 'migration 043 sets composite PK');
+mp_assert(is_file($root . '/db_migrations/044_folio_entry_kind.sql'), 'migration 044 folio entry_kind exists');
+mp_assert(str_contains(file_get_contents($root . '/db_migrations/044_folio_entry_kind.sql') ?: '', 'entry_kind'), 'migration 044 adds entry_kind');
+mp_assert(is_file($root . '/db_migrations/045_phase2_p2_property_not_null.sql'), 'migration 045 property NOT NULL exists');
+mp_assert(str_contains(file_get_contents($root . '/db_migrations/045_phase2_p2_property_not_null.sql') ?: '', 'MODIFY COLUMN `property_id` INT NOT NULL'), 'migration 045 enforces NOT NULL property_id');
+mp_assert(is_file($root . '/db_migrations/046_phase2_p3_cleanup.sql'), 'migration 046 P3 cleanup exists');
+$mig046 = file_get_contents($root . '/db_migrations/046_phase2_p3_cleanup.sql') ?: '';
+mp_assert(str_contains($mig046, 'DROP COLUMN `transaction_type`') && str_contains($mig046, 'razorpay_key_id') && str_contains($mig046, 'wa_automations_archive'), 'migration 046 drops transaction_type/razorpay cols and archives wa_automations');
+mp_assert(str_contains($mig046, 'deleted_at'), 'migration 046 adds automation_rules.deleted_at');
+mp_assert(is_file($root . '/pms_core/api_endpoints/admin_city_ledger.php'), 'admin_city_ledger endpoint exists');
+mp_assert(is_file($root . '/pms_core/api_endpoints/admin_booking_notes.php'), 'admin_booking_notes endpoint exists');
+$notesApiSrc = file_get_contents($root . '/pms_core/api_endpoints/admin_booking_notes.php') ?: '';
+mp_assert(str_contains($notesApiSrc, 'property_id = ?') && str_contains($notesApiSrc, 'FROM bookings'), 'booking notes verifies booking property');
+mp_assert(str_contains($mig041, 'payment_category') && str_contains($mig041, 'transaction_id') && str_contains($mig041, 'uq_folio_booking_txn'), 'migration 041 renames folio category and transaction_ref');
+$folioSvcMp = file_get_contents($root . '/pms_core/services/FolioService.php') ?: '';
+mp_assert(str_contains($folioSvcMp, 'payment_category') && str_contains($folioSvcMp, 'transaction_id'), 'FolioService writes payment_category and transaction_id');
+mp_assert(!preg_match('/INSERT INTO folio_ledger[^\n]*transaction_ref/', $folioSvcMp), 'FolioService no longer inserts transaction_ref');
+$asstCo = file_get_contents($root . '/public_html/assistant/api/checkout.php') ?: '';
+mp_assert(str_contains($asstCo, '%Receipt ') && !str_contains($asstCo, "strpos(\$origRef, 'TXN-')"), 'assistant checkout finance sync uses folio display_id');
 
 if (!$live) {
     echo "\n{$passed} passed, {$failed} failed (static only). Re-run with MULTIPROPERTY_LIVE=1 for DB fixtures.\n";
@@ -187,7 +212,7 @@ function mp_seed_stay(\PDO $db, int $propertyId, string $guestName, string $phon
     $bookingId = (int)$db->lastInsertId();
 
     $fl = $db->prepare("
-        INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, description, folio_bucket, category, is_refund, recorded_at)
+        INSERT INTO folio_ledger (property_id, booking_id, entry_kind, amount, description, folio_bucket, payment_category, is_refund, recorded_at)
         VALUES (?, ?, 'ROOM_CHARGE', 2500, 'Room charge', 'main', 'Room Revenue', 0, NOW())
     ");
     $fl->execute([$propertyId, $bookingId]);

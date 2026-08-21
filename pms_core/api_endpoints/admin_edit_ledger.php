@@ -15,7 +15,7 @@ ApiHandler::run(function(\PDO $db) {
     $amount   = floatval($data['amount'] ?? 0);
     $desc     = trim($data['description'] ?? '');
     $method   = trim($data['payment_method'] ?? '');
-    $category = trim((string)($data['category'] ?? ''));
+    $category = trim((string)($data['payment_category'] ?? $data['category'] ?? ''));
     $recordedAtIn = trim(str_replace('T', ' ', (string)($data['recorded_at'] ?? '')));
     if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $recordedAtIn)) {
         $recordedAtIn .= ':00';
@@ -59,7 +59,7 @@ ApiHandler::run(function(\PDO $db) {
 
         $bookingId = (int)$origEntry['booking_id'];
         $displayId = $origEntry['display_id'];
-        $ref = $origEntry['transaction_ref'] ?? '';
+        $ref = $origEntry['transaction_id'] ?? '';
         $recordedAt = $recordedAtIn !== '' ? $recordedAtIn : $origEntry['recorded_at'];
         $propertyId = (int)$origEntry['property_id'];
 
@@ -95,7 +95,7 @@ ApiHandler::run(function(\PDO $db) {
 
             $descFolio = ($ledgerAmount < 0 ? 'Split Payment ' : 'Split Refund ') . strtoupper($method) . ' - ' . $catLabel;
 
-            $sql = "INSERT INTO folio_ledger (display_id, property_id, booking_id, transaction_type, amount, transaction_ref, description, payment_method, category, recorded_at) VALUES (:disp, :pid, :bid, 'payment', :amount, :ref, :desc, :method, :category, :recorded_at)";
+            $sql = "INSERT INTO folio_ledger (display_id, property_id, booking_id, entry_kind, amount, transaction_id, description, payment_method, payment_category, recorded_at) VALUES (:disp, :pid, :bid, 'payment', :amount, :ref, :desc, :method, :category, :recorded_at)";
             $db->prepare($sql)->execute([
                 'disp' => $displayId,
                 'pid' => $propertyId,
@@ -133,10 +133,10 @@ ApiHandler::run(function(\PDO $db) {
         $setCat = $category !== '';
         $setDate = $recordedAtIn !== '';
         if ($method !== '' && $setCat && $setDate) {
-            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm, category = :cat, recorded_at = :dt WHERE id = :id AND property_id = :pid");
+            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm, payment_category = :cat, recorded_at = :dt WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'pm' => $method, 'cat' => $category, 'dt' => $recordedAtIn, 'id' => $ledgerId, 'pid' => $propertyId]);
         } elseif ($method !== '' && $setCat) {
-            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm, category = :cat WHERE id = :id AND property_id = :pid");
+            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm, payment_category = :cat WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'pm' => $method, 'cat' => $category, 'id' => $ledgerId, 'pid' => $propertyId]);
         } elseif ($method !== '' && $setDate) {
             $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm, recorded_at = :dt WHERE id = :id AND property_id = :pid");
@@ -145,10 +145,10 @@ ApiHandler::run(function(\PDO $db) {
             $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_method = :pm WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'pm' => $method, 'id' => $ledgerId, 'pid' => $propertyId]);
         } elseif ($setCat && $setDate) {
-            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, category = :cat, recorded_at = :dt WHERE id = :id AND property_id = :pid");
+            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_category = :cat, recorded_at = :dt WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'cat' => $category, 'dt' => $recordedAtIn, 'id' => $ledgerId, 'pid' => $propertyId]);
         } elseif ($setCat) {
-            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, category = :cat WHERE id = :id AND property_id = :pid");
+            $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, payment_category = :cat WHERE id = :id AND property_id = :pid");
             $stmt->execute(['amt' => $amount, 'desc' => $desc, 'cat' => $category, 'id' => $ledgerId, 'pid' => $propertyId]);
         } elseif ($setDate) {
             $stmt = $db->prepare("UPDATE folio_ledger SET amount = :amt, description = :desc, recorded_at = :dt WHERE id = :id AND property_id = :pid");

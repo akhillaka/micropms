@@ -34,7 +34,7 @@ class ReportingCacheService {
             FROM folio_ledger fl
             JOIN bookings b ON b.id = fl.booking_id
             WHERE b.property_id = ?
-              AND fl.transaction_type = 'ROOM_CHARGE'
+              AND fl.entry_kind = 'ROOM_CHARGE'
               AND DATE(fl.recorded_at) = ?
         ");
         $revStmt->execute([$propertyId, $date]);

@@ -23,8 +23,13 @@ ApiHandler::run(function(\PDO $db) {
         'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'TELEGRAM_OPERATIONS_BOT_TOKEN',
         'SMTP_PASS', 'WA_APP_SECRET', 'INVOICE_SECRET', 'GOOGLE_VISION_API_KEY'
     ];
+    // Gateway credentials live in payment_gateway_configs — do not persist RAZORPAY_* into system_settings.
+    $gatewayOnlyKeys = ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET'];
     foreach ($data as $key => $value) {
         if ($key === '_csrf_token') continue;
+        if (in_array($key, $gatewayOnlyKeys, true)) {
+            continue;
+        }
         if (in_array($key, $secretKeys, true) && trim((string)$value) === '') {
             continue;
         }

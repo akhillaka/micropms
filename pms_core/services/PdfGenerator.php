@@ -27,7 +27,7 @@ class PdfGenerator {
         $stmt = $this->db->prepare("
             SELECT COALESCE(SUM(ABS(amount)), 0) as rev 
             FROM folio_ledger 
-            WHERE property_id = ? AND transaction_type = 'payment' AND DATE(recorded_at) = ? AND IFNULL(is_refund, 0) = 0
+            WHERE property_id = ? AND entry_kind = 'payment' AND DATE(recorded_at) = ? AND IFNULL(is_refund, 0) = 0
         ");
         $stmt->execute([$propertyId, $today]);
         $revenue = $stmt->fetchColumn();

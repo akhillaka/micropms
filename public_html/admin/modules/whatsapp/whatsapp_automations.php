@@ -88,7 +88,12 @@ while($row = $eventsStmt->fetch(PDO::FETCH_ASSOC)) {
     $eventsData[$row['event_key']] = $row;
 }
 
-$autoStmt = $db->prepare("SELECT event_key, template_id, variable_mapping_json, status FROM wa_automations WHERE property_id = ?");
+$autoStmt = $db->prepare("
+    SELECT event_key, wa_template_id AS template_id, wa_mapping_json AS variable_mapping_json,
+           IF(is_wa_active = 1 AND wa_template_id IS NOT NULL, 'active', 'inactive') AS status
+    FROM automation_rules
+    WHERE property_id = ? AND deleted_at IS NULL
+");
 $autoStmt->execute([$propId]);
 $automations = [];
 while($row = $autoStmt->fetch(PDO::FETCH_ASSOC)) {

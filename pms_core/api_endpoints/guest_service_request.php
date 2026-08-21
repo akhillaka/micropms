@@ -18,17 +18,16 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::error('Missing authentication tokens.', 401);
     }
     
-    if (!GuestAccessToken::verify($bookingId, $token)) {
-        ApiResponse::error('Invalid secure token.', 403);
-    }
-    
-    // Validate booking
+    // Validate booking first so we can bind v2 tokens to property_id
     $stmt = $db->prepare("SELECT b.id, b.property_id, b.room_id, b.guest_id, b.booking_status, b.check_out, r.room_number FROM bookings b LEFT JOIN rooms r ON b.room_id = r.id WHERE b.id = ? AND b.booking_status = 'checked_in'");
     $stmt->execute([$bookingId]);
     $booking = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$booking) {
         ApiResponse::error('Active booking not found.', 404);
+    }
+    if (!GuestAccessToken::verify($bookingId, $token, (int)$booking['property_id'])) {
+        ApiResponse::error('Invalid secure token.', 403);
     }
     if (!GuestAccessToken::bookingIsAccessible($booking)) {
         ApiResponse::error('This stay link has expired or the reservation is no longer accessible', 403);

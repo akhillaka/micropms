@@ -50,7 +50,7 @@ ApiHandler::run(function(\PDO $db) {
             $ledgerByBooking = [];
             if (!empty($bookingIds)) {
                 $inClause = implode(',', array_fill(0, count($bookingIds), '?'));
-                $allLedgerStmt = $db->prepare("SELECT booking_id, transaction_type, COALESCE(NULLIF(payment_method, ''), 'Cash') as payment_method, amount FROM folio_ledger WHERE booking_id IN ({$inClause}) AND property_id = ?");
+                $allLedgerStmt = $db->prepare("SELECT booking_id, entry_kind, COALESCE(NULLIF(payment_method, ''), 'Cash') as payment_method, amount FROM folio_ledger WHERE booking_id IN ({$inClause}) AND property_id = ?");
                 $allLedgerStmt->execute(array_merge($bookingIds, [$propertyId]));
                 foreach ($allLedgerStmt->fetchAll(PDO::FETCH_ASSOC) as $le) {
                     $ledgerByBooking[$le['booking_id']][] = $le;
@@ -78,9 +78,10 @@ ApiHandler::run(function(\PDO $db) {
                 }
                 
                 foreach ($ledger as $l) {
-                    if ($l['transaction_type'] === 'ROOM_CHARGE') {
+                    $kind = strtoupper((string)($l['entry_kind'] ?? ''));
+                    if ($kind === 'ROOM_CHARGE') {
                         $row['room_charge'] += (float)$l['amount'];
-                    } elseif ($l['transaction_type'] === 'INCIDENTAL') {
+                    } elseif ($kind === 'INCIDENTAL' || $kind === 'POS_ORDER') {
                         $row['addons'] += (float)$l['amount'];
                     } else {
                         $pm = $l['payment_method'];
@@ -156,7 +157,7 @@ ApiHandler::run(function(\PDO $db) {
                        COALESCE(NULLIF(payment_method, ''), 'Cash') as payment_method,
                        SUM(ABS(amount)) as total
                 FROM folio_ledger 
-                WHERE transaction_type = 'payment' 
+                WHERE entry_kind = 'payment' 
                   AND property_id = :pid
                   AND recorded_at >= :start AND recorded_at <= :end
                 GROUP BY DATE(recorded_at), payment_method
@@ -506,7 +507,7 @@ ApiHandler::run(function(\PDO $db) {
                 LEFT JOIN (
                     SELECT booking_id, SUM(amount) as room_charges 
                     FROM folio_ledger 
-                    WHERE transaction_type = 'ROOM_CHARGE' AND property_id = :pid1
+                    WHERE entry_kind = 'ROOM_CHARGE' AND property_id = :pid1
                     GROUP BY booking_id
                 ) fl ON b.id = fl.booking_id
                 WHERE b.booking_status IN ('booked', 'checked_in', 'checked_out')
@@ -768,7 +769,7 @@ ApiHandler::run(function(\PDO $db) {
                 FROM folio_ledger fl
                 JOIN bookings b ON fl.booking_id = b.id
                 WHERE b.property_id = :pid
-                  AND fl.transaction_type IN ('ROOM_CHARGE', 'INCIDENTAL')
+                  AND fl.entry_kind IN ('ROOM_CHARGE', 'INCIDENTAL')
                   AND fl.recorded_at >= :start AND fl.recorded_at <= :end
                 GROUP BY DATE(fl.recorded_at)
                 ORDER BY DATE(fl.recorded_at) DESC
@@ -920,7 +921,7 @@ ApiHandler::run(function(\PDO $db) {
                     'id' => 'fl.id', 
                     'display_id' => 'fl.display_id', 
                     'booking_id' => 'fl.booking_id', 
-                    'transaction_type' => 'fl.transaction_type', 
+                    'entry_kind' => 'fl.entry_kind', 
                     'amount' => 'fl.amount', 
                     'payment_method' => 'fl.payment_method', 
                     'description' => 'fl.description', 

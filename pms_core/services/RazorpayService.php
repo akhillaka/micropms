@@ -40,18 +40,12 @@ class RazorpayService {
                 return new self($config['key_id'], $config['key_secret'], ($config['mode'] ?? '') === 'live');
             }
         } catch (\Throwable $e) {
-            // Table may not exist yet; fall through to system_settings.
+            // Table may not exist yet; fall through to env constants only.
         }
 
-        require_once __DIR__ . '/../config.php';
-        $keyId = trim(get_db_setting($db, 'RAZORPAY_KEY_ID', $propertyId, ''));
-        $keySecret = trim(get_db_setting($db, 'RAZORPAY_KEY_SECRET', $propertyId, ''));
-        if ($keyId === '' && defined('RAZORPAY_KEY_ID')) {
-            $keyId = trim((string)RAZORPAY_KEY_ID);
-        }
-        if ($keySecret === '' && defined('RAZORPAY_KEY_SECRET')) {
-            $keySecret = trim((string)RAZORPAY_KEY_SECRET);
-        }
+        // Env/config constants only — system_settings RAZORPAY_* is no longer a credential source.
+        $keyId = (defined('RAZORPAY_KEY_ID') ? trim((string)RAZORPAY_KEY_ID) : '');
+        $keySecret = (defined('RAZORPAY_KEY_SECRET') ? trim((string)RAZORPAY_KEY_SECRET) : '');
         if ($keyId === '' || $keySecret === '') {
             return null;
         }
@@ -76,12 +70,7 @@ class RazorpayService {
         $placeholders = ['', 'your_webhook_secret', 'rzp_secret_placeholder'];
 
         if ($propertyId > 0) {
-            require_once __DIR__ . '/../config.php';
-            $fromSettings = trim(get_db_setting($db, 'RAZORPAY_WEBHOOK_SECRET', $propertyId, ''));
-            if (!in_array($fromSettings, $placeholders, true)) {
-                return $fromSettings;
-            }
-
+            // Canonical: payment_gateway_configs.extra_config.webhook_secret
             try {
                 $stmt = $db->prepare("
                     SELECT extra_config FROM payment_gateway_configs

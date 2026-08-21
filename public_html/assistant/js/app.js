@@ -2388,27 +2388,28 @@ class BookingAssistant {
           } else {
             res.ledger.forEach(entry => {
               const amt = Number(entry.amount || 0);
-              const isPayment = amt < 0 || entry.transaction_type === 'payment' || (entry.description && entry.description.toLowerCase().includes('payment'));
+              const entryKind = entry.entry_kind || entry.transaction_type || '';
+              const isPayment = amt < 0 || entryKind === 'payment' || (entry.description && entry.description.toLowerCase().includes('payment'));
               const amtFormatted = isPayment ? `-₹${Math.abs(amt).toFixed(2)}` : `+₹${amt.toFixed(2)}`;
               const colorStyle = isPayment ? 'color: var(--color-success);' : 'color: var(--color-text-primary);';
               const recDate = entry.recorded_at ? formatNiceDate(entry.recorded_at) : '';
 
               const posMatch = entry.description ? entry.description.match(/Order #(\d+)/) : null;
               const isPosOrder = posMatch && !entry.description.includes('Reverse');
-              const isRazorpay = entry.transaction_ref && entry.transaction_ref.startsWith('pay_');
+              const isRazorpay = entry.transaction_id && entry.transaction_id.startsWith('pay_');
 
               let actionHtml = '';
               if (isPosOrder) {
                 actionHtml = `<a href="/admin/modules/pos/pos?edit_order=${posMatch[1]}" target="_blank" class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-weight: bold; color: var(--color-brand); border: 1px solid var(--color-brand); gap: 4px;"><i class="ph ph-receipt" style="font-size:0.9rem;"></i> POS Order</a>`;
               } else if (!isRazorpay) {
-                actionHtml = `<button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center;" onclick="app.openEditChargeModal(${entry.id}, '${escapeHtml(entry.description || entry.transaction_type).replace(/'/g, "\\'")}', ${entry.amount}, ${isPayment})">✏️</button>`;
+                actionHtml = `<button class="btn-secondary" style="padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center;" onclick="app.openEditChargeModal(${entry.id}, '${escapeHtml(entry.description || entryKind).replace(/'/g, "\\'")}', ${entry.amount}, ${isPayment})">✏️</button>`;
               }
 
               const item = document.createElement('div');
               item.style.cssText = 'padding: 8px 10px; background: white; border-radius: 8px; border: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; gap: 8px;';
               item.innerHTML = `
                 <div style="min-width:0; flex: 1;">
-                  <div style="font-weight: 800; font-size: 0.85rem; color: var(--color-text-primary);">${escapeHtml(entry.description || entry.transaction_type)}</div>
+                  <div style="font-weight: 800; font-size: 0.85rem; color: var(--color-text-primary);">${escapeHtml(entry.description || entryKind)}</div>
                   <div style="font-size: 0.72rem; color: var(--color-text-secondary); font-weight: 600; margin-top: 2px;">
                     ${entry.display_id ? `<span style="font-weight:700; color:var(--color-brand);">${escapeHtml(entry.display_id)}</span> • ` : ''}${escapeHtml(recDate)}${entry.payment_method ? ` • ${escapeHtml(entry.payment_method)}` : ''}
                   </div>

@@ -26,28 +26,52 @@ echo str_repeat('-', 40) . "\n";
 echo "Time: " . date('Y-m-d H:i:s') . "\n\n";
 
 // ═══════════════════════════════════════════════════════════════
-// 0. NIGHT AUDIT — Configurable end-of-day process (Per Property)
+// 0. NIGHT AUDIT — property timezone aware (same rules as night_audit_cron.php)
 // ═══════════════════════════════════════════════════════════════
 
-$propStmt = $db->query("SELECT id, name FROM properties WHERE is_active = 1");
+$propStmt = $db->query("SELECT id, name, COALESCE(NULLIF(TRIM(timezone), ''), 'Asia/Kolkata') AS timezone FROM properties WHERE is_active = 1");
 $properties = $propStmt->fetchAll();
 
 foreach ($properties as $prop) {
     $propId = (int)$prop['id'];
     $propName = $prop['name'];
-    
-    $auditEnabled = getSetting($db, 'night_audit_enabled', 'false', $propId);
-    $auditTime = getSetting($db, 'night_audit_time', '02:00', $propId);
-    $currentHour = (int)date('G');
-    $currentMinute = (int)date('i');
-    $auditHour = (int)explode(':', $auditTime)[0];
-    $auditMinute = (int)explode(':', $auditTime)[1];
+    $tzName = (string)($prop['timezone'] ?? 'Asia/Kolkata');
 
-    if ($auditEnabled === 'true' && $currentHour === $auditHour && abs($currentMinute - $auditMinute) < 2) {
-        echo "[NIGHT AUDIT] Running night audit for Property {$propId} ({$propName})...\n";
+    $auditEnabled = getSetting($db, 'night_audit_enabled', 'false', $propId);
+    if ($auditEnabled !== 'true') {
+        continue;
+    }
+    $auditTime = getSetting($db, 'night_audit_time', '02:00', $propId);
+
+    try {
+        try {
+            $tz = new DateTimeZone($tzName);
+        } catch (\Throwable $e) {
+            $tz = new DateTimeZone('Asia/Kolkata');
+        }
+        $nowLocal = new DateTime('now', $tz);
+        $hour = (int)$nowLocal->format('G');
+        $currentDate = ($hour < 6)
+            ? (clone $nowLocal)->modify('-1 day')->format('Y-m-d')
+            : $nowLocal->format('Y-m-d');
+        $currentTime = $nowLocal->format('H:i');
+
+        if ($currentTime < $auditTime) {
+            continue;
+        }
+
+        $lastAudit = NightAudit::getLastAudit($db, $propId);
+        $lastRunDate = ($lastAudit && ($lastAudit['status'] ?? '') === 'success' && isset($lastAudit['audit_date']))
+            ? date('Y-m-d', strtotime((string)$lastAudit['audit_date']))
+            : null;
+        if ($lastRunDate === $currentDate) {
+            continue;
+        }
+
+        echo "[NIGHT AUDIT] Running for Property {$propId} ({$propName}) TZ={$tzName}...\n";
         $audit = new NightAudit($db, $propId);
         $result = $audit->run('cron');
-        
+
         if ($result['status'] === 'success') {
             echo "[NIGHT AUDIT][$propName] Completed successfully.\n";
             echo "  Total rooms: {$result['total_rooms']}\n";
@@ -58,9 +82,8 @@ foreach ($properties as $prop) {
         } else {
             echo "[NIGHT AUDIT][$propName] Failed: {$result['error_message']}\n";
         }
-    } else {
-        // Uncomment to debug
-        // echo "[NIGHT AUDIT][$propName] Not scheduled for this time (configured: {$auditTime}, current: " . date('H:i') . ")\n";
+    } catch (\Throwable $e) {
+        echo "[NIGHT AUDIT][$propName] ERROR: " . $e->getMessage() . "\n";
     }
 }
 
@@ -186,6 +209,31 @@ foreach ($overstays as $o) {
     ];
     NotificationRelay::sendTelegram($msg, 'overstay', $context, $propertyId > 0 ? $propertyId : null);
     echo "[OVERSTAY] Flagged overstay for room {$o['room_number']}.\n";
+}
+
+echo "\n";
+
+// ═══════════════════════════════════════════════════════════════
+// 3.6 EMAIL REPORTS — daily audit / weekly revenue (once per day window)
+// ═══════════════════════════════════════════════════════════════
+
+$serverHour = (int)date('G');
+// Once per calendar day after 06:00 server time (audit usually finished overnight)
+if ($serverHour >= 6 && CheckoutReminderService::claim($db, 0, 'system', 0, 'email_reports_' . date('Y-m-d'))) {
+    $emailCron = dirname(__DIR__) . '/pms_core/cron/email_reports_cron.php';
+    if (is_file($emailCron)) {
+        echo "[EMAIL REPORTS] Dispatching email reports...\n";
+        // Run as subprocess so require_once / function defs don't clash with this process
+        $php = PHP_BINARY ?: 'php';
+        $cmd = escapeshellarg($php) . ' ' . escapeshellarg($emailCron) . ' 2>&1';
+        $out = shell_exec($cmd);
+        if (is_string($out) && trim($out) !== '') {
+            echo trim($out) . "\n";
+        }
+        echo "[EMAIL REPORTS] Done.\n";
+    } else {
+        echo "[EMAIL REPORTS] Cron file missing.\n";
+    }
 }
 
 echo "\n" . str_repeat('-', 40) . "\n";

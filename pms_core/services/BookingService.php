@@ -641,7 +641,7 @@ class BookingService {
         $taxLabel = defined('TAX_LABEL') ? TAX_LABEL : 'GST';
 
         $postCharge = function(float $grossAmount, string $baseDesc) use ($db, $propertyId, $bookingId, $taxEnabled, $taxRate, $taxLabel) {
-            $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description) VALUES (:pid, :bid, :type, :amount, :ref, :desc)");
+            $ledgerStmt = $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, entry_kind, amount, transaction_id, description) VALUES (:pid, :bid, :type, :amount, :ref, :desc)");
 
             if ($taxEnabled && $taxRate > 0) {
                 $baseAmount = round($grossAmount / (1 + ($taxRate / 100)), 2);
@@ -702,9 +702,16 @@ class BookingService {
             $ref = FolioService::uniqueRef('LED');
         }
 
-        $sql = "INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description";
-        $params = ['pid' => $propertyId, 'bid' => $bookingId, 'type' => $type, 'amount' => $amount, 'ref' => $ref, 'desc' => $description];
+        $sql = "INSERT INTO folio_ledger (property_id, booking_id, entry_kind, amount, transaction_id, description";
+        $entryKind = FolioService::normalizeEntryKind($type);
+        $params = ['pid' => $propertyId, 'bid' => $bookingId, 'type' => $entryKind, 'amount' => $amount, 'ref' => $ref, 'desc' => $description];
         
+        // Legacy callers sometimes passed tender as $type — keep as payment_method when empty
+        $tenderLegacy = strtolower(trim($type));
+        if ($paymentMethod === null && in_array($tenderLegacy, ['cash', 'card', 'upi', 'online', 'bank_transfer'], true)) {
+            $paymentMethod = $tenderLegacy;
+        }
+
         if ($paymentMethod !== null) {
             $sql .= ", payment_method) VALUES (:pid, :bid, :type, :amount, :ref, :desc, :method)";
             $params['method'] = $paymentMethod;
@@ -719,7 +726,7 @@ class BookingService {
 
         // Sync to Google Sheets
         try {
-            if (in_array(strtolower($type), ['cash', 'card', 'online', 'payment']) || $amount < 0) {
+            if ($entryKind === 'payment' || $amount < 0) {
                 GoogleSheetService::syncPayment($db, $entryId);
             }
             GoogleSheetService::syncBooking($db, $bookingId);
@@ -919,7 +926,7 @@ class BookingService {
                 $db->prepare("UPDATE rooms SET state = 'dirty' WHERE id = :id AND property_id = :pid")->execute(['id' => $booking['room_id'], 'pid' => $propertyId]);
             }
 
-            $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND transaction_type IN ('ROOM_CHARGE', 'TAX') AND property_id = :pid")
+            $db->prepare("DELETE FROM folio_ledger WHERE booking_id = :id AND entry_kind IN ('ROOM_CHARGE', 'TAX') AND property_id = :pid")
                 ->execute(['id' => $bookingId, 'pid' => $propertyId]);
             $priceOverride = array_key_exists('price_override', $booking) && $booking['price_override'] !== null && $booking['price_override'] !== ''
                 ? (float)$booking['price_override']

@@ -25,32 +25,19 @@ ApiHandler::run(function(\PDO $db) {
         ApiResponse::error('Missing event key');
     }
 
-    if (empty($template_id)) {
-        $stmt = $db->prepare("DELETE FROM wa_automations WHERE event_key = ? AND property_id = ?");
-        $stmt->execute([$event_key, $propertyId]);
-        try {
-            $db->prepare("UPDATE automation_rules SET is_wa_active = 0, wa_template_id = NULL WHERE event_key = ? AND property_id = ?")
-               ->execute([$event_key, $propertyId]);
-        } catch (\Throwable $e) {}
-    } else {
-        $mappingJson = json_encode($mapping);
-        $stmt = $db->prepare("
-            INSERT INTO wa_automations (property_id, event_key, template_id, variable_mapping_json, status)
-            VALUES (?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE template_id = VALUES(template_id), variable_mapping_json = VALUES(variable_mapping_json), status = VALUES(status), updated_at = NOW()
-        ");
-        $stmt->execute([$propertyId, $event_key, $template_id, $mappingJson, $status]);
+    $mappingJson = json_encode($mapping);
+    $waActive = !empty($template_id) && $status === 'active';
 
-        try {
-            $sync = $db->prepare("
-                INSERT INTO automation_rules (property_id, event_key, is_wa_active, wa_template_id, wa_mapping_json)
-                VALUES (?, ?, 1, ?, ?)
-                ON DUPLICATE KEY UPDATE is_wa_active = 1, wa_template_id = VALUES(wa_template_id), wa_mapping_json = VALUES(wa_mapping_json)
-            ");
-            $sync->execute([$propertyId, $event_key, $template_id, $mappingJson]);
-        } catch (\Throwable $e) {
-            error_log('Failed to sync wa_automations into automation_rules: ' . $e->getMessage());
-        }
+    // Source of truth: automation_rules only (no wa_automations mirror)
+    if (empty($template_id)) {
+        $db->prepare("UPDATE automation_rules SET is_wa_active = 0, wa_template_id = NULL, wa_mapping_json = NULL WHERE event_key = ? AND property_id = ? AND deleted_at IS NULL")
+           ->execute([$event_key, $propertyId]);
+    } else {
+        $db->prepare("
+            INSERT INTO automation_rules (property_id, event_key, is_wa_active, wa_template_id, wa_mapping_json)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE is_wa_active = VALUES(is_wa_active), wa_template_id = VALUES(wa_template_id), wa_mapping_json = VALUES(wa_mapping_json), deleted_at = NULL
+        ")->execute([$propertyId, $event_key, $waActive ? 1 : 0, $template_id, $mappingJson]);
     }
 
     AuditLogger::log($_SESSION['user_id'] ?? null, empty($template_id) ? 'DELETE_WA_AUTOMATION' : 'SAVE_WA_AUTOMATION', 'SYSTEM', null, [

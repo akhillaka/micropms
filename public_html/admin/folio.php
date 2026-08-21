@@ -64,6 +64,36 @@ $id = $bookingPk;
 
 $propertyId = (int)$booking['property_id'];
 $paymentMethods = get_payment_methods($db, $propertyId);
+require_once __DIR__ . '/../../pms_core/services/CityLedgerService.php';
+require_once __DIR__ . '/../../pms_core/services/FolioService.php';
+$folioCompanies = [];
+try {
+    $folioCompanies = CityLedgerService::getCompanies($db, $propertyId);
+} catch (\Throwable $e) {
+    $folioCompanies = [];
+}
+if ($folioCompanies !== []) {
+    $hasCity = false;
+    foreach ($paymentMethods as $pm) {
+        if (strcasecmp((string)$pm, 'CITY_LEDGER') === 0 || strcasecmp((string)$pm, 'City Ledger') === 0) {
+            $hasCity = true;
+            break;
+        }
+    }
+    if (!$hasCity) {
+        $paymentMethods[] = 'CITY_LEDGER';
+    }
+}
+$linkedCompany = null;
+$linkedCompanyId = (int)($booking['company_id'] ?? 0);
+if ($linkedCompanyId > 0) {
+    foreach ($folioCompanies as $co) {
+        if ((int)$co['id'] === $linkedCompanyId) {
+            $linkedCompany = $co;
+            break;
+        }
+    }
+}
 $activeGateways = get_active_payment_gateways($db, $propertyId);
 $stayPolicy = StayPolicy::ui($booking);
 $stayEditable = $stayPolicy['stay_open'];
@@ -428,6 +458,46 @@ $statusColor = $statusMap[$bookingStatus]['color'];
 
             <!-- Summary Tab Panel -->
             <div id="panel-summary" class="space-y-6">
+
+                <?php if ($folioCompanies !== [] || AuthHelper::can('view_finance')): ?>
+                <div class="bg-white border border-slate-100 rounded-2xl shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Corporate / City Ledger</p>
+                        <p class="text-sm font-bold text-slate-800 mt-0.5">
+                            <?php if ($linkedCompany): ?>
+                                Linked: <?= htmlspecialchars((string)$linkedCompany['name']) ?>
+                                <a href="/admin/city_ledger?company_id=<?= (int)$linkedCompany['id'] ?>" class="text-indigo-600 text-xs ml-2">Open ledger</a>
+                            <?php else: ?>
+                                No company linked
+                            <?php endif; ?>
+                        </p>
+                    </div>
+                    <?php if ((AuthHelper::can('edit_folio') || AuthHelper::can('manage_finance')) && $folioCompanies !== []): ?>
+                    <div class="flex items-center gap-2">
+                        <select id="folio_link_company" class="input-glass rounded-xl p-2 text-xs font-bold">
+                            <option value="">Select company…</option>
+                            <?php foreach ($folioCompanies as $co): ?>
+                                <option value="<?= (int)$co['id'] ?>" <?= $linkedCompanyId === (int)$co['id'] ? 'selected' : '' ?>><?= htmlspecialchars((string)$co['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="button" onclick="linkFolioCompany()" class="pill-btn text-xs">Link</button>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+
+                <div class="bg-white border border-slate-100 rounded-2xl shadow-sm px-4 py-3">
+                    <p class="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-2">Booking Notes</p>
+                    <div id="booking-notes-list" class="space-y-2 max-h-48 overflow-y-auto mb-3 text-sm text-slate-600">
+                        <p class="text-xs text-slate-400">Loading…</p>
+                    </div>
+                    <?php if (AuthHelper::can('edit_folio')): ?>
+                    <div class="flex gap-2">
+                        <textarea id="booking-note-input" rows="2" placeholder="Add an internal note…" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs font-semibold outline-none"></textarea>
+                        <button type="button" onclick="addBookingNote()" class="pill-btn pill-btn-primary self-end text-xs">Add</button>
+                    </div>
+                    <?php endif; ?>
+                </div>
                 
                 <!-- Quick Charge Presets -->
                 <div class="bg-white border border-slate-100 rounded-2xl shadow-sm px-4 py-3">
@@ -511,8 +581,8 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                     $runBalColor = $runningBalance > 0 ? 'text-rose-600' : 'text-emerald-600';
                                     
                                     // Formatting the Category
-                                    $rawCat = strtolower(trim($l['category'] ?? ''));
-                                    if (empty($rawCat) && $l['transaction_type'] === 'ROOM_CHARGE') {
+                                    $rawCat = strtolower(trim($l['payment_category'] ?? ''));
+                                    if (empty($rawCat) && FolioService::resolveEntryKind($l) === 'ROOM_CHARGE') {
                                         $rawCat = 'booking';
                                     }
                                     if (empty($rawCat) && stripos($l['description'], 'Room') !== false) {
@@ -533,7 +603,7 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                         $displayCat = $rawCat ? (ucfirst($rawCat) . ($isDebit ? ' Due' : ' Payments')) : '-';
                                     }
                                 ?>
-                                <tr class="hover:bg-slate-50/50 transition-colors" data-display-id="<?= htmlspecialchars((string)($l['display_id'] ?? '')) ?>" data-category="<?= htmlspecialchars((string)($l['category'] ?? '')) ?>" data-amount="<?= htmlspecialchars((string)(abs($lineAmt)), ENT_QUOTES, 'UTF-8') ?>">
+                                <tr class="hover:bg-slate-50/50 transition-colors" data-display-id="<?= htmlspecialchars((string)($l['display_id'] ?? '')) ?>" data-category="<?= htmlspecialchars((string)($l['payment_category'] ?? '')) ?>" data-amount="<?= htmlspecialchars((string)(abs($lineAmt)), ENT_QUOTES, 'UTF-8') ?>">
                                     <td class="px-5 py-3 whitespace-nowrap text-xs text-slate-500 font-bold"><?= htmlspecialchars((string)($srNo++), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-xs text-slate-500 font-semibold"><?= htmlspecialchars((string)(date('d M Y g:i A', strtotime($l['recorded_at']))), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-xs font-bold text-slate-700">Room <?= htmlspecialchars((string)($booking['room_number'])) ?></td>
@@ -546,19 +616,19 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                                         <?= htmlspecialchars((string)($l['payment_method'] ?? '-')) ?>
                                     </td>
                                     <td class="px-5 py-3 whitespace-nowrap text-xs font-semibold text-slate-500">
-                                        <?= htmlspecialchars((string)($l['transaction_ref'] ?? '—')) ?>
+                                        <?= htmlspecialchars((string)($l['transaction_id'] ?? '—')) ?>
                                     </td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-semibold text-slate-700">₹<?= htmlspecialchars(format_inr(abs($lineAmt)), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-semibold text-slate-400">—</td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-bold text-slate-800">₹<?= htmlspecialchars(format_inr(abs($lineAmt)), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs font-bold <?= htmlspecialchars((string)($runBalColor), ENT_QUOTES, 'UTF-8') ?>">₹<?= htmlspecialchars(format_inr(abs($runningBalance)), ENT_QUOTES, 'UTF-8') ?></td>
                                     <td class="px-5 py-3 whitespace-nowrap text-right text-xs">
-                                        <?php if (!empty($l['transaction_ref']) && str_starts_with($l['transaction_ref'], 'pay_')): ?>
+                                        <?php if (!empty($l['transaction_id']) && str_starts_with($l['transaction_id'], 'pay_')): ?>
                                             <button onclick="refundRazorpay(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>)" class="px-2.5 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold border border-amber-200 transition-colors">Refund</button>
                                         <?php elseif (preg_match('/Order #(\d+)/', $l['description'], $matches) && strpos($l['description'], 'Reverse') === false): ?>
                                             <a href="/admin/modules/pos/pos?edit_order=<?= htmlspecialchars((string)($matches[1]), ENT_QUOTES, 'UTF-8') ?>" class="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-200 transition-colors text-[10px] uppercase tracking-wider inline-flex items-center gap-1" title="Edit POS Order"><i class="ph-bold ph-pencil-simple text-[10px]"></i> POS Order</a>
                                         <?php else: ?>
-                                            <button onclick="openEditLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['description'] ?? ''))) ?>', <?= htmlspecialchars((string)(abs($lineAmt)), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['payment_method'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['display_id'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['category'] ?? ''))) ?>', '<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime((string)$l['recorded_at']))), ENT_QUOTES, 'UTF-8') ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
+                                            <button onclick="openEditLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['description'] ?? ''))) ?>', <?= htmlspecialchars((string)(abs($lineAmt)), ENT_QUOTES, 'UTF-8') ?>, '<?= htmlspecialchars((string)(addslashes($l['payment_method'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['display_id'] ?? ''))) ?>', '<?= htmlspecialchars((string)(addslashes($l['payment_category'] ?? ''))) ?>', '<?= htmlspecialchars((string)(date('Y-m-d\TH:i', strtotime((string)$l['recorded_at']))), ENT_QUOTES, 'UTF-8') ?>')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-pencil-simple text-sm"></i></button>
                                             <button onclick="deleteLedger(<?= htmlspecialchars((string)($l['id']), ENT_QUOTES, 'UTF-8') ?>)" class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg inline-flex items-center justify-center transition-all"><i class="ph ph-trash text-sm"></i></button>
                                         <?php endif; ?>
                                     </td>
@@ -941,6 +1011,19 @@ $statusColor = $statusMap[$bookingStatus]['color'];
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Payment Date & Time</label>
                             <input type="datetime-local" id="cp_date" class="w-full input-glass rounded-xl p-3 text-sm text-slate-800" value="<?= htmlspecialchars((string)(date('Y-m-d\TH:i')), ENT_QUOTES, 'UTF-8') ?>">
                         </div>
+                        <?php if ($folioCompanies !== []): ?>
+                        <div id="cp_company_wrap">
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Company (City Ledger)</label>
+                            <select id="cp_company_id" class="w-full input-glass rounded-xl p-3 text-sm font-bold text-slate-800 appearance-none">
+                                <option value="">Select company…</option>
+                                <?php foreach ($folioCompanies as $co): ?>
+                                    <option value="<?= (int)$co['id'] ?>" <?= $linkedCompanyId === (int)$co['id'] ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars((string)$co['name']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <?php endif; ?>
                     </div>
                     
                     <div class="flex items-center gap-2 my-2">

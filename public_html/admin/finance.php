@@ -52,7 +52,7 @@ $query = "
     SELECT 
         recorded_at AS date,
         CASE WHEN fl.amount > 0 THEN 'due' ELSE 'collection' END AS type,
-        COALESCE(fl.category, CASE WHEN fl.amount > 0 THEN 'Room Booking Due' ELSE 'Room Received Payment' END) AS category,
+        COALESCE(fl.payment_category, CASE WHEN fl.amount > 0 THEN 'Room Booking Due' ELSE 'Room Received Payment' END) AS category,
         description AS actual_desc,
         booking_id AS ref_id,
         booking_id AS booking_id,
@@ -162,7 +162,7 @@ $paymentMethodBreakdown = $pmStmtData->fetchAll(PDO::FETCH_ASSOC);
 
 $incCatQuery = "
     SELECT category, SUM(amount) as total FROM (
-        SELECT COALESCE(fl.category, 'Room') as category, ABS(amount) as amount FROM folio_ledger fl JOIN bookings b ON fl.booking_id = b.id WHERE b.property_id = :p1 AND fl.amount < 0 AND DATE(fl.recorded_at) >= :s1 AND DATE(fl.recorded_at) <= :e1
+        SELECT COALESCE(fl.payment_category, 'Room') as category, ABS(amount) as amount FROM folio_ledger fl JOIN bookings b ON fl.booking_id = b.id WHERE b.property_id = :p1 AND fl.amount < 0 AND DATE(fl.recorded_at) >= :s1 AND DATE(fl.recorded_at) <= :e1
         UNION ALL
         SELECT COALESCE(category, 'Misc') as category, amount FROM finance_transactions WHERE property_id = :p2 AND type = 'income' AND DATE(recorded_at) >= :s2 AND DATE(recorded_at) <= :e2 AND (booking_id IS NULL OR booking_id = 0)
     ) as combined

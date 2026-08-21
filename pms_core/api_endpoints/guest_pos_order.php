@@ -12,19 +12,51 @@ require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/SequenceGenerator.php';
 
 $data = json_decode(file_get_contents('php://input'), true) ?? [];
-$bookingId = (string)($data['booking_id'] ?? $data['id'] ?? '');
-$token = $data['token'] ?? '';
-$outletId = isset($data['outlet_id']) ? (int)$data['outlet_id'] : null;
-$cartItems = $data['items'] ?? [];
+$action = (string)($data['action'] ?? $_GET['action'] ?? 'create');
+$bookingId = (string)($data['booking_id'] ?? $data['id'] ?? $_GET['booking_id'] ?? '');
+$token = (string)($data['token'] ?? $_GET['token'] ?? '');
 
-if ($bookingId === '' || $token === '' || empty($cartItems) || !is_array($cartItems)) {
+if ($bookingId === '' || $token === '') {
     echo json_encode(['success' => false, 'message' => 'Invalid parameters.']);
     exit;
 }
 
 $db = Database::getInstance()->getConnection();
-
 GuestAccessToken::assert($bookingId, $token);
+
+if ($action === 'list') {
+    $bkStmt = $db->prepare("SELECT id, property_id, booking_status, check_out FROM bookings WHERE id = ?");
+    $bkStmt->execute([(int)$bookingId]);
+    $booking = $bkStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$booking || !GuestAccessToken::bookingIsAccessible($booking)) {
+        echo json_encode(['success' => false, 'message' => 'Booking not found.']);
+        exit;
+    }
+    $propertyId = (int)$booking['property_id'];
+    $stmt = $db->prepare("
+        SELECT o.id, o.display_id, o.total_amount, o.delivery_status, o.status, o.recorded_at,
+               (SELECT GROUP_CONCAT(CONCAT(COALESCE(i.name, 'Item'), ' ×', oi.quantity) SEPARATOR ', ')
+                FROM pos_order_items oi
+                LEFT JOIN pos_items i ON i.id = oi.item_id
+                WHERE oi.order_id = o.id) AS items_summary
+        FROM pos_orders o
+        WHERE o.booking_id = ? AND o.property_id = ?
+        ORDER BY o.recorded_at DESC, o.id DESC
+        LIMIT 50
+    ");
+    $stmt->execute([(int)$bookingId, $propertyId]);
+    $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    echo json_encode(['success' => true, 'orders' => $orders]);
+    exit;
+}
+
+$outletId = isset($data['outlet_id']) ? (int)$data['outlet_id'] : null;
+$cartItems = $data['items'] ?? [];
+
+if (empty($cartItems) || !is_array($cartItems)) {
+    echo json_encode(['success' => false, 'message' => 'Invalid parameters.']);
+    exit;
+}
 
 try {
     $db->beginTransaction();

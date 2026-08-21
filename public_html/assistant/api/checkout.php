@@ -59,7 +59,7 @@ ApiHandler::run(function(\PDO $db) {
             
             if ($amount > 0) {
                 // Charge
-                if ($entry['transaction_type'] === 'ROOM_CHARGE' || strpos($desc, 'room') !== false || strpos($desc, 'rent') !== false) {
+                if (FolioService::resolveEntryKind($entry) === 'ROOM_CHARGE' || strpos($desc, 'room') !== false || strpos($desc, 'rent') !== false) {
                     $roomRent += $amount;
                 } elseif (strpos($desc, 'extra bed') !== false || strpos($desc, 'bed') !== false) {
                     $extraBed += $amount;
@@ -139,7 +139,7 @@ ApiHandler::run(function(\PDO $db) {
 
         if (!$entryId) ApiResponse::error('Folio entry ID required');
         // Fetch original entry
-        $eStmt = $db->prepare("SELECT id, amount, description, transaction_type, transaction_ref FROM folio_ledger WHERE id = :id AND booking_id = :bid");
+        $eStmt = $db->prepare("SELECT id, amount, description, entry_kind, transaction_id, display_id FROM folio_ledger WHERE id = :id AND booking_id = :bid");
         $eStmt->execute(['id' => $entryId, 'bid' => $bookingId]);
         $entry = $eStmt->fetch();
 
@@ -152,7 +152,7 @@ ApiHandler::run(function(\PDO $db) {
 
         $role = AuthHelper::getRole();
         $canEditAmount = in_array($role, ['superadmin', 'owner', 'admin'], true);
-        $isPayment = (float)$entry['amount'] < 0 || $entry['transaction_type'] === 'payment';
+        $isPayment = FolioService::isPaymentLike($entry);
 
         if ($isPayment && !$canEditAmount) {
             ApiResponse::error('Cannot edit payment records. Superadmin/Owner permission required.');
@@ -175,11 +175,26 @@ ApiHandler::run(function(\PDO $db) {
         $params['pid'] = $propertyId;
         $db->prepare("UPDATE folio_ledger SET " . implode(', ', $sets) . " WHERE id = :id AND property_id = :pid")->execute($params);
         
-        if ($isPayment && $newAmt !== null) {
-            // Sync finance_transactions if amount was changed
-            $origRef = $entry['transaction_ref'] ?? '';
-            if ($origRef && strpos($origRef, 'TXN-') === 0) {
-                $db->prepare("UPDATE finance_transactions SET amount = ?, description = ? WHERE display_id = ? AND property_id = ?")->execute([abs($newAmt), $newDesc ?? $entry['description'], $origRef, $propertyId]);
+        if ($isPayment && ($newAmt !== null || $newDesc !== null)) {
+            // Sync finance_transactions via receipt display_id (RCPT-…), not transaction_id
+            $displayId = (string)($entry['display_id'] ?? '');
+            if ($displayId !== '') {
+                $finSets = [];
+                $finParams = ['pid' => $propertyId, 'pat' => '%Receipt ' . $displayId . '%'];
+                if ($newAmt !== null) {
+                    $finSets[] = 'amount = :amount';
+                    $finParams['amount'] = abs($newAmt);
+                }
+                if ($newDesc !== null) {
+                    $finSets[] = 'description = :desc';
+                    $finParams['desc'] = $newDesc;
+                }
+                if ($finSets !== []) {
+                    $db->prepare(
+                        "UPDATE finance_transactions SET " . implode(', ', $finSets)
+                        . " WHERE property_id = :pid AND description LIKE :pat"
+                    )->execute($finParams);
+                }
             }
         }
 
@@ -219,7 +234,7 @@ ApiHandler::run(function(\PDO $db) {
         try {
             // Create a negative reversal entry to cancel the charge
             $propId = (int)($entry['property_id'] ?? AuthHelper::getPropertyId());
-            $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, description, transaction_ref)
+            $db->prepare("INSERT INTO folio_ledger (property_id, booking_id, entry_kind, amount, description, transaction_id)
                           VALUES (:pid, :bid, 'INCIDENTAL', :amount, :desc, 'VOID')")
                ->execute([
                    'pid'    => $propId,

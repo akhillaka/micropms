@@ -7,11 +7,19 @@ require_once __DIR__ . '/../../pms_core/config.php';
 require_once __DIR__ . '/../../pms_core/NotificationRelay.php';
 require_once __DIR__ . '/../../pms_core/PhoneHelper.php';
 
+require_once __DIR__ . '/../../pms_core/RateLimiter.php';
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
 $genericOtpMessage = 'If this number has a booking, a verification code has been sent.';
+
+$ip = RateLimiter::clientIp();
+if (!RateLimiter::allow('guest_search:' . $ip, 12, 600)) {
+    echo json_encode(['success' => false, 'message' => 'Too many attempts. Please wait a few minutes and try again.']);
+    exit;
+}
 
 $now = time();
 $attempts = array_values(array_filter(
@@ -68,7 +76,7 @@ $otpEnabled = get_db_setting($db, 'GUEST_PORTAL_OTP_ENABLED', $propertyId, 'true
 
 if ($otpEnabled) {
     if (!empty($bookings)) {
-        $otp = (string)random_int(1000, 9999);
+        $otp = (string)random_int(100000, 999999);
         $_SESSION['guest_otp_code'] = $otp;
         $_SESSION['guest_otp_phone'] = $phone;
         $_SESSION['guest_otp_property_id'] = $propertyId;
@@ -103,25 +111,27 @@ if ($otpEnabled) {
 }
 
 require_once __DIR__ . '/../../pms_core/GuestAccessToken.php';
+// OTP disabled: never hand out portal tokens on phone alone — guest must use PNR+identity login.
 $resolved = [];
 foreach ($bookings as $b) {
     if (!GuestAccessToken::bookingIsAccessible($b)) {
         continue;
     }
-    $pid = (int)($b['property_id'] ?? $propertyId);
     $resolved[] = [
         'id' => $b['id'],
         'display_id' => $b['display_id'],
         'check_in' => $b['check_in'],
         'check_out' => $b['check_out'],
         'guest_name' => $b['guest_name'],
-        'token' => GuestAccessToken::generateForBooking((int)$b['id'], $pid),
     ];
 }
 
 echo json_encode([
     'success' => true,
     'otp_required' => false,
+    'require_pnr_login' => true,
     'bookings' => $resolved,
-    'message' => $resolved === [] ? 'No accessible stays found for this number.' : ''
+    'message' => $resolved === []
+        ? 'No accessible stays found for this number.'
+        : 'Open your stay link from the hotel, or sign in with booking reference and phone/email.'
 ]);

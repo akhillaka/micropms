@@ -67,6 +67,7 @@ $adminBaseUrl = '/admin/';
         
         <?php if(AuthHelper::can('view_finance')): ?>
             <a href="/admin/finance" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-wallet text-lg text-slate-400"></i> Finance</a>
+            <a href="/admin/city_ledger" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-buildings text-lg text-slate-400"></i> City Ledger</a>
         <?php endif; ?>
         <?php if(AuthHelper::can('manage_pos')): ?>
             <a href="/admin/modules/pos/pos" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-shopping-bag text-lg text-blue-600"></i> POS & Inventory</a>
@@ -86,6 +87,7 @@ $adminBaseUrl = '/admin/';
             <p class="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Settings</p>
             
             <a href="/admin/settings" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-gear text-lg text-indigo-500"></i> Property Configuration</a>
+            <a href="/admin/email_report_logs" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-envelope-simple text-lg text-slate-400"></i> Email Report Logs</a>
             <a href="/admin/automations" class="flex items-center gap-3 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><i class="ph ph-paper-plane-tilt text-lg text-blue-500"></i> Notification Automations</a>
         <?php endif; ?>
         

@@ -26,26 +26,36 @@ ApiHandler::run(function(\PDO $db) {
     }
 
     $extraConfig = null;
+    $prevExtra = null;
+    try {
+        $ex = $db->prepare("SELECT extra_config FROM payment_gateway_configs WHERE property_id = ? AND gateway = ? LIMIT 1");
+        $ex->execute([$propId, $gateway]);
+        $raw = $ex->fetchColumn();
+        if (is_string($raw) && $raw !== '') {
+            $prevExtra = json_decode($raw, true);
+            if (!is_array($prevExtra)) {
+                $prevExtra = null;
+            }
+        }
+    } catch (\Throwable $e) {
+        $prevExtra = null;
+    }
+
     if ($gateway === 'phonepe') {
-        $extraConfig = json_encode(['salt_index' => $saltIndex]);
+        $merged = is_array($prevExtra) ? $prevExtra : [];
+        $merged['salt_index'] = $saltIndex !== '' ? $saltIndex : ($merged['salt_index'] ?? '1');
+        $extraConfig = json_encode($merged, JSON_THROW_ON_ERROR);
     } elseif ($gateway === 'razorpay') {
+        $merged = is_array($prevExtra) ? $prevExtra : [];
         $webhookSecret = trim((string)($data['webhook_secret'] ?? $data['RAZORPAY_WEBHOOK_SECRET'] ?? ''));
         if ($webhookSecret !== '' && strcasecmp($webhookSecret, 'your_webhook_secret') !== 0) {
-            $extraConfig = json_encode(['webhook_secret' => $webhookSecret], JSON_THROW_ON_ERROR);
-            $stmt = $db->prepare("INSERT INTO system_settings (property_id, key_name, key_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE key_value = VALUES(key_value)");
-            $stmt->execute([$propId, 'RAZORPAY_WEBHOOK_SECRET', $webhookSecret]);
+            $merged['webhook_secret'] = $webhookSecret;
         }
+        $extraConfig = $merged !== [] ? json_encode($merged, JSON_THROW_ON_ERROR) : null;
     }
 
+    // Canonical store only — do not dual-write RAZORPAY_* into system_settings.
     upsert_payment_gateway_config($db, $propId, $gateway, $keyId, $keySecret, $isActive, $mode, $extraConfig);
-
-    if ($gateway === 'razorpay' && $keyId !== '') {
-        $stmt = $db->prepare("INSERT INTO system_settings (property_id, key_name, key_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE key_value = VALUES(key_value)");
-        $stmt->execute([$propId, 'RAZORPAY_KEY_ID', $keyId]);
-        if ($keySecret !== '') {
-            $stmt->execute([$propId, 'RAZORPAY_KEY_SECRET', $keySecret]);
-        }
-    }
 
     ApiResponse::success([
         'message' => ucfirst($gateway) . ' configuration saved. Active gateways now appear when collecting payments.'

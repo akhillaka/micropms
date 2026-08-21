@@ -157,7 +157,7 @@ if (!function_exists('upsert_payment_gateway_config')) {
 if (!function_exists('get_active_payment_gateways')) {
     /**
      * Gateways that can actually collect payment for this property.
-     * Reads payment_gateway_configs, then Integrations Razorpay keys.
+     * Reads payment_gateway_configs; env RAZORPAY_KEY_ID is last-resort only.
      * @return array<string, array{gateway: string, key_id: string}>
      */
     function get_active_payment_gateways(\PDO $db, int $propertyId): array {
@@ -179,11 +179,8 @@ if (!function_exists('get_active_payment_gateways')) {
         } catch (\Throwable $e) {
             $out = [];
         }
-        if (empty($out['razorpay'])) {
-            $keyId = trim(get_db_setting($db, 'RAZORPAY_KEY_ID', $propertyId, ''));
-            if ($keyId === '' && defined('RAZORPAY_KEY_ID')) {
-                $keyId = trim((string)RAZORPAY_KEY_ID);
-            }
+        if (empty($out['razorpay']) && defined('RAZORPAY_KEY_ID')) {
+            $keyId = trim((string)RAZORPAY_KEY_ID);
             if ($keyId !== '') {
                 $out['razorpay'] = [
                     'gateway' => 'razorpay',
@@ -194,7 +191,6 @@ if (!function_exists('get_active_payment_gateways')) {
         return $out;
     }
 }
-
 if (!function_exists('get_payment_categories')) {
     /**
      * Revenue / folio categories from Settings → Payment Config.

@@ -7,6 +7,7 @@ ModuleHost::startSession();
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/ErrorTracker.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
+require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 
 $db = Database::getInstance()->getConnection();
 
@@ -15,12 +16,14 @@ if (isset($_SESSION['saas_admin_id'])) {
     exit;
 }
 
-$ipAddress = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-if (str_contains($ipAddress, ',')) $ipAddress = trim(explode(',', $ipAddress)[0]);
+$ipAddress = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
 $error = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!CsrfToken::validate($_POST['_csrf_token'] ?? null)) {
+        $error = 'Invalid security token. Please refresh and try again.';
+    } else {
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
 
@@ -82,6 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Invalid superadmin credentials.';
         }
     }
+    } // end CSRF-valid else
 }
 ?>
 <!DOCTYPE html>
@@ -189,6 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <form method="POST" class="space-y-5 relative">
+            <?= CsrfToken::field() ?>
             <div>
                 <label for="saas-username" class="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">Superadmin Username</label>
                 <div class="input-icon-wrap">

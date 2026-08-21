@@ -37,7 +37,8 @@ ApiHandler::run(function (\PDO $db) {
         email_subject = VALUES(email_subject),
         email_body_html = VALUES(email_body_html),
         is_telegram_active = VALUES(is_telegram_active),
-        telegram_body_text = VALUES(telegram_body_text)
+        telegram_body_text = VALUES(telegram_body_text),
+        deleted_at = NULL
     ");
     $stmt->execute([
         $propertyId,
@@ -51,30 +52,6 @@ ApiHandler::run(function (\PDO $db) {
         $isTelegramActive,
         $telegramBody
     ]);
-
-    // Mirror WA channel into wa_automations so WhatsApp module list stays consistent.
-    try {
-        if ($isWaActive === 1 && $waTemplateId) {
-            $mapJson = is_string($waMapping) ? $waMapping : json_encode($waMapping);
-            $db->prepare("
-                INSERT INTO wa_automations (property_id, event_key, template_id, variable_mapping_json, status)
-                VALUES (?, ?, ?, ?, 'active')
-                ON DUPLICATE KEY UPDATE
-                    template_id = VALUES(template_id),
-                    variable_mapping_json = VALUES(variable_mapping_json),
-                    status = 'active',
-                    updated_at = NOW()
-            ")->execute([$propertyId, $eventKey, $waTemplateId, $mapJson]);
-        } elseif ($isWaActive === 0) {
-            // Deactivate mirror only for this property — do not delete historical rows blindly.
-            $db->prepare("
-                UPDATE wa_automations SET status = 'inactive', updated_at = NOW()
-                WHERE property_id = ? AND event_key = ?
-            ")->execute([$propertyId, $eventKey]);
-        }
-    } catch (\Throwable $e) {
-        error_log('Failed to sync automation_rules into wa_automations: ' . $e->getMessage());
-    }
 
     ApiResponse::success();
 }, true, true, false);

@@ -822,6 +822,9 @@ $contactEnabled = get_db_setting($db, 'GUEST_PORTAL_CONTACT_ENABLED', $propertyI
                                 <label class="block text-xs font-bold text-brand-900 mb-1 uppercase tracking-wider">Weekly Revenue Emails (Comma separated)</label>
                                 <input type="text" name="WEEKLY_REVENUE_EMAILS" value="<?= htmlspecialchars((string)($emailConfig['weekly_revenue_emails'])) ?>" placeholder="owner@hotel.com, accountant@hotel.com" class="w-full bg-white border border-brand-200 p-3 rounded-xl text-sm outline-none focus:border-brand-900 transition-all font-mono">
                             </div>
+                            <p class="text-xs text-brand-900/70">
+                                <a href="/admin/email_report_logs" class="font-bold text-indigo-600 hover:underline">View email report send history →</a>
+                            </p>
                         </div>
                     </div>
 

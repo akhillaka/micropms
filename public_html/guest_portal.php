@@ -463,6 +463,15 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                 </button>
                 <h2 class="text-sm font-bold text-gray-700 uppercase tracking-wider">Dining</h2>
             </div>
+            <div id="posOrdersPanel" class="glass-panel p-3 mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">My orders</p>
+                    <button type="button" class="text-[10px] font-bold text-indigo-600" onclick="loadPosOrders()">Refresh</button>
+                </div>
+                <div id="posOrdersList" class="space-y-2 text-sm text-slate-600">
+                    <p class="text-xs text-slate-400">Loading…</p>
+                </div>
+            </div>
             <div class="relative mb-4">
                 <i class="ph ph-magnifying-glass absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
                 <input type="search" id="posSearch" placeholder="Search menu" oninput="renderPosItems()" class="pos-search" autocomplete="off">
@@ -1267,7 +1276,46 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                 loadProfileDocuments();
                 initProfileSignature();
             }
-            if (tabId === 'pos') loadPosMenu();
+            if (tabId === 'pos') {
+                loadPosMenu();
+                loadPosOrders();
+            }
+        }
+
+        async function loadPosOrders() {
+            const list = document.getElementById('posOrdersList');
+            if (!list) return;
+            try {
+                const res = await fetch('/api/guest/pos_order', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action: 'list', booking_id: bookingId, token: token })
+                });
+                const data = await res.json();
+                const orders = data.orders || [];
+                if (!data.success || !orders.length) {
+                    list.innerHTML = '<p class="text-xs text-slate-400">No dining orders yet.</p>';
+                    return;
+                }
+                list.innerHTML = orders.map(o => {
+                    const st = String(o.delivery_status || o.status || 'pending');
+                    const chip = st === 'delivered' ? 'completed' : (st === 'cancelled' ? 'rejected' : 'pending');
+                    const when = o.recorded_at ? String(o.recorded_at).slice(0, 16) : '';
+                    const items = o.items_summary ? escapeHtml(o.items_summary) : '';
+                    return `<div class="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 flex justify-between gap-2">
+                        <div>
+                            <p class="text-xs font-bold text-slate-800">${escapeHtml(o.display_id || ('#' + o.id))}</p>
+                            <p class="text-[10px] text-slate-500">${when}${items ? ' · ' + items : ''}</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="req-chip ${chip}">${escapeHtml(st)}</span>
+                            <p class="text-[10px] font-bold text-slate-700 mt-1">₹${Number(o.total_amount || 0).toFixed(2)}</p>
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                list.innerHTML = '<p class="text-xs text-rose-500">Could not load orders.</p>';
+            }
         }
 
         function escapeHtml(str) {
@@ -1621,7 +1669,8 @@ $checkoutIso = $checkout->format(DateTime::ATOM);
                     posCart = {};
                     updateCartUI();
                     renderPosItems();
-                    window.location.reload();
+                    loadPosOrders();
+                    switchTab('pos');
                 } else {
                     guestToast(data.message || 'Could not place order.', 'err');
                 }

@@ -14,6 +14,52 @@ class FolioService {
     }
 
     /**
+     * Normalize ledger entry kind (not tender). Tender belongs in payment_method.
+     */
+    public static function normalizeEntryKind(string $raw): string {
+        $s = trim($raw);
+        $lower = strtolower($s);
+        if (in_array($lower, ['cash', 'card', 'upi', 'online', 'bank_transfer', 'payment'], true)) {
+            return 'payment';
+        }
+        if ($lower === 'refund') {
+            return 'REFUND';
+        }
+        return match ($lower) {
+            'room_charge' => 'ROOM_CHARGE',
+            'incidental' => 'INCIDENTAL',
+            'pos_order' => 'pos_order',
+            'pos_refund' => 'pos_refund',
+            'tax' => 'TAX',
+            default => ($s !== '' ? $s : 'payment'),
+        };
+    }
+
+    /** Resolve entry_kind from a folio_ledger row (fallback to payment if empty). */
+    public static function resolveEntryKind(array $row): string {
+        if (!empty($row['entry_kind'])) {
+            return self::normalizeEntryKind((string)$row['entry_kind']);
+        }
+        return 'payment';
+    }
+
+    /** Normalized entry_kind value for INSERT/UPDATE writers. */
+    public static function entryKindWriteValue(string $raw): string {
+        return self::normalizeEntryKind($raw);
+    }
+
+    public static function isPaymentLike(array $row): bool {
+        $kind = strtolower(self::resolveEntryKind($row));
+        if (in_array($kind, ['payment', 'refund'], true)) {
+            return true;
+        }
+        if ((int)($row['is_refund'] ?? 0) === 1) {
+            return true;
+        }
+        return (float)($row['amount'] ?? 0) < 0;
+    }
+
+    /**
      * Get folio balance for a booking.
      * Positive = guest owes money, Negative = guest has credit.
      */
@@ -30,7 +76,7 @@ class FolioService {
         $stmt = $db->prepare("
             SELECT COALESCE(SUM(
                 CASE 
-                    WHEN is_refund = 1 OR transaction_type = 'REFUND' OR description LIKE 'Refund%' THEN -ABS(amount)
+                    WHEN is_refund = 1 OR entry_kind = 'REFUND' OR description LIKE 'Refund%' THEN -ABS(amount)
                     WHEN amount < 0 THEN ABS(amount)
                     ELSE 0 
                 END
@@ -73,14 +119,13 @@ class FolioService {
         foreach ($entries as $entry) {
             $amount = (float)$entry['amount'];
             $desc   = strtolower($entry['description'] ?? '');
-            $type   = strtoupper($entry['transaction_type']);
+            $type   = strtoupper(self::resolveEntryKind($entry));
 
             // Refunds stored as POSITIVE amounts (they reduce balance just like payments)
             $isRefund = ((int)($entry['is_refund'] ?? 0) === 1) || $type === 'REFUND' || str_contains($desc, 'refund') || $type === 'REBATE';
             if ($isRefund) {
                 $breakdown['refunds'] += abs($amount);
-            } elseif (strtolower($type) === 'payment') {
-                // True payments
+            } elseif (strtolower($type) === 'payment' || (self::isPaymentLike($entry) && $amount < 0)) {
                 $breakdown['payments'] += abs($amount);
             } elseif ($amount < 0) {
                 // Negative amounts that are not payments are discounts
@@ -135,11 +180,24 @@ class FolioService {
 
             $bucket = ($category === 'pos_order' || $category === 'incidentals' || strtolower($category) === 'f&b') ? 'incidentals' : 'main';
             $ref = 'CHG-' . bin2hex(random_bytes(5));
+            $entryKind = self::entryKindWriteValue($category === 'pos_order' ? 'pos_order' : 'INCIDENTAL');
             $stmt = $db->prepare("
-                INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, payment_method, transaction_ref, description, folio_bucket, category, is_refund, recorded_at) 
-                VALUES (:pid, :bid, :ttype, :amount, :pmethod, :ref, :desc, :bucket, :category, :is_ref, :rec_at)
+                INSERT INTO folio_ledger (property_id, booking_id, entry_kind, amount, payment_method, transaction_id, description, folio_bucket, payment_category, is_refund, recorded_at) 
+                VALUES (:pid, :bid, :ekind, :amount, :pmethod, :ref, :desc, :bucket, :category, :is_ref, :rec_at)
             ");
-            $stmt->execute(['pid' => $propertyId, 'bid' => $bookingId, 'ttype' => 'INCIDENTAL', 'amount' => $amount, 'pmethod' => null, 'ref' => $ref, 'desc' => $cleanDesc, 'bucket' => $bucket, 'category' => $category, 'is_ref' => 0, 'rec_at' => date('Y-m-d H:i:s')]);
+            $stmt->execute([
+                'pid' => $propertyId,
+                'bid' => $bookingId,
+                'ekind' => $entryKind,
+                'amount' => $amount,
+                'pmethod' => null,
+                'ref' => $ref,
+                'desc' => $cleanDesc,
+                'bucket' => $bucket,
+                'category' => $category,
+                'is_ref' => 0,
+                'rec_at' => date('Y-m-d H:i:s'),
+            ]);
             $entryId = (int)$db->lastInsertId();
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', $entryId, 'SEQ_RECEIPT_FORMAT');
 
@@ -221,7 +279,9 @@ class FolioService {
             // Map category to folio_bucket enum ('main' or 'incidentals')
             $bucket = ($category === 'F&B' || $category === 'incidentals') ? 'incidentals' : 'main';
 
-            $sql = "INSERT INTO folio_ledger (property_id, booking_id, transaction_type, amount, transaction_ref, description, payment_method, folio_bucket, category, is_refund";
+            $entryKind = self::entryKindWriteValue($isRefund ? 'REFUND' : 'payment');
+
+            $sql = "INSERT INTO folio_ledger (property_id, booking_id, entry_kind, amount, transaction_id, description, payment_method, folio_bucket, payment_category, is_refund";
             $params = [
                 'pid'      => $propertyId,
                 'bid'      => $bookingId, 
@@ -231,14 +291,15 @@ class FolioService {
                 'method'   => strtolower($method),
                 'bucket'   => $bucket,
                 'category' => $category,
-                'is_ref'   => $isRefund ? 1 : 0
+                'is_ref'   => $isRefund ? 1 : 0,
+                'ekind'    => $entryKind,
             ];
             
             if ($recordedAt !== null) {
-                $sql .= ", recorded_at) VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :bucket, :category, :is_ref, :recorded_at)";
+                $sql .= ", recorded_at) VALUES (:pid, :bid, :ekind, :amount, :ref, :desc, :method, :bucket, :category, :is_ref, :recorded_at)";
                 $params['recorded_at'] = $recordedAt;
             } else {
-                $sql .= ") VALUES (:pid, :bid, 'payment', :amount, :ref, :desc, :method, :bucket, :category, :is_ref)";
+                $sql .= ") VALUES (:pid, :bid, :ekind, :amount, :ref, :desc, :method, :bucket, :category, :is_ref)";
             }
 
             $stmt = $db->prepare($sql);
@@ -247,22 +308,25 @@ class FolioService {
             SequenceGenerator::assignDisplayId($db, 'folio_ledger', $entryId, 'SEQ_RECEIPT_FORMAT');
 
             try {
-                $staffId = $_SESSION['user_id'] ?? null;
-                $finType = $isRefund ? 'expense' : 'income';
-                $finCat = ($category === 'F&B' || $category === 'pos_order') ? 'pos' : (in_array($category, ['booking', 'Room Rent'], true) ? 'booking' : $category);
-                $finStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()))");
-                $finStmt->execute([
-                    $propertyId,
-                    $finType,
-                    $finCat !== '' ? $finCat : 'booking',
-                    $bookingId,
-                    $absAmount,
-                    $description,
-                    strtolower($method),
-                    $staffId,
-                    $recordedAt,
-                ]);
-                SequenceGenerator::assignDisplayId($db, 'finance_transactions', (int)$db->lastInsertId(), 'SEQ_TRANSACTION_FORMAT');
+                // City ledger AR is tracked on companies/city_ledger — do not double-count as cash income.
+                if (strcasecmp($method, 'CITY_LEDGER') !== 0 && strcasecmp($method, 'City Ledger') !== 0) {
+                    $staffId = $_SESSION['user_id'] ?? null;
+                    $finType = $isRefund ? 'expense' : 'income';
+                    $finCat = ($category === 'F&B' || $category === 'pos_order') ? 'pos' : (in_array($category, ['booking', 'Room Rent'], true) ? 'booking' : $category);
+                    $finStmt = $db->prepare("INSERT INTO finance_transactions (property_id, type, category, booking_id, amount, description, payment_method, staff_id, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()))");
+                    $finStmt->execute([
+                        $propertyId,
+                        $finType,
+                        $finCat !== '' ? $finCat : 'booking',
+                        $bookingId,
+                        $absAmount,
+                        $description,
+                        strtolower($method),
+                        $staffId,
+                        $recordedAt,
+                    ]);
+                    SequenceGenerator::assignDisplayId($db, 'finance_transactions', (int)$db->lastInsertId(), 'SEQ_TRANSACTION_FORMAT');
+                }
             } catch (\PDOException $e) {
                 error_log('FolioService finance write skipped: ' . $e->getMessage());
             }
@@ -342,7 +406,7 @@ class FolioService {
 
         try {
             // Retrieve entry data first for audit log detail
-            $infoStmt = $db->prepare("SELECT booking_id, amount, description, transaction_type, property_id FROM folio_ledger WHERE id = ?");
+            $infoStmt = $db->prepare("SELECT booking_id, amount, description, entry_kind, property_id FROM folio_ledger WHERE id = ?");
             $infoStmt->execute([$entryId]);
             $entry = $infoStmt->fetch();
 
@@ -361,7 +425,7 @@ class FolioService {
             $res = $stmt->execute([$entryId, (int)$entry['property_id']]);
             
             // Delete orphaned finance ledger entry if it was a payment
-            if ($res && strtolower($entry['transaction_type'] ?? '') === 'payment') {
+            if ($res && FolioService::isPaymentLike($entry)) {
                 $dStmt = $db->prepare("DELETE FROM finance_transactions WHERE property_id = ? AND description LIKE ?");
                 $dStmt->execute([(int)$entry['property_id'], "%Folio #$entryId%"]);
             }

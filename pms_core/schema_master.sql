@@ -76,7 +76,7 @@ CREATE TABLE `bookings` (
 
 CREATE TABLE `city_ledger` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `property_id` int(11) DEFAULT NULL,
+  `property_id` int(11) NOT NULL,
   `company_id` int(11) NOT NULL,
   `booking_id` int(11) DEFAULT NULL,
   `amount` decimal(10,2) NOT NULL,
@@ -90,7 +90,8 @@ CREATE TABLE `city_ledger` (
   KEY `idx_city_ledger_property` (`property_id`),
   CONSTRAINT `city_ledger_company_fk` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `city_ledger_ibfk_1` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_city_ledger_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_city_ledger_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_city_ledger_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE `companies` (
@@ -135,7 +136,7 @@ CREATE TABLE `error_logs` (
 CREATE TABLE `finance_transactions` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `type` enum('income','expense') NOT NULL,
-  `category` varchar(50) NOT NULL,
+  `category` varchar(50) NOT NULL COMMENT 'Finance income/expense category (not folio payment_category)',
   `booking_id` int(11) DEFAULT NULL,
   `amount` decimal(10,2) NOT NULL,
   `description` varchar(255) NOT NULL,
@@ -162,13 +163,13 @@ CREATE TABLE `finance_transactions` (
 CREATE TABLE `folio_ledger` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `booking_id` int(11) NOT NULL,
-  `transaction_type` enum('online','cash','card','upi','bank_transfer','payment','ROOM_CHARGE','INCIDENTAL','pos_order','pos_refund','TAX') NOT NULL DEFAULT 'payment',
+  `entry_kind` varchar(50) NOT NULL DEFAULT 'payment' COMMENT 'payment|ROOM_CHARGE|INCIDENTAL|pos_order|pos_refund|TAX|REFUND',
   `amount` decimal(10,2) NOT NULL,
-  `transaction_ref` varchar(100) DEFAULT NULL,
+  `transaction_id` varchar(100) DEFAULT NULL,
   `recorded_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `description` varchar(255) DEFAULT NULL,
-  `payment_method` varchar(50) DEFAULT NULL,
-  `category` varchar(50) DEFAULT NULL,
+  `payment_method` varchar(50) DEFAULT NULL COMMENT 'Tender: cash|upi|card|online|…',
+  `payment_category` varchar(50) DEFAULT NULL,
   `folio_bucket` enum('main','incidentals') DEFAULT 'main',
   `is_refund` tinyint(1) DEFAULT 0,
   `display_id` varchar(50) DEFAULT NULL,
@@ -178,12 +179,12 @@ CREATE TABLE `folio_ledger` (
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `booking_id` (`booking_id`),
-  KEY `idx_folio_booking_type` (`booking_id`,`transaction_type`),
+  KEY `idx_folio_booking_entry_kind` (`booking_id`,`entry_kind`),
   KEY `idx_folio_recorded_at` (`recorded_at`),
   KEY `idx_folio_booking` (`booking_id`,`recorded_at`),
   KEY `idx_folio_display_id` (`display_id`),
   KEY `idx_folio_property_id` (`property_id`),
-  UNIQUE KEY `uq_folio_booking_ref` (`booking_id`,`transaction_ref`),
+  UNIQUE KEY `uq_folio_booking_txn` (`booking_id`, `transaction_id`),
   CONSTRAINT `fk_folio_ledger_booking` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_folio_ledger_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
   CONSTRAINT `folio_ledger_ibfk_1` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
@@ -256,6 +257,20 @@ CREATE TABLE `email_report_config` (
   `weekly_revenue_emails` text DEFAULT NULL,
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`property_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `email_report_logs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `property_id` int(11) NOT NULL,
+  `report_type` enum('daily_audit','weekly_revenue') NOT NULL,
+  `recipient` varchar(255) NOT NULL,
+  `subject` varchar(255) NOT NULL,
+  `status` enum('sent','failed') NOT NULL DEFAULT 'sent',
+  `error_message` varchar(500) DEFAULT NULL,
+  `sent_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_erl_property_sent` (`property_id`, `sent_at`),
+  CONSTRAINT `fk_erl_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE `housekeeping_checklist_items` (
@@ -522,8 +537,6 @@ CREATE TABLE `properties` (
   `is_exempt_from_billing` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `whatsapp_phone_number_id` varchar(100) DEFAULT NULL,
-  `razorpay_key_id` varchar(100) DEFAULT NULL,
-  `razorpay_key_secret` varchar(100) DEFAULT NULL,
   `trial_days` int(11) NOT NULL DEFAULT 14,
   `notes` text DEFAULT NULL COMMENT 'Internal superadmin notes',
   `timezone` varchar(100) NOT NULL DEFAULT 'Asia/Kolkata',
@@ -748,8 +761,8 @@ CREATE TABLE `system_settings` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `property_id` int(11) NOT NULL,
   `deleted_at` datetime DEFAULT NULL,
-  PRIMARY KEY (`key_name`),
-  KEY `property_id` (`property_id`),
+  PRIMARY KEY (`property_id`, `key_name`),
+  KEY `idx_system_settings_key` (`key_name`),
   CONSTRAINT `system_settings_ibfk_1` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -827,25 +840,6 @@ CREATE TABLE `wa_automation_events` (
   UNIQUE KEY `event_key` (`event_key`)
 ) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-CREATE TABLE `wa_automations` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `event_key` varchar(100) NOT NULL,
-  `template_id` int(11) NOT NULL,
-  `variable_mapping_json` text NOT NULL,
-  `status` enum('active','inactive') DEFAULT 'active',
-  `created_at` datetime DEFAULT current_timestamp(),
-  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `property_id` int(11) NOT NULL,
-  `deleted_at` datetime DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_wa_auto_prop_event` (`property_id`, `event_key`),
-  KEY `template_id` (`template_id`),
-  KEY `idx_wa_auto_property` (`property_id`),
-  CONSTRAINT `fk_wa_automations_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `wa_automations_ibfk_1` FOREIGN KEY (`template_id`) REFERENCES `wa_templates` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `wa_automations_ibfk_2` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
 CREATE TABLE `wa_conversations` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `guest_id` int(11) DEFAULT NULL,
@@ -888,7 +882,7 @@ CREATE TABLE `wa_delivery_logs` (
 
 CREATE TABLE `wa_messages` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `property_id` int(11) DEFAULT NULL,
+  `property_id` int(11) NOT NULL,
   `conversation_id` int(11) NOT NULL,
   `direction` enum('inbound','outbound') NOT NULL,
   `message_text` text NOT NULL,
@@ -900,7 +894,9 @@ CREATE TABLE `wa_messages` (
   KEY `conversation_id` (`conversation_id`),
   UNIQUE KEY `idx_wa_messages_message_id` (`message_id`),
   KEY `idx_wa_messages_status_dir` (`direction`,`status`),
-  CONSTRAINT `wa_messages_ibfk_1` FOREIGN KEY (`conversation_id`) REFERENCES `wa_conversations` (`id`) ON DELETE CASCADE
+  KEY `idx_wa_messages_property` (`property_id`),
+  CONSTRAINT `wa_messages_ibfk_1` FOREIGN KEY (`conversation_id`) REFERENCES `wa_conversations` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_wa_messages_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE `wa_templates` (
@@ -956,6 +952,7 @@ CREATE TABLE IF NOT EXISTS `automation_rules` (
   `telegram_body_text` text DEFAULT NULL,
   `created_at` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_auto_rule_prop_event` (`property_id`, `event_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

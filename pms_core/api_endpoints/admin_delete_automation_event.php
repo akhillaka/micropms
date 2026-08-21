@@ -19,18 +19,26 @@ ApiHandler::run(function(\PDO $db) {
     $stmt->execute([$id]);
     $event = $stmt->fetch();
     if ($event) {
-        // Only remove this property's automations for the event (events catalog is global).
-        $db->prepare("DELETE FROM wa_automations WHERE event_key = ? AND property_id = ?")
-           ->execute([$event['event_key'], $propertyId]);
+        $eventKey = (string)$event['event_key'];
+        // Soft-delete this property's rule; rewrite event_key so unique (property_id, event_key) is freed.
+        $db->prepare("
+            UPDATE automation_rules
+            SET deleted_at = NOW(),
+                event_key = CONCAT(event_key, '__del_', id),
+                is_wa_active = 0,
+                is_email_active = 0,
+                is_telegram_active = 0
+            WHERE event_key = ? AND property_id = ? AND deleted_at IS NULL
+        ")->execute([$eventKey, $propertyId]);
 
-        $left = $db->prepare("SELECT COUNT(*) FROM wa_automations WHERE event_key = ?");
-        $left->execute([$event['event_key']]);
+        $left = $db->prepare("SELECT COUNT(*) FROM automation_rules WHERE event_key = ? AND deleted_at IS NULL");
+        $left->execute([$eventKey]);
         if ((int)$left->fetchColumn() === 0) {
             $db->prepare("DELETE FROM wa_automation_events WHERE id = ?")->execute([$id]);
         }
         
         AuditLogger::log($_SESSION['user_id'] ?? null, 'DELETE_AUTOMATION_EVENT', 'SYSTEM', null, [
-            'event_key' => $event['event_key'],
+            'event_key' => $eventKey,
             'property_id' => $propertyId,
         ]);
         

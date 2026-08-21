@@ -299,14 +299,20 @@ class AuthHelper {
         };
     }
 
-    public static function applyCustomPermissions(\PDO $db, mixed $roleId): void {
+    public static function applyCustomPermissions(\PDO $db, mixed $roleId, ?int $propertyId = null): void {
         unset($_SESSION['custom_permissions']);
         if (empty($roleId)) {
             return;
         }
         try {
-            $roleStmt = $db->prepare("SELECT permissions FROM roles WHERE id = ?");
-            $roleStmt->execute([(int)$roleId]);
+            $pid = $propertyId !== null ? (int)$propertyId : (int)($_SESSION['property_id'] ?? 0);
+            if ($pid > 0) {
+                $roleStmt = $db->prepare("SELECT permissions FROM roles WHERE id = ? AND property_id = ?");
+                $roleStmt->execute([(int)$roleId, $pid]);
+            } else {
+                $roleStmt = $db->prepare("SELECT permissions FROM roles WHERE id = ?");
+                $roleStmt->execute([(int)$roleId]);
+            }
             $roleData = $roleStmt->fetch(\PDO::FETCH_ASSOC);
             if ($roleData && !empty($roleData['permissions'])) {
                 $decoded = json_decode((string)$roleData['permissions'], true);
@@ -699,6 +705,13 @@ class AuthHelper {
                 self::revokeRememberTokens($db, (int)$row['staff_user_id']);
                 return;
             }
+            // Rotate remember token on every successful use
+            try {
+                $db->prepare('DELETE FROM staff_remember_tokens WHERE selector = ?')->execute([$selector]);
+            } catch (\PDOException $e) {
+            }
+            self::issueRememberToken($db, (int)$row['staff_user_id']);
+
             session_regenerate_id(true);
             $_SESSION['user_id'] = (int)$row['staff_user_id'];
             $_SESSION['role'] = $row['access_level'];
@@ -712,7 +725,7 @@ class AuthHelper {
                 $_SESSION['saas_admin_username'] = $row['username'];
                 $_SESSION['saas_admin_role'] = 'superadmin';
             }
-            self::applyCustomPermissions($db, $row['role_id'] ?? null);
+            self::applyCustomPermissions($db, $row['role_id'] ?? null, (int)($row['property_id'] ?? 0));
             self::extendSessionCookie(2592000);
         } catch (\Throwable $e) {
         }

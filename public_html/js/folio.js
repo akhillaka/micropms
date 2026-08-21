@@ -569,6 +569,13 @@ async function recordManualPayment(btn, method) {
         });
     }
 
+    const methodUpper = String(method || '').toUpperCase();
+    const companyEl = document.getElementById('cp_company_id');
+    const companyId = companyEl ? Number(companyEl.value || 0) : 0;
+    if ((methodUpper === 'CITY_LEDGER' || methodUpper === 'CITY LEDGER') && !companyId) {
+        return showToast('Select a company for City Ledger payment.');
+    }
+
     if(!confirm(`Record ₹${amt} payment via ${method.toUpperCase()}?`)) return;
 
     const originalHTML = btn.innerHTML;
@@ -584,6 +591,9 @@ async function recordManualPayment(btn, method) {
             date: date,
             splits: splits
         };
+        if (companyId) {
+            payload.company_id = companyId;
+        }
         
         if (!isSplit) {
             const singleCatEl = document.getElementById('cp_single_category');
@@ -788,4 +798,73 @@ async function triggerWhatsAppAutomation(eventKey, btn) {
         btn.disabled = false;
         btn.innerHTML = originalHTML;
     }
+}
+
+async function linkFolioCompany() {
+    const sel = document.getElementById('folio_link_company');
+    const companyId = Number(sel?.value || 0);
+    if (!companyId) return showToast('Select a company');
+    try {
+        const res = await fetch('/api/admin/city_ledger', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'link_booking_company', booking_id: bookingId, company_id: companyId })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Failed');
+        showToast('Company linked', 'success');
+        location.reload();
+    } catch (e) {
+        showToast(e.message || 'Failed to link company');
+    }
+}
+
+async function loadBookingNotes() {
+    const list = document.getElementById('booking-notes-list');
+    if (!list) return;
+    try {
+        const res = await fetch('/api/admin/booking_notes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'list', booking_id: bookingId })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Failed');
+        const notes = data.notes || [];
+        if (!notes.length) {
+            list.innerHTML = '<p class="text-xs text-slate-400">No notes yet.</p>';
+            return;
+        }
+        list.innerHTML = notes.map(n => {
+            const when = n.created_at ? new Date(n.created_at.replace(' ', 'T')).toLocaleString() : '';
+            const who = n.staff_name || 'Staff';
+            return `<div class="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2"><p class="text-[10px] font-bold text-slate-400">${who} · ${when}</p><p class="text-xs text-slate-700 mt-0.5 whitespace-pre-wrap">${(n.note || '').replace(/</g,'&lt;')}</p></div>`;
+        }).join('');
+    } catch (e) {
+        list.innerHTML = '<p class="text-xs text-rose-500">Could not load notes.</p>';
+    }
+}
+
+async function addBookingNote() {
+    const input = document.getElementById('booking-note-input');
+    const note = (input?.value || '').trim();
+    if (!note) return showToast('Enter a note');
+    try {
+        const res = await fetch('/api/admin/booking_notes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'create', booking_id: bookingId, note })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Failed');
+        input.value = '';
+        showToast('Note added', 'success');
+        loadBookingNotes();
+    } catch (e) {
+        showToast(e.message || 'Failed to add note');
+    }
+}
+
+if (document.getElementById('booking-notes-list')) {
+    loadBookingNotes();
 }

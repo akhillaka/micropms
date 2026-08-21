@@ -90,13 +90,14 @@ CREATE TABLE IF NOT EXISTS `folio_ledger` (
   `booking_id` int(11) NOT NULL,
   `transaction_type` enum('online','cash','card','payment','ROOM_CHARGE','INCIDENTAL') NOT NULL,
   `amount` decimal(10,2) NOT NULL,
-  `transaction_ref` varchar(100) DEFAULT NULL,
+  `transaction_id` varchar(100) DEFAULT NULL,
   `recorded_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `description` varchar(255) DEFAULT NULL,
   `payment_method` varchar(50) DEFAULT NULL,
+  `payment_category` varchar(50) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `booking_id` (`booking_id`),
-  UNIQUE KEY `uq_folio_booking_ref` (`booking_id`,`transaction_ref`),
+  UNIQUE KEY `uq_folio_booking_txn` (`booking_id`,`transaction_id`),
   CONSTRAINT `folio_ledger_ibfk_1` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB ;
 
@@ -1364,7 +1365,7 @@ ALTER TABLE `wa_messages` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT
 ALTER TABLE `wa_templates` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
 
 ALTER TABLE `jobs_queue` ADD COLUMN IF NOT EXISTS `property_id` INT NULL DEFAULT NULL AFTER `queue_name`;
-ALTER TABLE `folio_ledger` ADD COLUMN IF NOT EXISTS `category` VARCHAR(50) DEFAULT NULL AFTER `payment_method`;
+ALTER TABLE `folio_ledger` ADD COLUMN IF NOT EXISTS `payment_category` VARCHAR(50) DEFAULT NULL AFTER `payment_method`;
 ALTER TABLE `guest_service_requests` ADD INDEX IF NOT EXISTS `idx_gsr_property_status` (`property_id`, `status`);
 ALTER TABLE `jobs_queue` ADD INDEX IF NOT EXISTS `idx_jobs_queue_property` (`property_id`);
 
@@ -1423,5 +1424,23 @@ CREATE TABLE IF NOT EXISTS `schema_migrations` (
   `applied_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `execution_time_ms` INT UNSIGNED DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Phase 2 P2: property_id required on city_ledger / wa_messages (align with migration 045)
+ALTER TABLE `city_ledger` ADD COLUMN IF NOT EXISTS `property_id` INT NULL;
+UPDATE `city_ledger` cl INNER JOIN `companies` c ON c.id = cl.company_id SET cl.property_id = c.property_id WHERE cl.property_id IS NULL;
+UPDATE `city_ledger` cl INNER JOIN `bookings` b ON b.id = cl.booking_id SET cl.property_id = b.property_id WHERE cl.property_id IS NULL AND cl.booking_id IS NOT NULL;
+DELETE FROM `city_ledger` WHERE `property_id` IS NULL;
+ALTER TABLE `city_ledger` MODIFY COLUMN `property_id` INT NOT NULL;
+
+ALTER TABLE `wa_messages` ADD COLUMN IF NOT EXISTS `property_id` INT NULL;
+UPDATE `wa_messages` m INNER JOIN `wa_conversations` c ON c.id = m.conversation_id SET m.property_id = c.property_id WHERE m.property_id IS NULL;
+DELETE FROM `wa_messages` WHERE `property_id` IS NULL;
+ALTER TABLE `wa_messages` MODIFY COLUMN `property_id` INT NOT NULL;
+
+-- Phase 2 P3 (align with migration 046)
+ALTER TABLE `automation_rules` ADD COLUMN IF NOT EXISTS `deleted_at` DATETIME DEFAULT NULL;
+ALTER TABLE `folio_ledger` DROP COLUMN IF EXISTS `transaction_type`;
+ALTER TABLE `properties` DROP COLUMN IF EXISTS `razorpay_key_id`;
+ALTER TABLE `properties` DROP COLUMN IF EXISTS `razorpay_key_secret`;
 
 SET FOREIGN_KEY_CHECKS=1;

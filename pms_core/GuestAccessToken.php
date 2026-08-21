@@ -49,6 +49,7 @@ class GuestAccessToken {
 
     /**
      * Accept v2 (when propertyId known) or legacy tokens.
+     * Set GUEST_TOKEN_ALLOW_LEGACY=0 (env) or define GUEST_TOKEN_ALLOW_LEGACY false to reject legacy.
      */
     public static function verify(string|int $bookingId, string $token, ?int $propertyId = null): bool {
         if ($token === '' || (string)$bookingId === '') {
@@ -58,8 +59,31 @@ class GuestAccessToken {
             if (hash_equals(self::generateForBooking((int)$bookingId, $propertyId), $token)) {
                 return true;
             }
+            if (!self::legacyTokensAllowed()) {
+                return false;
+            }
+        }
+        if (!self::legacyTokensAllowed() && ($propertyId === null || $propertyId <= 0)) {
+            // Without property context we cannot validate v2 — reject when legacy is off
+            return false;
         }
         return hash_equals(self::generate($bookingId), $token);
+    }
+
+    public static function legacyTokensAllowed(): bool {
+        $env = getenv('GUEST_TOKEN_ALLOW_LEGACY');
+        if ($env !== false && $env !== '') {
+            return !in_array(strtolower(trim((string)$env)), ['0', 'false', 'no', 'off'], true);
+        }
+        if (defined('GUEST_TOKEN_ALLOW_LEGACY')) {
+            $c = constant('GUEST_TOKEN_ALLOW_LEGACY');
+            if (is_bool($c)) {
+                return $c;
+            }
+            return !in_array(strtolower(trim((string)$c)), ['0', 'false', 'no', 'off'], true);
+        }
+        // Default: still accept legacy stay links during cutover
+        return true;
     }
 
     public static function assert(string|int $bookingId, string $token, bool $json = true, ?int $propertyId = null): void {

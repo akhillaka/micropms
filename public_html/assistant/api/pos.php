@@ -151,8 +151,8 @@ ApiHandler::run(function(\PDO $db) {
 
             // Create POS order record
             $oStmt = $db->prepare("
-                INSERT INTO pos_orders (property_id, outlet_id, booking_id, total_amount, payment_method, status, source)
-                VALUES (:pid, :oid, :bid, :total, 'room_charge', 'posted', 'admin')
+                INSERT INTO pos_orders (property_id, outlet_id, booking_id, total_amount, payment_method, status, source, delivery_status)
+                VALUES (:pid, :oid, :bid, :total, 'room_charge', 'posted', 'admin', 'pending')
             ");
             $oStmt->execute([
                 'pid'   => $propertyId,

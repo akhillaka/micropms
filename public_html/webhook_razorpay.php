@@ -36,16 +36,19 @@ if ($orderId) {
     $peek->execute([$orderId]);
     $propertyId = (int)$peek->fetchColumn();
 }
-if ($propertyId <= 0 && str_starts_with((string)$data['event'], 'subscription.')) {
-    $propertyId = (int)($subEntity['notes']['property_id'] ?? 0);
-    if ($propertyId <= 0 && !empty($subEntity['id'])) {
-        $find = $db->prepare("SELECT property_id FROM saas_subscriptions WHERE gateway_sub_id = ? LIMIT 1");
-        $find->execute([(string)$subEntity['id']]);
-        $propertyId = (int)$find->fetchColumn();
-    }
+// Subscription events: resolve property only from our DB (never from attacker-controlled notes)
+// before choosing a property-specific webhook secret.
+if ($propertyId <= 0 && str_starts_with((string)$data['event'], 'subscription.') && !empty($subEntity['id'])) {
+    $find = $db->prepare("SELECT property_id FROM saas_subscriptions WHERE gateway_sub_id = ? LIMIT 1");
+    $find->execute([(string)$subEntity['id']]);
+    $propertyId = (int)$find->fetchColumn();
 }
 
-$webhookSecret = RazorpayService::webhookSecretForProperty($db, $propertyId);
+// Prefer trusted property secret when known; otherwise verify with global only
+// (do not let untrusted payload notes pick which secret is used).
+$webhookSecret = $propertyId > 0
+    ? RazorpayService::webhookSecretForProperty($db, $propertyId)
+    : RazorpayService::globalWebhookSecret();
 $placeholderSecrets = ['', 'your_webhook_secret', 'rzp_secret_placeholder'];
 if (in_array($webhookSecret, $placeholderSecrets, true)) {
     http_response_code(500);
@@ -65,6 +68,11 @@ if (!hash_equals($expectedSignature, $webhookSignature)) {
         echo "Invalid signature";
         exit;
     }
+}
+
+// After signature OK, notes may be used only to attach metadata — not for crypto.
+if ($propertyId <= 0 && str_starts_with((string)$data['event'], 'subscription.')) {
+    $propertyId = (int)($subEntity['notes']['property_id'] ?? 0);
 }
 
 try {
@@ -91,10 +99,10 @@ try {
                     exit;
                 }
                 if ($booking) {
-                    $checkRef = $db->prepare("SELECT COUNT(*) FROM folio_ledger WHERE transaction_ref = :ref AND property_id = :pid");
+                    $checkRef = $db->prepare("SELECT COUNT(*) FROM folio_ledger WHERE transaction_id = :ref AND property_id = :pid");
                     $checkRef->execute(['ref' => $paymentId, 'pid' => (int)$booking['property_id']]);
                 } else {
-                    $checkRef = $db->prepare("SELECT COUNT(*) FROM folio_ledger WHERE transaction_ref = :ref");
+                    $checkRef = $db->prepare("SELECT COUNT(*) FROM folio_ledger WHERE transaction_id = :ref");
                     $checkRef->execute(['ref' => $paymentId]);
                 }
                 if ((int)$checkRef->fetchColumn() > 0) {

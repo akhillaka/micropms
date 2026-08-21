@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/Database.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/services/QueueService.php';
+require_once __DIR__ . '/services/FolioService.php';
 
 class GoogleSheetService {
 
@@ -272,7 +273,7 @@ class GoogleSheetService {
             }
 
             if ($type === 'all' || $type === 'payment') {
-                $stmt = $pdo->prepare("SELECT l.id FROM folio_ledger l JOIN bookings b ON l.booking_id = b.id WHERE b.property_id = ? AND (l.amount < 0 OR l.transaction_type IN ('cash','card','online','upi','bank_transfer','payment')) ORDER BY l.id ASC");
+                $stmt = $pdo->prepare("SELECT l.id FROM folio_ledger l JOIN bookings b ON l.booking_id = b.id WHERE b.property_id = ? AND (l.amount < 0 OR l.entry_kind IN ('payment','REFUND')) ORDER BY l.id ASC");
                 $stmt->execute([$propertyId]);
                 while ($row = $stmt->fetch()) {
                     try {
@@ -393,7 +394,7 @@ class GoogleSheetService {
         $ratePerNight = $b['price_override'] ?: ($days > 0 ? round($b['total_amount'] / $days, 2) : $b['total_amount']);
 
         // Sum of payments collected in folio ledger
-        $payStmt = $pdo->prepare("SELECT SUM(amount) as paid FROM folio_ledger WHERE booking_id = :bid AND transaction_type IN ('cash','card','online','payment')");
+        $payStmt = $pdo->prepare("SELECT SUM(amount) as paid FROM folio_ledger WHERE booking_id = :bid AND (entry_kind = 'payment' OR amount < 0)");
         $payStmt->execute(['bid' => $bookingId]);
         $paidRow = $payStmt->fetch(PDO::FETCH_ASSOC);
         $totalCollected = (float)($paidRow['paid'] ?? 0);
@@ -442,7 +443,7 @@ class GoogleSheetService {
         if (!$l) return null;
 
         $recTs = strtotime((string)$l['recorded_at']) ?: time();
-        $paymentType = $l['payment_method'] ?: ucfirst((string)$l['transaction_type']);
+        $paymentType = $l['payment_method'] ?: (FolioService::isPaymentLike($l) ? 'Payment' : ucfirst((string)FolioService::resolveEntryKind($l)));
         $staffUser = self::getLedgerStaffUser($pdo, $ledgerId);
         // Stable upsert key — never switch between LED-{id} and display_id (that caused duplicate rows).
         $stablePaymentId = 'LED-' . (int)$l['ledger_id'];
@@ -452,7 +453,7 @@ class GoogleSheetService {
         }
         $amountAbs = abs((float)$l['amount']);
         $isRefund = !empty($l['is_refund']) || (float)$l['amount'] > 0;
-        $payCat = self::paymentCategoryLabel((string)($l['category'] ?? ''), (string)($l['description'] ?? ''));
+        $payCat = self::paymentCategoryLabel((string)($l['payment_category'] ?? ''), (string)($l['description'] ?? ''));
 
         return self::applyFieldFilter($pdo, (int)($l['property_id'] ?? 0), 'payment', [
             "Payment ID"       => $stablePaymentId,
@@ -476,7 +477,7 @@ class GoogleSheetService {
     }
 
     /**
-     * Map folio_ledger.category to a human payment-category label (Room Revenue, F&B, …).
+     * Map folio_ledger.payment_category to a human payment-category label (Room Revenue, F&B, …).
      */
     private static function paymentCategoryLabel(string $category, string $description = ''): string {
         $raw = trim($category);

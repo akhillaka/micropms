@@ -44,7 +44,7 @@ ApiHandler::run(function(\PDO $db) {
             ApiResponse::error('A Corporate Company must be selected to route to City Ledger');
         }
 
-        $coStmt = $db->prepare("SELECT id FROM companies WHERE id = ? AND property_id = ? LIMIT 1");
+        $coStmt = $db->prepare("SELECT id FROM companies WHERE id = ? AND property_id = ? AND deleted_at IS NULL LIMIT 1");
         $coStmt->execute([(int)$companyId, $propertyId]);
         if (!$coStmt->fetchColumn()) {
             ApiResponse::error('Company not found for this property');

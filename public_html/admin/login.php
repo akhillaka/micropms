@@ -5,6 +5,7 @@ ModuleHost::startSession();
 require_once __DIR__ . '/../../pms_core/Database.php';
 require_once __DIR__ . '/../../pms_core/ErrorTracker.php';
 require_once __DIR__ . '/../../pms_core/AuthHelper.php';
+require_once __DIR__ . '/../../pms_core/CsrfToken.php';
 
 if (!empty($_SESSION['user_id'])) {
     header('Location: ' . ModuleHost::url('admin', '/group-dashboard'));
@@ -26,6 +27,9 @@ if ($count == 0) {
 $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!CsrfToken::validate($_POST['_csrf_token'] ?? null)) {
+        $error = 'Invalid security token. Please refresh and try again.';
+    } else {
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
     
@@ -159,6 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+    } // end CSRF-valid else
 }
 ?>
 <!DOCTYPE html>
@@ -251,6 +256,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <form method="POST" class="space-y-5 relative">
+            <?= CsrfToken::field() ?>
             <div>
                 <label for="login-username" class="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">Username</label>
                 <div class="input-icon-wrap">
