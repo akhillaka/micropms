@@ -21,7 +21,7 @@ if (!$hkEnabled) {
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <title>Housekeeping Upgrade Required | StayFlexi</title>
         <?php include __DIR__ . '/../../components/ui_head.php'; ?>
         <style>
@@ -72,7 +72,7 @@ if ($view === 'weekly') {
 <head>
     <?= CsrfToken::meta() ?>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Reservation Calendar | MicroPMS</title>
     
     <?php include __DIR__ . '/../../components/mobile_nav.php'; ?>

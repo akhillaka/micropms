@@ -686,14 +686,15 @@ try {
 <script src="/js/api-client.js"></script>
 <script src="/js/ui.js"></script>
 <script src="/js/staff-alert-sound.js?v=3"></script>
-<script src="/js/photo_capture.js"></script>
+<script src="/js/photo_capture.js?v=2"></script>
+<script src="/js/pull-to-refresh.js?v=1"></script>
 <?php if (!empty($_SESSION['user_id'])): ?>
 <script>
 window.PMS_STAFF_PUSH = true;
 window.PMS_PROPERTY_ID = <?= (int)(class_exists('AuthHelper') ? AuthHelper::getPropertyId() : ($_SESSION['property_id'] ?? 0)) ?>;
 </script>
 <?php endif; ?>
-<script src="/js/pwa.js" defer></script>
+<script src="/js/pwa.js?v=2" defer></script>
 
 <?php if (!empty($nightAuditActions)): ?>
 <?php

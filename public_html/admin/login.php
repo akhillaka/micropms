@@ -219,10 +219,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         .brand-icon {
             width: 60px; height: 60px;
-            background: linear-gradient(135deg, #EFF6FF, #DBEAFE);
-            border: 2px solid #BFDBFE; border-radius: 18px;
+            background: #ffffff;
+            border: 1px solid #E2E8F0; border-radius: 18px;
             display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 6px 16px -3px rgba(30,58,138,0.18);
+            box-shadow: 0 6px 16px -3px rgba(30,58,138,0.12);
         }
     </style>
 </head>
@@ -236,8 +236,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="login-blob-2"></div>
 
         <div class="flex flex-col items-center mb-8 relative">
-            <div class="brand-icon mb-4">
-                <i class="ph ph-buildings text-3xl text-blue-700"></i>
+            <div class="brand-icon mb-4 overflow-hidden p-1 bg-white">
+                <img src="/icons/logo.svg" alt="MicroPMS" class="w-full h-full object-contain">
             </div>
             <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">Welcome Back</h1>
             <p class="text-slate-500 text-sm mt-1.5 font-medium">Sign in to manage your property</p>

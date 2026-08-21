@@ -43,8 +43,9 @@ if (count($assignedHotels) === 0) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Group Dashboard | MicroPMS</title>
+    <?php include __DIR__ . '/components/micropms_icons.php'; ?>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
@@ -66,9 +67,7 @@ if (count($assignedHotels) === 0) {
         <div class="space-y-8">
             <!-- Brand Logo -->
             <div class="flex items-center gap-2">
-                <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-extrabold text-lg">
-                    M
-                </div>
+                <img src="/icons/logo.svg" alt="MicroPMS" class="w-8 h-8 rounded-lg object-contain bg-white" width="32" height="32">
                 <span class="font-extrabold text-white text-lg tracking-tight">MicroPMS</span>
             </div>
 

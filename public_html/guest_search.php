@@ -15,12 +15,14 @@ $propertyName = $stmt->fetchColumn() ?: 'MicroPMS';
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Find Reservation | <?= htmlspecialchars((string)($propertyName)) ?></title>
+    <?php include __DIR__ . '/admin/components/micropms_icons.php'; ?>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/css/app_theme.css" rel="stylesheet">
+    <link href="/css/mobile-input-zoom.css" rel="stylesheet">
     <style>
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
@@ -52,11 +54,12 @@ $propertyName = $stmt->fetchColumn() ?: 'MicroPMS';
     <div class="w-full max-w-md light-glass p-8 space-y-6 relative overflow-hidden">
         <!-- Logo and Header -->
         <div class="text-center space-y-2 relative z-10">
-            <div class="w-16 h-16 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-center mx-auto shadow-sm mb-4">
-                <i class="ph ph-magnifying-glass text-3xl text-blue-600"></i>
-            </div>
+            <img src="/icons/logo.svg" alt="MicroPMS" class="w-16 h-16 mx-auto rounded-xl object-contain bg-white border border-slate-200 p-1 shadow-sm mb-4" width="64" height="64">
             <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight"><?= htmlspecialchars((string)($propertyName)) ?></h1>
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Guest Digital Assistant</p>
+            <p class="flex items-center justify-center gap-1 text-[10px] text-slate-400">
+                Powered by <img src="/icons/logo-wordmark.svg" alt="MicroPMS" class="h-4 w-auto opacity-80">
+            </p>
         </div>
 
         <div id="errorBox" class="hidden bg-rose-50 border border-rose-200 text-rose-600 px-4 py-3 rounded-2xl text-xs font-bold text-center"></div>

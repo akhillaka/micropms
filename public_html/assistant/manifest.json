@@ -1,7 +1,7 @@
 {
-  "name": "Hotel Booking Assistant",
-  "short_name": "Booking Assistant",
-  "description": "Simplified Booking Assistant for hotel staff with voice and OCR support.",
+  "name": "MicroPMS Hotel Assistant",
+  "short_name": "MicroPMS",
+  "description": "Hotel staff assistant — bookings, housekeeping, POS, and voice commands.",
   "start_url": "/assistant/index.html",
   "display": "standalone",
   "background_color": "#0f172a",
@@ -10,16 +10,28 @@
   "scope": "/assistant/",
   "icons": [
     {
-      "src": "assets/icon-192.png",
+      "src": "/icons/icon-192.png",
       "type": "image/png",
       "sizes": "192x192",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "assets/icon-512.png",
+      "src": "/icons/icon-512.png",
       "type": "image/png",
       "sizes": "512x512",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192-maskable.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
     }
   ]
 }

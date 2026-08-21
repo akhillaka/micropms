@@ -120,7 +120,7 @@ $invoiceNo = "REC-" . date('Y', strtotime($booking['created_at'])) . "-" . str_p
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Receipt #<?= htmlspecialchars((string)($invoiceNo)) ?></title>
     <?php include __DIR__ . '/admin/components/ui_head.php'; ?>
     <style>
@@ -151,8 +151,9 @@ $invoiceNo = "REC-" . date('Y', strtotime($booking['created_at'])) . "-" . str_p
         <!-- Header -->
         <div class="flex flex-col sm:flex-row print:flex-row justify-between items-start pb-8 sm:pb-12 print:pb-4 border-b border-slate-200">
             <div class="flex flex-col">
-                <?php if (defined('PROPERTY_LOGO_BASE64') && !empty(PROPERTY_LOGO_BASE64)): ?>
-                    <img src="data:image/png;base64,<?= htmlspecialchars((string)(PROPERTY_LOGO_BASE64)) ?>" class="w-24 sm:w-28 print:w-24 h-auto object-contain object-left -ml-1 sm:-ml-2 -mt-1 sm:-mt-2 mb-2">
+                <?php $logoUri = function_exists('property_logo_data_uri') ? property_logo_data_uri() : ''; ?>
+                <?php if ($logoUri !== ''): ?>
+                    <img src="<?= htmlspecialchars($logoUri, ENT_QUOTES, 'UTF-8') ?>" class="w-24 sm:w-28 print:w-24 h-auto object-contain object-left -ml-1 sm:-ml-2 -mt-1 sm:-mt-2 mb-2">
                 <?php else: ?>
                     <div class="flex items-center gap-3">
                         <div class="h-10 w-10 sm:h-12 sm:w-12 bg-slate-900 rounded-lg flex items-center justify-center text-white shrink-0 mb-2">
@@ -343,10 +344,11 @@ $invoiceNo = "REC-" . date('Y', strtotime($booking['created_at'])) . "-" . str_p
         </div>
 
         <!-- Footer -->
-        <div class="pt-8 print:pt-4 border-t border-slate-200 text-center break-inside-avoid">
-            <p class="text-[10px] sm:text-xs font-medium text-slate-400 mb-1">Thank you for staying with us!</p>
-            <p class="text-[10px] sm:text-xs text-slate-400">If you have any questions regarding this receipt, please contact the front desk.</p>
-        </div>
+        <?php
+        $receipt_thanks = 'Thank you for staying with us!';
+        $receipt_contact = 'If you have any questions regarding this receipt, please contact the front desk.';
+        include __DIR__ . '/admin/components/receipt_footer.php';
+        ?>
 
     </div>
 

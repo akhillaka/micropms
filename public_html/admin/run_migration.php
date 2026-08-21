@@ -55,7 +55,7 @@ $migrationStatus = $runner->getStatus();
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Database Migration | MicroPMS</title>
     <?php include __DIR__ . '/components/ui_head.php'; ?>
 </head>

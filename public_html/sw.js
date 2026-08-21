@@ -1,4 +1,4 @@
-const CACHE_NAME = 'micropms-staff-v1';
+const CACHE_NAME = 'micropms-staff-v3';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -38,7 +38,7 @@ self.addEventListener('push', (event) => {
     self.registration.showNotification(payload.title || 'MicroPMS', {
       body: payload.message || payload.body || '',
       icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
+      badge: '/icons/icon-96.png',
       vibrate: [200, 80, 200, 80, 400],
       requireInteraction: true,
       silent: false,

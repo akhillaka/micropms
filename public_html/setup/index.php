@@ -189,10 +189,12 @@ if ($dbConnected) $step = 2;
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MicroPMS — Setup Wizard</title>
+    <?php include __DIR__ . '/../admin/components/micropms_icons.php'; ?>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="/css/mobile-input-zoom.css" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web@2.1.1/src/index.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -352,7 +354,10 @@ if ($dbConnected) $step = 2;
 <body>
 <div class="wizard-card">
     <div class="wizard-header">
-        <h1>🏨 MicroPMS Setup Wizard</h1>
+        <h1 class="flex items-center justify-center gap-2">
+            <img src="/icons/logo.svg" alt="" width="32" height="32" style="width:32px;height:32px;border-radius:8px;background:#fff;object-fit:contain;">
+            MicroPMS Setup Wizard
+        </h1>
         <p>Get your system up and running in just a few steps</p>
         <div class="step-pills">
             <div class="step-pill" id="pill-1"></div>

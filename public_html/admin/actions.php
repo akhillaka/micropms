@@ -10,7 +10,7 @@ CsrfToken::checkTimeout();
 <head>
     <?= CsrfToken::meta() ?>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, ">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Actions Center | MicroPMS</title>
     <?php include __DIR__ . '/components/ui_head.php'; ?>
     <?php include __DIR__ . '/components/mobile_nav.php'; ?>
@@ -152,7 +152,10 @@ CsrfToken::checkTimeout();
         }
 
         loadActions();
-        setInterval(loadActions, 15000);
+        const ACTIONS_POLL_MS = 30000;
+        setInterval(function () {
+            if (!document.hidden) loadActions();
+        }, ACTIONS_POLL_MS);
 
         document.addEventListener('visibilitychange', function() {
             if (!document.hidden) loadActions();

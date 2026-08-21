@@ -298,6 +298,12 @@ class BookingAssistant {
           await this.loadHousekeepingRooms(true);
         } else if (this.activeScreen === 'payments') {
           await this.showPaymentCollectScreen(null, true);
+        } else if (this.activeScreen === 'notifications') {
+          await this.loadNotificationsScreen();
+        } else if (this.activeScreen === 'pos') {
+          await this.loadPosRooms();
+        } else if (this.activeScreen === 'profile') {
+          await this.loadProfileScreen();
         }
       }
     } catch (e) {
@@ -305,6 +311,15 @@ class BookingAssistant {
     } finally {
       this.liveSyncInFlight = false;
     }
+  }
+
+  /** Soft refresh used by pull-to-refresh gesture. */
+  async refreshFromPull() {
+    if (!this.currentUser) {
+      location.reload();
+      return;
+    }
+    await this.performLiveSync();
   }
 
   // Route SPA screens
@@ -1360,7 +1375,7 @@ class BookingAssistant {
 
     const mode = this.activeScanSide === 'face' ? 'guest_face' : (this.activeScanSide === 'back' ? 'id_back' : 'id_front');
     const speakMap = {
-      guest_face: 'Center the guest face in the oval. Look at the camera.',
+      guest_face: 'Center the guest face in the oval. Switch camera for selfie if needed.',
       id_back: 'Fill the card frame. Capture the back of the ID. Avoid glare.',
       id_front: 'Fill the card frame. Avoid glare. Hold still.'
     };
@@ -1397,19 +1412,32 @@ class BookingAssistant {
     }
   }
 
-  async initCameraStream() {
+  async initCameraStream(preferFacing) {
     try {
+      if (this.mediaStream) {
+        this.mediaStream.getTracks().forEach(track => track.stop());
+        this.mediaStream = null;
+      }
+      this.cameraFacing = preferFacing === 'user' ? 'user' : 'environment';
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: 640, height: 480 }
+        video: { facingMode: { ideal: this.cameraFacing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
       });
       const video = document.getElementById('video-stream');
       video.srcObject = this.mediaStream;
+      const flipBtn = document.getElementById('camera-flip-btn');
+      if (flipBtn) flipBtn.textContent = this.cameraFacing === 'user' ? 'Use back' : 'Use front';
     } catch (e) {
       console.error('Camera stream access failed:', e);
       this.showToast('Failed to access camera. Uploading from gallery instead.', 'warning');
       this.closeCameraPopup();
       document.getElementById('file-upload-input').click();
     }
+  }
+
+  async flipLegacyCamera() {
+    const next = this.cameraFacing === 'user' ? 'environment' : 'user';
+    await this.initCameraStream(next);
   }
 
   closeCameraPopup(event) {
@@ -4913,6 +4941,25 @@ function PhoneHelperToE164(phone) {
 
 window.addEventListener('DOMContentLoaded', () => {
   window.app = new BookingAssistant();
+
+  if (window.PullToRefresh) {
+    window.PullToRefresh.attach({
+      getScrollEl: () => document.querySelector('.screen.active') || document.getElementById('app-content'),
+      isBlocked: () => !!(
+        document.querySelector('.modal-overlay.active')
+        || document.querySelector('#pc-overlay.pc-open')
+        || document.querySelector('#loading-overlay.active')
+        || (document.getElementById('tutorial-overlay') && document.getElementById('tutorial-overlay').style.display === 'flex')
+      ),
+      onRefresh: async () => {
+        if (window.app && typeof window.app.refreshFromPull === 'function') {
+          await window.app.refreshFromPull();
+        } else {
+          location.reload();
+        }
+      }
+    });
+  }
   
   // Custom screen route binds for nav status
   document.getElementById('nav-btn-home').onclick = () => app.showScreen('dashboard');

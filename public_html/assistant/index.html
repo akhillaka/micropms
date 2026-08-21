@@ -901,9 +901,12 @@
   <!-- ID CAMERA CAPTURE SHEET -->
   <div id="camera-popup" class="modal-overlay" onclick="app.closeCameraPopup(event)">
     <div class="modal-content-box" style="margin-top: auto; border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;" onclick="event.stopPropagation()">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
         <strong id="camera-title" style="color: var(--color-text-secondary);">Scan ID Card</strong>
-        <span style="font-size: 1.5rem; cursor: pointer;" onclick="app.closeCameraPopup()">❌</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button type="button" id="camera-flip-btn" class="btn-outline" style="min-height:36px;padding:0 10px;font-size:0.75rem;font-weight:800;" onclick="app.flipLegacyCamera()">Use front</button>
+          <span style="font-size: 1.5rem; cursor: pointer;" onclick="app.closeCameraPopup()">❌</span>
+        </div>
       </div>
       
       <!-- Video stream -->
@@ -1388,8 +1391,9 @@
 
   <script src="/js/api-client.js?v=1"></script>
   <script src="/js/staff-alert-sound.js?v=3"></script>
-  <script src="/js/photo_capture.js?v=1"></script>
-  <script src="js/app.js?v=9"></script>
+  <script src="/js/photo_capture.js?v=2"></script>
+  <script src="/js/pull-to-refresh.js?v=1"></script>
+  <script src="js/app.js?v=10"></script>
 
   <!-- FIRST-LAUNCH TUTORIAL OVERLAY -->
   <div id="tutorial-overlay" style="display:none; position:fixed; inset:0; z-index:999; background:rgba(0,0,0,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);">

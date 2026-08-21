@@ -31,13 +31,15 @@ $productFeatures = [
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MicroPMS — Hotel property management</title>
     <meta name="description" content="MicroPMS is hotel software for bookings, folio, guest portal, and a phone assistant. Plans from SaaS config.">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/css/app_theme.css" rel="stylesheet">
+    <link href="/css/mobile-input-zoom.css" rel="stylesheet">
+    <?php include __DIR__ . '/../admin/components/micropms_icons.php'; ?>
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #F8FAFC; color: #0F172A; }
     </style>
@@ -46,8 +48,7 @@ $productFeatures = [
     <header class="border-b border-slate-200 bg-white/90 backdrop-blur sticky top-0 z-20">
         <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
             <a href="/" class="flex items-center gap-2 font-extrabold text-slate-900">
-                <span class="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center"><i class="ph ph-buildings"></i></span>
-                MicroPMS
+                <img src="/icons/logo-wordmark.svg" alt="MicroPMS" class="h-8 w-auto">
             </a>
             <nav class="flex items-center gap-2 sm:gap-3">
                 <a href="<?= htmlspecialchars($saasLoginUrl, ENT_QUOTES, 'UTF-8') ?>" class="hidden sm:inline text-xs font-bold text-slate-500 hover:text-blue-700">Platform login</a>
@@ -121,7 +122,9 @@ $productFeatures = [
     </section>
 
     <footer class="max-w-6xl mx-auto px-4 py-10 text-xs text-slate-400 font-semibold flex flex-wrap gap-4 justify-between">
-        <span>MicroPMS</span>
+        <span class="inline-flex items-center gap-2">
+            <img src="/icons/logo-wordmark.svg" alt="MicroPMS" class="h-5 w-auto">
+        </span>
         <span class="flex gap-4">
             <a class="hover:text-blue-700" href="<?= htmlspecialchars($loginUrl, ENT_QUOTES, 'UTF-8') ?>">Staff login</a>
             <a class="hover:text-blue-700" href="<?= htmlspecialchars($saasLoginUrl, ENT_QUOTES, 'UTF-8') ?>">Platform login</a>

@@ -1025,14 +1025,14 @@ function closeCropModal() {
 function applyCrop() {
     if (!cropperInstance) return;
     
-    // Get cropped canvas
+    // Keep payload small enough for DB + fast page loads (JPEG, max 512px).
     const canvas = cropperInstance.getCroppedCanvas({
-        maxWidth: 1024,
-        maxHeight: 1024,
-        fillColor: 'transparent',
+        maxWidth: 512,
+        maxHeight: 512,
+        fillColor: '#ffffff',
     });
     
-    const dataUrl = canvas.toDataURL('image/png');
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
     const b64 = dataUrl.split(',')[1] || dataUrl;
     
     document.getElementById('property_logo_base64').value = b64;

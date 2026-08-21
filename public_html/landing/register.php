@@ -49,12 +49,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Request access | MicroPMS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/css/app_theme.css" rel="stylesheet">
+    <link href="/css/mobile-input-zoom.css" rel="stylesheet">
+    <?php include __DIR__ . '/../admin/components/micropms_icons.php'; ?>
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #F8FAFC; color: #0F172A; }
         .input-premium { border: 1px solid #E2E8F0; border-radius: 0.75rem; padding: 0.75rem 0.9rem; width: 100%; font-weight: 600; font-size: 0.875rem; }
@@ -63,7 +65,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body class="min-h-screen py-10 px-4">
     <div class="max-w-lg mx-auto bg-white border border-slate-200 rounded-2xl shadow-sm p-8">
-        <a href="<?= htmlspecialchars($landingUrl, ENT_QUOTES, 'UTF-8') ?>" class="text-xs font-bold text-slate-400 hover:text-blue-700">← Back</a>
+        <a href="<?= htmlspecialchars($landingUrl, ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-2">
+            <img src="/icons/logo-wordmark.svg" alt="MicroPMS" class="h-7 w-auto">
+        </a>
         <h1 class="text-2xl font-extrabold text-slate-900 mt-4">Request access</h1>
         <p class="text-sm text-slate-500 mt-1 font-medium">Tell us about your hotel. We will review the lead in SaaS and create your login when access is granted.</p>
 

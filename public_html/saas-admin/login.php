@@ -88,12 +88,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SaaS Control Panel Login | MicroPMS</title>
     <meta name="description" content="MicroPMS SaaS Super-Admin Control Panel — Authorized Access Only">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <?php include __DIR__ . '/../admin/components/micropms_icons.php'; ?>
     <style>
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
@@ -118,10 +119,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         .brand-icon {
             width: 64px; height: 64px;
-            background: linear-gradient(135deg, #1E3A8A, #1D4ED8);
+            background: #ffffff;
+            border: 1px solid #E2E8F0;
             border-radius: 20px;
             display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 10px 24px -4px rgba(30,58,138,0.40);
+            box-shadow: 0 10px 24px -4px rgba(30,58,138,0.18);
         }
         .input-icon-wrap { position: relative; }
         .input-icon-wrap input { padding-left: 2.75rem !important; border-radius: 0.75rem; border: 1px solid #E2E8F0 !important; background: #fff; font-weight: 500; color: #0F172A; font-family: inherit; padding-top: 0.75rem !important; padding-bottom: 0.75rem !important; width: 100%; transition: all 0.2s; box-shadow: 0 1px 3px rgba(15,23,42,0.04) !important; }
@@ -166,8 +168,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <!-- Header -->
         <div class="flex flex-col items-center mb-8 relative">
-            <div class="brand-icon mb-4">
-                <i class="ph ph-shield-check text-3xl text-white"></i>
+            <div class="brand-icon mb-4 overflow-hidden p-1 bg-white">
+                <img src="/icons/logo.svg" alt="MicroPMS" class="w-full h-full object-contain">
             </div>
             <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">Control Plane</h1>
             <p class="text-slate-500 text-sm mt-1.5 font-medium">MicroPMS SaaS Administration</p>

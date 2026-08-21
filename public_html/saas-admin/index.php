@@ -634,13 +634,14 @@ try {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SaaS Control Panel | MicroPMS</title>
     <?= CsrfToken::meta() ?>
     <meta name="description" content="MicroPMS SaaS Super-Admin — Tenant Management & Platform Controls">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <?php include __DIR__ . '/../admin/components/micropms_icons.php'; ?>
     <script>
         tailwind.config = {
             theme: {
@@ -797,8 +798,8 @@ try {
         <!-- Top Header Bar -->
         <header class="bg-white border border-slate-200 rounded-2xl px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 shadow-sm">
             <div class="flex items-center gap-4">
-                <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-700 to-blue-900 flex items-center justify-center shadow-md flex-shrink-0">
-                    <i class="ph ph-shield-check text-xl text-white"></i>
+                <div class="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shadow-md flex-shrink-0 overflow-hidden p-0.5">
+                    <img src="/icons/logo.svg" alt="MicroPMS" class="w-full h-full object-contain">
                 </div>
                 <div>
                     <h1 class="text-lg font-extrabold text-slate-900 tracking-tight leading-tight">SaaS Control Panel</h1>

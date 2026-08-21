@@ -1,0 +1,29 @@
+/**
+ * Stop iOS Safari / Chrome from auto-zooming when focusing form fields.
+ * iOS zooms when the computed font-size of an input is below 16px.
+ * Padding and layout are unchanged; only font-size is raised on small screens.
+ */
+html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
+body {
+    touch-action: manipulation;
+}
+
+input,
+textarea,
+select,
+button,
+[contenteditable="true"] {
+    touch-action: manipulation;
+}
+
+@media screen and (max-width: 1024px) {
+    input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="image"]):not([type="button"]):not([type="submit"]):not([type="reset"]),
+    textarea,
+    select {
+        font-size: 16px !important;
+    }
+}

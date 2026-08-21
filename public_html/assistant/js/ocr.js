@@ -27,6 +27,16 @@ class OcrController {
 
     this.isInitializing = true;
     try {
+      if (typeof Tesseract === 'undefined') {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.0.3/dist/tesseract.min.js';
+          s.async = true;
+          s.onload = resolve;
+          s.onerror = () => reject(new Error('Failed to load OCR engine'));
+          document.head.appendChild(s);
+        });
+      }
       this.worker = await Tesseract.createWorker('eng+hin+tel');
       this.isInitializing = false;
       return this.worker;

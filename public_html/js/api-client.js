@@ -322,14 +322,25 @@
     delete fetchOpts.queueLabel;
     delete fetchOpts.clientId;
     delete fetchOpts.toast;
+    delete fetchOpts.timeoutMs;
+
+    const timeoutMs = options.timeoutMs != null ? options.timeoutMs : 30000;
 
     let lastErr = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      let timeoutId = null;
       try {
         if (!navigator.onLine && options.queueOffline && method !== 'GET') {
           throw new ApiError('No internet connection.', { status: 0, code: 'OFFLINE', retryable: true });
         }
-        const res = await fetch(url, fetchOpts);
+        const reqOpts = Object.assign({}, fetchOpts);
+        if (controller) {
+          reqOpts.signal = controller.signal;
+          timeoutId = setTimeout(function () { controller.abort(); }, timeoutMs);
+        }
+        const res = await fetch(url, reqOpts);
+        if (timeoutId) clearTimeout(timeoutId);
         const data = await parseJsonSafe(res);
         if (!res.ok) {
           const errInfo = (data && data.error) || {};
@@ -349,6 +360,20 @@
         }
         return data;
       } catch (e) {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (e && e.name === 'AbortError') {
+          lastErr = new ApiError('Request timed out. The server may be busy — try again.', {
+            status: 0,
+            code: 'TIMEOUT',
+            retryable: true
+          });
+          if (shouldRetry(attempt, maxRetries, lastErr, method)) {
+            await sleep(500 * (attempt + 1));
+            continue;
+          }
+          if (options.toast !== false) toastFromError(lastErr);
+          throw lastErr;
+        }
         if (e instanceof ApiError && !e.retryable && e.status) throw e;
         lastErr = e instanceof ApiError ? e : new ApiError(e.message || 'Network error', {
           status: 0,

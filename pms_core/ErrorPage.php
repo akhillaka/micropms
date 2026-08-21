@@ -16,10 +16,11 @@ function render_error_page(string $title, string $message, int $code = 400): voi
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <title><?= htmlspecialchars($title) ?> | MicroPMS</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+        <link href="/css/mobile-input-zoom.css" rel="stylesheet">
         <script src="https://unpkg.com/@phosphor-icons/web"></script>
         <style>
             body { font-family: 'Inter', sans-serif; }

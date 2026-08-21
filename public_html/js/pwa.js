@@ -1,10 +1,13 @@
 (function () {
-  if (!('serviceWorker' in navigator)) return;
-
-  navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+  if (!('serviceWorker' in navigator)) {
+    // Still allow pull-to-refresh without SW support
+  } else {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+  }
 
   async function subscribePush() {
     if (!window.PMS_STAFF_PUSH) return;
+    if (!('serviceWorker' in navigator)) return;
     if (!('PushManager' in window) || !('Notification' in window)) return;
     try {
       const vapidRes = await fetch('/api/admin/push_subscribe', { credentials: 'same-origin' });
@@ -46,9 +49,27 @@
     return output;
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', subscribePush);
-  } else {
+  function enablePullToRefresh() {
+    if (!window.PullToRefresh) return;
+    window.PullToRefresh.attach({
+      getScrollEl: () => document.scrollingElement || document.documentElement,
+      isBlocked: () => !!(
+        document.querySelector('.modal-overlay.active, [role="dialog"]:not([hidden]), #pc-overlay.pc-open, #night-audit-action-center')
+      ),
+      onRefresh: async () => {
+        location.reload();
+      }
+    });
+  }
+
+  function boot() {
     subscribePush();
+    enablePullToRefresh();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
   }
 })();

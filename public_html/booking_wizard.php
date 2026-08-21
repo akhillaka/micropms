@@ -70,11 +70,13 @@ function renderTimeOptions(string $selectedVal = ''): string {
     <?= CsrfToken::meta() ?>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MicroPMS Booking</title>
+    <?php include __DIR__ . '/admin/components/micropms_icons.php'; ?>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="js/api-client.js"></script>
     <script src="js/ui.js"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="/css/mobile-input-zoom.css" rel="stylesheet">
     <script>
         tailwind.config = {
             theme: {
@@ -153,9 +155,7 @@ function renderTimeOptions(string $selectedVal = ''): string {
     <!-- Header -->
     <header class="bg-white px-6 py-4 flex items-center justify-between border-b border-slate-100 sticky top-0 z-50 shadow-sm">
         <div class="flex items-center gap-3">
-            <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-indigo-100">
-                <i class="ph ph-buildings text-lg"></i>
-            </div>
+            <img src="/icons/logo.svg" alt="MicroPMS" class="micropms-header-mark w-10 h-10 rounded-xl object-contain bg-white border border-slate-200" width="40" height="40">
             <div>
                 <h1 class="text-base font-bold text-slate-800 tracking-tight leading-none font-display">MicroPMS</h1>
                 <span class="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5 inline-block">Booking Portal</span>

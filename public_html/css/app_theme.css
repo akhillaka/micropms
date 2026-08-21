@@ -1,4 +1,6 @@
 /* Shared light theme — readable contrast on white/slate */
+@import url('/css/mobile-input-zoom.css');
+
 :root {
     --bg-color: #F8FAFC;
     --surface-card: #FFFFFF;
